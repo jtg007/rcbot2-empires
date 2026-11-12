@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+"""Run one bot match on the isolated test server and summarize it.
+
+Drives the server console through a PTY (srcds reads stdin), so no RCON setup
+is needed. `--summarize RUN_DIR SESSION_DIR` re-runs only the evaluation.
+"""
+import argparse
+import collections
+import glob
+import json
+import math
+import os
+import pty
+import re
+import signal
+import subprocess
+import sys
+import termios
+import threading
+import time
+
+SERVER_PORT = "49925"
+CLASSES = (1, 0, 2, 3)  # rifleman, scout, grenadier, engineer
+TEAMS = ((2, "NF"), (3, "BE"))
+ADD_BOT_GAP_S = 6.0
+HANG_MIN_S = 20.0
+HANG_RADIUS = 100.0
+CRASH_RE = re.compile(
+    r"segmentation fault|core dumped|double free|signal 11|\baborted\b|corrupted (size|double)|"
+    r"malloc\(\)|free\(\): |watchdog|host_error", re.I)
+NO_RECORDER = bool(os.environ.get("DEV_NO_RECORDER"))
+# Fast iteration (all optional):
+#   DEV_TIMESCALE=4      host_timescale; minutes and waits count game time
+#   DEV_ROSTER="2:1 2:3" team:class per bot instead of the alternating default
+#   DEV_CMDS="cmd;wait 5;waitfor 120 some regex;cmd"   waitfor = up to 120 game seconds
+#   DEV_UNTIL="regex"    end the run as soon as a log line matches
+#   DEV_SHOW="regex"     print matching log lines at the end (repeats collapsed)
+TIMESCALE = max(float(os.environ.get("DEV_TIMESCALE", "1")), 0.1)
+ROSTER = os.environ.get("DEV_ROSTER", "").split()
+UNTIL = os.environ.get("DEV_UNTIL")
+# One game minute after the bots are in, check that the run is worth waiting for
+# (runs with 6+ bots; DEV_NO_CHECK=1 skips it).
+CHECK_AFTER_S = 60.0
+CHECK_MIN_BOTS = 6
+NO_CHECK = bool(os.environ.get("DEV_NO_CHECK"))
+SHOW = os.environ.get("DEV_SHOW")
+# DEV_MANUAL=1: a person watches. SourceTV records a demo into the run folder,
+# no health check, the run ends only after that person disconnected
+# (waits DEV_MANUAL_JOIN_MIN minutes for the join, at most DEV_MANUAL_MAX_MIN in total).
+MANUAL = os.environ.get("DEV_MANUAL") == "1"
+MANUAL_JOIN_MIN = float(os.environ.get("DEV_MANUAL_JOIN_MIN", "30"))
+MANUAL_MAX_MIN = float(os.environ.get("DEV_MANUAL_MAX_MIN", "240"))
+HUMAN_CONNECT_RE = re.compile(r'"(.+?)<(\d+)><((?!BOT>|HLTV>)[^>]*)><[^>]*>" connected, address')
+DUMP_DIR = "/tmp/dumps"
+
+
+class Server:
+    def __init__(self, args, log_path):
+        master, slave = pty.openpty()
+        attrs = termios.tcgetattr(slave)
+        attrs[3] &= ~termios.ECHO
+        termios.tcsetattr(slave, termios.TCSANOW, attrs)
+        self.master = master
+        self.lines = []
+        self.lock = threading.Lock()
+        source_tv = os.environ.get("DEV_SOURCETV") == "1" or MANUAL
+        self.source_tv = source_tv
+        self.proc = subprocess.Popen(
+            ["./srcds_run", "-norestart", "-console", "-condebug", "-game", "empires",
+             "-insecure", "-nomaster", *([] if source_tv else ["-nohltv"]), "-nojoy",
+             "-ip", args.ip, "-port", SERVER_PORT,
+             "+sv_lan", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
+            cwd=args.server_root, env=dict(os.environ, SteamAppId="17740", SteamGameId="17740"),
+            stdin=slave, stdout=slave, stderr=slave, start_new_session=True, close_fds=True)
+        os.close(slave)
+        self.log = open(log_path, "w", errors="replace")
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self):
+        buffer = b""
+        while True:
+            try:
+                chunk = os.read(self.master, 65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buffer += chunk
+            *complete, buffer = buffer.split(b"\n")
+            for raw in complete:
+                line = raw.decode("utf-8", "replace").rstrip("\r")
+                self.log.write(line + "\n")
+                with self.lock:
+                    self.lines.append(line)
+            self.log.flush()
+
+    def send(self, command):
+        os.write(self.master, (command + "\n").encode())
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def mark(self):
+        with self.lock:
+            return len(self.lines)
+
+    def find(self, pattern, start=0):
+        regex = re.compile(pattern)
+        with self.lock:
+            for line in self.lines[start:]:
+                match = regex.search(line)
+                if match:
+                    return match
+        return None
+
+    def wait_for(self, pattern, timeout, start=0, resend=None):
+        deadline = time.monotonic() + timeout
+        next_send = 0.0
+        while time.monotonic() < deadline and self.alive():
+            match = self.find(pattern, start)
+            if match:
+                return match
+            if resend and time.monotonic() >= next_send:
+                self.send(resend)
+                next_send = time.monotonic() + 2.0
+            time.sleep(0.2)
+        return self.find(pattern, start)
+
+
+def shutdown(server):
+    server.send("quit")
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and server.alive():
+        time.sleep(0.5)
+    if server.alive():
+        os.killpg(server.proc.pid, signal.SIGTERM)
+        try:
+            server.proc.wait(15)
+        except subprocess.TimeoutExpired:
+            os.killpg(server.proc.pid, signal.SIGKILL)
+
+
+def show_lines(lines, pattern):
+    regex = re.compile(pattern)
+    previous, repeats = None, 0
+
+    def flush():
+        if previous is not None:
+            print(previous[:400] + (f"   (x{repeats})" if repeats > 1 else ""))
+
+    for line in lines:
+        if not regex.search(line):
+            continue
+        line = re.sub(r"\x1b\[[0-9;]*m", "", line)
+        if line == previous:
+            repeats += 1
+            continue
+        flush()
+        previous, repeats = line, 1
+    flush()
+
+
+def health_check(server, args, session_dir):
+    """Returns (problems, facts). Problems mean the run is not worth finishing."""
+    problems, facts = [], []
+    if not server.alive():
+        return ["Server beendet"], facts
+    with server.lock:
+        lines = list(server.lines)
+    crash = [line for line in lines if CRASH_RE.search(line)]
+    if crash:
+        problems.append("crash pattern in log: " + crash[0].strip()[:100])
+    if os.path.exists(os.path.join(args.server_root, "empires", "maps", args.map + ".nav")):
+        nav = [line for line in lines if "NavMesh load result=" in line]
+        if not nav:
+            problems.append("navmesh not loaded")
+        elif "result=0" not in nav[-1]:
+            problems.append("navmesh load error: " + nav[-1].strip()[:100])
+    if not session_dir:
+        return problems, facts
+
+    snapshots = load_jsonl(os.path.join(session_dir, "snapshots.jsonl"))
+    events = load_jsonl(os.path.join(session_dir, "events.jsonl"))
+    if not snapshots:
+        problems.append("recorder writes no snapshots")
+        return problems, facts
+    now = max(sample["session_time"] for sample in snapshots)
+    window = collections.defaultdict(list)
+    for sample in snapshots:
+        if sample["session_time"] >= now - 45.0:
+            window[sample["bot_id"]].append(sample)
+    alive = [bot for bot, samples in window.items() if any(s.get("alive") for s in samples)]
+    moved = 0
+    for bot in alive:
+        points = [s["position"] for s in window[bot] if s.get("alive")]
+        walked = sum(math.dist(a[:2], b[:2]) for a, b in zip(points, points[1:]) if math.dist(a[:2], b[:2]) < 2000)
+        moved += walked > 150.0
+    counts = collections.Counter(event.get("event") for event in events)
+    requests, failures = counts["PATH_REQUEST"], counts["PATH_FAILURE"]
+    facts.append(f"alive {len(alive)}/{args.bots}, moving {moved}/{max(len(alive), 1)}, "
+                 f"path requests {requests}, path failures {failures}")
+    if len(alive) < max(1, int(args.bots * 0.7)):
+        problems.append(f"only {len(alive)} of {args.bots} bots alive")
+    elif moved < max(1, int(len(alive) * 0.4)):
+        problems.append(f"only {moved} of {len(alive)} living bots are moving")
+    if requests >= 10 and failures > 0.7 * requests:
+        problems.append(f"{failures} of {requests} path requests fail")
+    return problems, facts
+
+
+def wait_for_human(server, args, demos):
+    """Manual run: wait for a real player, then until that player disconnects.
+    A new map (round end) stops the SourceTV demo: record the next one."""
+    print(f"Waiting for a player (up to {MANUAL_JOIN_MIN:g} min): connect <server-ip>:{SERVER_PORT}", flush=True)
+    end = time.monotonic() + MANUAL_MAX_MIN * 60
+    match = server.wait_for(HUMAN_CONNECT_RE.pattern, MANUAL_JOIN_MIN * 60)
+    if not match:
+        print("No player connected, run ends.", flush=True)
+        return
+    name, userid, steam = match.group(1), match.group(2), match.group(3)
+    print(f"Player connected: {name} (userid {userid}). Server runs until they disconnect.", flush=True)
+    gone = re.escape(f"<{userid}><{steam}>") + r'<[^>]*>" disconnected'
+    map_mark = server.mark()
+    while server.alive() and time.monotonic() < end:
+        if server.find(gone):
+            print(f"Player {name} disconnected, run ends.", flush=True)
+            return
+        started = server.find(r'Started map "([^"]+)"', map_mark)
+        if started and demos:
+            map_mark = server.mark()
+            print(f"New map: {started.group(1)}", flush=True)
+            if server.wait_for(r"SourceTV broadcast active", 120, map_mark):
+                demo = f"{demos[0]}-{len(demos) + 1}"
+                server.send("tv_record " + demo)
+                demos.append(demo)
+        time.sleep(1.0)
+    if server.alive():
+        print(f"Maximum duration {MANUAL_MAX_MIN:g} min reached, run ends.", flush=True)
+
+
+def stop_demo(server, args, demos):
+    mark = server.mark()
+    server.send("tv_stoprecord")
+    server.wait_for(r"Completed SourceTV demo", 30, mark)
+    for demo in demos:
+        path = os.path.join(args.server_root, "empires", demo + ".dem")
+        if os.path.exists(path):
+            target = os.path.join(args.run_dir, demo + ".dem")
+            os.replace(path, target)
+            print(f"Demo: {target}", flush=True)
+
+
+def dump_files():
+    return set(glob.glob(os.path.join(DUMP_DIR, "*")))
+
+
+def run_match(args):
+    dumps_before = dump_files()
+    server = Server(args, os.path.join(args.run_dir, "server.log"))
+    crash_note = None
+    session_dir = None
+    try:
+        if not server.wait_for(r"^DEVSH_READY\s*$", 300, resend="echo DEVSH_READY"):
+            raise SystemExit("Server did not become ready, see server.log")
+        mark = server.mark()
+        server.send("meta list")
+        if not server.wait_for(r"RCBot2", 15, mark):
+            raise SystemExit("RCBot2 not loaded, see server.log")
+
+        server.send("rcbotd config min_bots -1")
+        server.send("rcbotd config max_bots -1")
+        if not NO_RECORDER:
+            mark = server.mark()
+            server.send("rcbot_analysis_start")
+            match = server.wait_for(r"path=(analysis/session-\S+)", 20, mark)
+            if not match:
+                raise SystemExit("Recorder start not confirmed, see server.log")
+            session_dir = os.path.join(args.server_root, "empires", match.group(1))
+            print(f"Recorder: {session_dir}", flush=True)
+
+        demos = []
+        if MANUAL:
+            mark = server.mark()
+            demo = "manual-" + os.path.basename(args.run_dir.rstrip("/"))[:15]
+            server.send("tv_record " + demo)
+            if server.wait_for(r"Recording SourceTV demo", 20, mark):
+                demos.append(demo)
+            else:
+                print("WARNING: SourceTV recording not confirmed", flush=True)
+
+        started = time.monotonic()
+        if TIMESCALE != 1.0:
+            server.send("sv_cheats 1")
+            server.send(f"host_timescale {TIMESCALE:g}")
+        if ROSTER:
+            roster = [(int(team), int(cls)) for team, cls in (item.split(":") for item in ROSTER)]
+        else:
+            roster = [(TEAMS[i % 2][0], CLASSES[(i // 2) % len(CLASSES)]) for i in range(args.bots)]
+        names = dict(TEAMS)
+        # Mark before DEV_PRE/bots: waitfor in DEV_CMDS also sees lines logged
+        # while the bots join (e.g. a Commander placing its first building).
+        mark = server.mark()
+        # DEV_PRE: console commands before the bots join (e.g. "rcbot_empires_auto_commander 0").
+        for command in filter(None, (c.strip() for c in os.environ.get("DEV_PRE", "").split(";"))):
+            server.send(command)
+        for index, (team, bot_class) in enumerate(roster):
+            server.send(f"rcbotd addbot {bot_class} {team} {names[team]}_{index // 2 + 1:02d}")
+            time.sleep(max(ADD_BOT_GAP_S / TIMESCALE, 2.0))
+
+        def stamp(text):
+            print(f"  +{(time.monotonic() - started) * TIMESCALE:6.1f}s game time  {text}", flush=True)
+
+        deadline = time.monotonic() + args.minutes * 60 / TIMESCALE
+        aborted = False
+        for item in filter(None, (part.strip() for part in os.environ.get("DEV_CMDS", "").split(";"))):
+            if not server.alive():
+                break
+            if item.startswith("waitfor "):
+                _, seconds, pattern = item.split(None, 2)
+                match = server.wait_for(pattern, float(seconds) / TIMESCALE, mark)
+                stamp(("found: " if match else "NOT found: ") + pattern)
+                if not match:
+                    aborted = True
+                    break
+            elif item.startswith("wait "):
+                time.sleep(float(item.split()[1]) / TIMESCALE)
+            else:
+                server.send(item)
+                stamp(item)
+
+        if MANUAL:
+            wait_for_human(server, args, demos)
+            aborted = True  # skip the timed loop below
+        else:
+            print(f"Bots added, running for up to {args.minutes} game minutes ...", flush=True)
+        check_at = None if MANUAL or NO_CHECK or args.bots < CHECK_MIN_BOTS else time.monotonic() + CHECK_AFTER_S / TIMESCALE
+        while not aborted and time.monotonic() < deadline and server.alive():
+            if check_at is not None and time.monotonic() >= check_at:
+                check_at = None
+                problems, facts = health_check(server, args, session_dir)
+                if problems:
+                    print("Health check after 60 s: ABORTED: " + "; ".join(problems), flush=True)
+                    break
+                print("Health check after 60 s: OK (" + "; ".join(facts) + ")", flush=True)
+            if UNTIL and server.find(UNTIL, mark):
+                stamp("Ende: " + UNTIL)
+                break
+            time.sleep(0.5)
+        if demos and server.alive():
+            stop_demo(server, args, demos)
+        if not server.alive():
+            crash_note = f"Server endete vorzeitig (Exit {server.proc.returncode})"
+        elif session_dir:
+            server.send("rcbot_analysis_stop")
+            summary = os.path.join(session_dir, "summary.json")
+            end = time.monotonic() + 60
+            while time.monotonic() < end and server.alive() and not os.path.exists(summary):
+                time.sleep(0.5)
+            time.sleep(1)
+    finally:
+        if server.alive():
+            shutdown(server)
+    server.log.close()
+    if SHOW:
+        show_lines(server.lines, SHOW)
+
+    crash_lines = []
+    with open(os.path.join(args.run_dir, "server.log"), errors="replace") as log:
+        for number, line in enumerate(log, 1):
+            if CRASH_RE.search(line):
+                crash_lines.append(f"{number}: {line.strip()[:160]}")
+    new_dumps = sorted(dump_files() - dumps_before)
+    return session_dir, crash_note, crash_lines, new_dumps
+
+
+def load_jsonl(path):
+    if not os.path.exists(path):
+        return []
+    records = []
+    with open(path, errors="replace") as handle:
+        for line in handle:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return records
+
+
+def hangs_for(samples):
+    """Episodes of ≥HANG_MIN_S alive, within HANG_RADIUS, with no enemy targeted."""
+    hangs = []
+    anchor = None
+
+    def close(end_time):
+        nonlocal anchor
+        if anchor and end_time - anchor["start"] >= HANG_MIN_S:
+            wanted = anchor["wants"] / max(anchor["count"], 1) >= 0.5  # had a task, so it meant to act
+            hangs.append({"seconds": end_time - anchor["start"], "wanted": wanted,
+                          "position": anchor["pos"], "task": anchor["task"]})
+        anchor = None
+
+    for sample in samples:
+        now = sample["session_time"]
+        if not sample.get("alive") or sample.get("enemy_index", -1) >= 0:
+            close(now)
+            continue
+        pos = sample["position"]
+        if anchor is None:
+            anchor = {"start": now, "pos": pos, "count": 0, "wants": 0, "task": sample.get("task", "")}
+        elif math.dist(pos, anchor["pos"]) > HANG_RADIUS:
+            close(now)
+            anchor = {"start": now, "pos": pos, "count": 0, "wants": 0, "task": sample.get("task", "")}
+        anchor["count"] += 1
+        anchor["wants"] += 1 if sample.get("task") else 0
+    if samples:
+        close(samples[-1]["session_time"])
+    return hangs
+
+
+def summarize(session_dir, run_dir, crash_note=None, crash_lines=(), new_dumps=()):
+    snapshots = load_jsonl(os.path.join(session_dir, "snapshots.jsonl"))
+    events = load_jsonl(os.path.join(session_dir, "events.jsonl"))
+
+    bots = collections.defaultdict(lambda: {
+        "name": "?", "team": "?", "class": "?", "samples": [], "stuck": 0,
+        "kills": 0, "suicides": 0, "teamkills": 0, "deaths": 0, "path_fail": 0})
+    for sample in snapshots:
+        bot = bots[sample["bot_id"]]
+        bot["samples"].append(sample)
+        bot["name"] = sample.get("name", bot["name"])
+        if sample.get("team_name") not in (None, "unknown"):
+            bot["team"] = sample["team_name"]
+        bot["class"] = sample.get("class", bot["class"])
+
+    counts = collections.Counter(event.get("event") for event in events)
+    capture_points = set()
+    providers = collections.Counter()
+    for event in events:
+        kind = event.get("event")
+        if kind == "CAPTURE_POINT_STATE":
+            capture_points.add(json.dumps(event.get("data", {}).get("entity_index", event.get("entity_index"))))
+        if kind == "NAV_PROVIDER_SELECT":
+            provider = re.search(r"provider=(\w+)", str((event.get("data") or {}).get("detail")))
+            if provider:
+                providers[provider.group(1)] += 1
+        bot_id = event.get("bot_id")
+        if bot_id is None:
+            continue
+        bot = bots[bot_id]
+        if kind == "STUCK_DETECTED":
+            bot["stuck"] += 1
+        elif kind == "BOT_DEATH":
+            bot["deaths"] += 1
+        elif kind == "PATH_FAILURE":
+            bot["path_fail"] += 1
+        elif kind == "KILL":
+            data = event.get("data") or {}
+            target_team = (data.get("target") or {}).get("team")
+            if data.get("detail") == "suicide":
+                bot["suicides"] += 1
+            elif target_team is not None and target_team == event.get("team") and target_team != 0:
+                bot["teamkills"] += 1
+            else:
+                bot["kills"] += 1
+
+    out = []
+    header = (f'{"Bot":<9}{"Team":<5}{"Class":<11}{"alive s":>7}{"moved":>8}{"STUCK":>7}'
+              f'{"Stuck":>8}{"Stuck s":>10}{"Idle s":>10}{"Kills":>7}{"Deaths":>7}{"Suic.":>6}{"TK":>4}')
+    out.append(header)
+    out.append("-" * len(header))
+    totals = collections.Counter()
+    worst = []
+    for bot_id in sorted(bots):
+        bot = bots[bot_id]
+        samples = bot["samples"]
+        if not samples and not (bot["kills"] or bot["deaths"] or bot["stuck"]):
+            continue
+        alive_time = 0.0
+        travelled = 0.0
+        for prev, cur in zip(samples, samples[1:]):
+            if prev.get("alive") and cur.get("alive"):
+                delta_t = cur["session_time"] - prev["session_time"]
+                step = math.dist(prev["position"][:2], cur["position"][:2])
+                if delta_t < 10:
+                    alive_time += delta_t
+                if step < 2000:
+                    travelled += step
+        hangs = hangs_for(samples)
+        wanted = [h for h in hangs if h["wanted"]]
+        hang_s = sum(h["seconds"] for h in wanted)
+        idle_s = sum(h["seconds"] for h in hangs if not h["wanted"])
+        for hang in wanted:
+            worst.append((hang["seconds"], f"#{bot_id}", hang["position"], hang["task"]))
+        out.append(f'{"#" + str(bot_id):<9}{bot["team"]:<5}{bot["class"][:10]:<11}{alive_time:>7.0f}{travelled:>8.0f}'
+                   f'{bot["stuck"]:>7}{len(wanted):>8}{hang_s:>10.0f}{idle_s:>10.0f}'
+                   f'{bot["kills"]:>7}{bot["deaths"]:>7}{bot["suicides"]:>6}{bot["teamkills"]:>4}')
+        totals.update(alive=alive_time, travelled=travelled, stuck=bot["stuck"], hangs=len(wanted),
+                      hang_s=hang_s, idle_s=idle_s, kills=bot["kills"], deaths=bot["deaths"],
+                      suicides=bot["suicides"], teamkills=bot["teamkills"], path_fail=bot["path_fail"])
+    out.append("-" * len(header))
+    out.append(f'{"TOTAL":<25}{totals["alive"]:>7.0f}{totals["travelled"]:>8.0f}{totals["stuck"]:>7}'
+               f'{totals["hangs"]:>8}{totals["hang_s"]:>10.0f}{totals["idle_s"]:>10.0f}'
+               f'{totals["kills"]:>7}{totals["deaths"]:>7}{totals["suicides"]:>6}{totals["teamkills"]:>4}')
+    out.append("")
+
+    share = 100.0 * totals["hang_s"] / totals["alive"] if totals["alive"] else 0.0
+    out.append(f"Stuck share of lifetime: {share:.1f} %")
+    out.append(f'Path failures: {totals["path_fail"]}  (requests: {counts["PATH_REQUEST"]}, successes: {counts["PATH_SUCCESS"]})')
+    out.append("Navigator: " + (", ".join(f"{name} {count}" for name, count in providers.most_common()) or "-"))
+    out.append(f'Captures: {counts["CAPTURE_COMPLETED"]}  started: {counts["CAPTURE_STARTED"]}  '
+               f'points in recorder: {len(capture_points)}')
+    if not capture_points:
+        out.append("  Note: the recorder saw no capture points, the map probably has no flags.")
+
+    if worst:
+        out.append("")
+        out.append("Longest stuck periods:")
+        for seconds, name, pos, task in sorted(worst, key=lambda item: -item[0])[:5]:
+            task_name = (task or "").split("\n")[0] or "-"
+            out.append(f'  {seconds:5.0f} s  {name:<9} at ({pos[0]:.0f} {pos[1]:.0f} {pos[2]:.0f})  Task: {task_name}')
+
+    out.append("")
+    crashed = bool(crash_note or crash_lines or new_dumps)
+    out.append(f'Crashes: {"YES" if crashed else "none"}')
+    if crash_note:
+        out.append(f"  {crash_note}")
+    for line in list(crash_lines)[:5]:
+        out.append(f"  server.log {line}")
+    for dump in new_dumps:
+        out.append(f"  Dump: {dump}")
+    out.append(f"Session: {session_dir}")
+
+    text = "\n".join(out)
+    print(text)
+    with open(os.path.join(run_dir, "summary.txt"), "w") as handle:
+        handle.write(text + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--map")
+    parser.add_argument("--bots", type=int)
+    parser.add_argument("--minutes", type=float)
+    parser.add_argument("--server-root")
+    parser.add_argument("--ip")
+    parser.add_argument("--run-dir")
+    parser.add_argument("--summarize", nargs=2, metavar=("RUN_DIR", "SESSION_DIR"))
+    args = parser.parse_args()
+    if args.summarize:
+        summarize(args.summarize[1], args.summarize[0])
+        return
+    session_dir, crash_note, crash_lines, new_dumps = run_match(args)
+    if not session_dir:
+        print("No recorder. Crashes:", "YES" if crash_note or crash_lines or new_dumps else "none")
+        for detail in ([crash_note] if crash_note else []) + list(crash_lines)[:5] + list(new_dumps):
+            print(" ", detail)
+        return
+    summarize(session_dir, args.run_dir, crash_note, crash_lines, new_dumps)
+
+
+if __name__ == "__main__":
+    main()

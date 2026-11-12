@@ -1,0 +1,248 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
+import os, sys
+
+projectName = 'rcbot'
+
+sourceFiles = [
+  "utils/RCBot2_meta/bot.cpp",
+  "utils/RCBot2_meta/bot_accessclient.cpp",
+  #"utils/RCBot2_meta/bot_black_mesa.cpp",
+  "utils/RCBot2_meta/bot_buttons.cpp",
+  "utils/RCBot2_meta/bot_client.cpp",
+  "utils/RCBot2_meta/bot_commands.cpp",
+  "utils/RCBot2_meta/bot_compress.cpp",
+  "utils/RCBot2_meta/bot_configfile.cpp",
+  "utils/RCBot2_meta/bot_coop.cpp",
+  "utils/RCBot2_meta/bot_css_bot.cpp",
+  "utils/RCBot2_meta/bot_css_buying.cpp",
+  "utils/RCBot2_meta/bot_css_mod.cpp",
+  "utils/RCBot2_meta/bot_dod_bot.cpp",
+  "utils/RCBot2_meta/bot_dod_mod.cpp",
+  "utils/RCBot2_meta/bot_empires.cpp",
+  "utils/RCBot2_meta/bot_empires_native_placement.cpp",
+  "utils/RCBot2_meta/bot_empires_spatial.cpp",
+  "utils/RCBot2_meta/bot_empires_barracks_execution.cpp",
+  "utils/RCBot2_meta/bot_empires_commander_economy.cpp",
+  "utils/RCBot2_meta/bot_empires_squad_runtime.cpp",
+  "utils/RCBot2_meta/bot_empires_telemetry.cpp",
+  "utils/RCBot2_meta/bot_local_conflict_observation.cpp",
+  "utils/RCBot2_meta/bot_local_yielding.cpp",
+  "utils/RCBot2_meta/bot_empires_engineer.cpp",
+  "utils/RCBot2_meta/bot_empires_grenadier.cpp",
+  "utils/RCBot2_meta/bot_empires_objective.cpp",
+  "utils/RCBot2_meta/bot_empires_vehicle.cpp",
+  "utils/RCBot2_meta/bot_empires_revive.cpp",
+  "utils/RCBot2_meta/bot_empires_turret_build.cpp",
+  "utils/RCBot2_meta/bot_events.cpp",
+  "utils/RCBot2_meta/bot_fortress.cpp",
+  "utils/RCBot2_meta/bot_ga.cpp",
+  "utils/RCBot2_meta/bot_ga_ind.cpp",
+  "utils/RCBot2_meta/bot_getprop.cpp",
+  "utils/RCBot2_meta/bot_globals.cpp",
+  "utils/RCBot2_meta/bot_hl1dmsrc.cpp",
+  "utils/RCBot2_meta/bot_hldm_bot.cpp",
+  "utils/RCBot2_meta/bot_kv.cpp",
+  "utils/RCBot2_meta/bot_menu.cpp",
+  "utils/RCBot2_meta/bot_mods.cpp",
+  "utils/RCBot2_meta/bot_mtrand.cpp",
+  "utils/RCBot2_meta/bot_navigation_attempt.cpp",
+  "utils/RCBot2_meta/bot_navigation_arbitration.cpp",
+  "utils/RCBot2_meta/bot_decision_core.cpp",
+  "utils/RCBot2_meta/bot_order_protocol.cpp",
+  "utils/RCBot2_meta/bot_order_protocol_telemetry.cpp",
+  "utils/RCBot2_meta/bot_empires_commander_order_adapter.cpp",
+  "utils/RCBot2_meta/bot_squad_order_recipient.cpp",
+  "utils/RCBot2_meta/bot_squad_decision.cpp",
+  "utils/RCBot2_meta/bot_squad_claims.cpp",
+  "utils/RCBot2_meta/bot_squad_spatial.cpp",
+  "utils/RCBot2_meta/bot_squad_spatial_movement.cpp",
+  "utils/RCBot2_meta/bot_local_explorer.cpp",
+  #"utils/RCBot2_meta/bot_navmesh.cpp",
+  "utils/RCBot2_meta/bot_navmesh_poc.cpp",
+  "utils/RCBot2_meta/bot_navmesh_poc_bot.cpp",
+  "utils/RCBot2_meta/bot_navmesh_api.cpp",
+  "utils/RCBot2_meta/bot_navmesh_provider.cpp",
+  "utils/RCBot2_meta/bot_navmesh_follower.cpp",
+  "utils/RCBot2_meta/bot_perceptron.cpp",
+  "utils/RCBot2_meta/bot_profile.cpp",
+  "utils/RCBot2_meta/bot_profiling.cpp",
+  "utils/RCBot2_meta/bot_schedule.cpp",
+  "utils/RCBot2_meta/bot_tf2_points.cpp",
+  "utils/RCBot2_meta/bot_som.cpp",
+  "utils/RCBot2_meta/bot_squads.cpp",
+  "utils/RCBot2_meta/bot_strings.cpp",
+  "utils/RCBot2_meta/bot_synergy.cpp",
+  "utils/RCBot2_meta/bot_synergy_mod.cpp",
+  "utils/RCBot2_meta/bot_task.cpp",
+  "utils/RCBot2_meta/bot_tf2_mod.cpp",
+  "utils/RCBot2_meta/bot_utility.cpp",
+  "utils/RCBot2_meta/bot_visibles.cpp",
+  "utils/RCBot2_meta/bot_waypoint.cpp",
+  "utils/RCBot2_meta/bot_waypoint_locations.cpp",
+  "utils/RCBot2_meta/bot_waypoint_visibility.cpp",
+  "utils/RCBot2_meta/bot_weapons.cpp",
+  "utils/RCBot2_meta/bot_wpt_dist.cpp",
+  "utils/RCBot2_meta/bot_zombie.cpp",
+  "utils/RCBot2_meta/bot_sigscan.cpp",
+  "utils/RCBot2_meta/bot_cvars.cpp",
+  "utils/RCBot2_meta/bot_plugin_meta.cpp",
+
+  "rcbot/logging.cpp",
+  "rcbot/helper.cpp",
+  "rcbot/entprops.cpp",
+  "rcbot/propvar.cpp",
+  "rcbot/math_fix.cpp",
+  "rcbot/utils.cpp",
+  "rcbot/tf2/conditions.cpp",
+
+  "miniz/miniz_all.cpp",
+]
+
+include_paths = [
+  os.path.join(builder.currentSourcePath, 'compat'), # Compatibility Wrapper added for debug builds - [APG]RoboCop[CL]
+  os.path.join(builder.currentSourcePath, 'utils', 'RCBot2_meta'),
+  os.path.join(builder.currentSourcePath, 'miniz'), # For compressing auxillery data (.rcv, rcd, rcb)
+  os.path.join(builder.currentSourcePath, 'utils', 'RCBot2_meta', 'navmesh'),
+]
+
+sourceFiles += [
+  os.path.join(builder.currentSourcePath, 'utils', 'RCBot2_meta', 'navmesh', 'nav_mesh', filename)
+  for filename in [
+    'nav_area.cpp', 'nav_colors.cpp', 'nav_edit.cpp', 'nav_entities.cpp',
+    'nav_file.cpp', 'nav_generate.cpp', 'nav_ladder.cpp', 'nav_merge.cpp',
+    'nav_mesh.cpp', 'nav_node.cpp', 'nav_simplify.cpp',
+  ]
+]
+
+sourceFiles += [
+  os.path.join(builder.currentSourcePath, 'utils', 'RCBot2_meta', 'navmesh', 'util', filename)
+  for filename in [
+    'BaseEntity.cpp', 'EntityUtils.cpp', 'Handle.cpp', 'SimpleException.cpp',
+    'UtilTrace.cpp', 'common_util.cpp',
+  ]
+]
+
+compiler_defines = []
+
+# Build with SourceMod extension support if --sm-path was specified
+if builder.options.sm_path:
+  # Validate required SourceMod directories exist
+  required_sm_dirs = [
+    os.path.join(builder.options.sm_path, 'sourcepawn', 'include'),
+    os.path.join(builder.options.sm_path, 'public'),
+  ]
+  
+  for sm_dir in required_sm_dirs:
+    if not os.path.isdir(sm_dir):
+      raise Exception("Required SourceMod directory '{}' not found. Check your --sm-path setting.".format(sm_dir))
+
+  include_paths += [
+    os.path.join(builder.options.sm_path, 'sourcepawn', 'include'),
+    os.path.join(builder.options.sm_path, 'public', 'amtl'),
+    os.path.join(builder.options.sm_path, 'public', 'amtl', 'amtl'),
+    os.path.join(builder.options.sm_path, 'public', 'extensions'),
+    os.path.join(builder.options.sm_path, 'public'),
+    os.path.join(builder.currentSourcePath, 'sm_ext'),
+  ]
+
+  sourceFiles += [
+    os.path.join(builder.currentSourcePath, 'sm_ext', 'smsdk_config.cpp'),
+    os.path.join(builder.currentSourcePath, 'sm_ext', 'bot_sm_ext.cpp'),
+    os.path.join(builder.currentSourcePath, 'sm_ext', 'bot_sm_natives.cpp'),
+  ]
+  
+  compiler_defines += [ 'SM_EXT', ]
+
+# List of SDK names that require hooks on runcmd
+mods_requiring_runcmd_overrides = [
+  # hack: DOD:S uses `Bot_Think`, which forces all `bot`-spawned entities to use Valve's
+  # default bot AI.  we'll hook into their RunPlayerMove for now, but for consistency across
+  # games it'd be better to supercede `Bot_Think` (or `Bot_RunAll` higher up the call stack)
+  'dods',
+  'sdk2013',
+]
+
+# List of SDK Names that has undefined reference to some math functions
+sdks_requring_extern_math_functions = [
+  'sdk2013',
+  'bms',
+]
+
+# Decouple sourcesdk MAX_PLAYERS from the project - NoSoop
+# https://github.com/nosoop/rcbot2/commit/684f2a28189b4523d067a31b26778632e5e50212
+default_maxplayers = 65
+override_maxplayers = {
+  'tf2': 101,
+  'hl2dm': 101,
+}
+
+###############
+# Make sure to edit PackageScript, which copies your files to their appropriate locations
+# Simple extensions do not need to modify past this point.
+
+# set up the build info
+include_paths += [ 
+  os.path.join(builder.currentSourcePath, 'versioning'),
+  os.path.join(builder.buildPath, 'includes'),
+  ]
+
+sourceFiles += [ os.path.join(builder.currentSourcePath, 'versioning', 'build_info.cpp'), ]
+
+if os.path.isfile(os.path.join(builder.currentSourcePath, 'sdk', 'smsdk_ext.cpp')):
+  # Use the copy included in the project
+  # sourceFiles += [os.path.join('sdk', 'smsdk_ext.cpp')]
+  pass
+else:
+  # Use the copy included with SM 1.6 and newer
+  # sourceFiles += [os.path.join(MMS.sm_root, 'public', 'smsdk_ext.cpp')]
+  pass
+
+for sdk_target in MMS.sdk_targets:
+  sdk = sdk_target.sdk
+  cxx = sdk_target.cxx
+
+  name = projectName + '.' + sdk['extension']
+  sdk_name = sdk['name']
+  binary = MMS.HL2Library(builder, cxx, name, sdk)
+
+  binary.sources += sourceFiles
+
+  cxx = binary.compiler
+
+  # The Valve navmesh sources pull in SDK job/functor headers with legacy
+  # initializer ordering. Keep that vendor warning from becoming an error.
+  if cxx.family in ['gcc', 'clang']:
+    cxx.cflags += [ '-Wno-reorder' ]
+
+  if cxx.family == 'msvc':
+    # suppress macro redefinition of 'offsetof'
+    cxx.cflags += [ '/wd4005' ]
+
+  # Clang: compat must be searched BEFORE the SDK's public/ directory so that
+  # compat/tier1/utlblockmemory.h shadows the SDK header and can apply the
+  # bit-field V_swap fix via #include_next.  For other compilers the duplicate
+  # entry (compat is also in include_paths) is harmless. [APG]RoboCop[CL]
+  if cxx.family == 'clang':
+    cxx.cxxincludes.insert(0, os.path.join(builder.currentSourcePath, 'compat'))
+
+  cxx.cxxincludes += include_paths
+  cxx.defines += compiler_defines
+
+  if sdk_name in mods_requiring_runcmd_overrides:
+    cxx.defines += [ 'OVERRIDE_RUNCMD' ]
+
+  if sdk_name in sdks_requring_extern_math_functions and cxx.target.platform == 'linux':
+    cxx.defines += [ 'MATH_LIB_FIX' ]
+
+  # RCBot:  Library requires exceptions
+  if '-fno-exceptions' in cxx.cflags: cxx.cflags.remove('-fno-exceptions')
+  
+  # Decouple sourcesdk MAX_PLAYERS from the project - NoSoop
+  cxx.defines += ['RCBOT_MAXPLAYERS={}'.format(override_maxplayers.get(sdk_name, default_maxplayers))]
+
+  # Epic hack for rcbot2
+  hl2sdkfolder = 'hl2sdk-' + sdk['name']
+  cxx.cxxincludes += [ os.path.join(builder.options.hl2sdk_root, hl2sdkfolder, 'game', 'server') ]
+
+  nodes = builder.Add(binary)
+  MMS.binaries += [nodes]
