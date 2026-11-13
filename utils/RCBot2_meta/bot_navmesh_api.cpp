@@ -1,5 +1,6 @@
 /* Minimal production-facing NavMesh path API for RCBot2. */
 #include <set>
+#include <unordered_map>
 #include <map>
 #include "bot_navmesh_api.h"
 
@@ -70,6 +71,22 @@ bool IsBoxIntersectingBox(const Vector &boxMin1, const Vector &boxMax1,
 namespace
 {
 bool s_loadAttempted = false;
+
+// Connected components of the walkable graph (infantry rules, undirected).
+// The generator also seeds at CVs, barracks and resource points, which leaves
+// isolated islands; GetNearestNavArea may return one of them.
+bool s_componentsValid = false;
+unsigned s_componentAreaCount = 0;
+std::unordered_map<unsigned, int> s_areaComponent;
+std::set<std::pair<unsigned, unsigned>> s_loggedIslandSnaps;
+
+void ResetNavComponents()
+{
+	s_componentsValid = false;
+	s_componentAreaCount = 0;
+	s_areaComponent.clear();
+	s_loggedIslandSnaps.clear();
+}
 
 void AppendPoint(RCBotNavMesh::Path &path, const Vector &point)
 {
@@ -357,6 +374,7 @@ void Initialize()
 void LevelInit()
 {
 	s_loadAttempted = false;
+	ResetNavComponents();
 }
 
 namespace
@@ -474,6 +492,7 @@ void LevelShutdown()
 		TheNavMesh->Reset();
 
 	s_loadAttempted = false;
+	ResetNavComponents();
 	ClearBlockedEdges();
 }
 
@@ -486,6 +505,7 @@ void Shutdown()
 	delete TheNavMesh;
 	TheNavMesh = nullptr;
 	s_loadAttempted = false;
+	ResetNavComponents();
 }
 
 bool IsLoaded()
@@ -1059,6 +1079,140 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 }
 }
 
+namespace
+{
+bool WalkableEitherWay(CNavArea* a, CNavArea* b)
+{
+	const float up = a->ComputeAdjacentConnectionHeightChange(b);
+	if (up <= kMaxClimbHeight && up >= -kMaxDropHeight)
+		return true;
+	const float back = b->ComputeAdjacentConnectionHeightChange(a);
+	return back <= kMaxClimbHeight && back >= -kMaxDropHeight;
+}
+
+void EnsureNavComponents()
+{
+	const unsigned count = static_cast<unsigned>(TheNavAreas.Count());
+	if (s_componentsValid && s_componentAreaCount == count)
+		return;
+	ResetNavComponents();
+
+	std::unordered_map<unsigned, std::vector<unsigned>> links;
+	auto link = [&](CNavArea* a, CNavArea* b)
+	{
+		if (a == nullptr || b == nullptr || a == b)
+			return;
+		links[a->GetID()].push_back(b->GetID());
+		links[b->GetID()].push_back(a->GetID());
+	};
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea* area = TheNavAreas[i];
+		if (area == nullptr)
+			continue;
+		for (int d = 0; d < NUM_DIRECTIONS; ++d)
+		{
+			const int n = area->GetAdjacentCount(static_cast<NavDirType>(d));
+			for (int k = 0; k < n; ++k)
+			{
+				CNavArea* other = area->GetAdjacentArea(static_cast<NavDirType>(d), k);
+				if (other != nullptr && WalkableEitherWay(area, other))
+					link(area, other);
+			}
+		}
+		for (int dir = 0; dir < 2; ++dir)
+		{
+			const NavLadderConnectVector* list = area->GetLadders(
+				dir == 0 ? CNavLadder::LADDER_UP : CNavLadder::LADDER_DOWN);
+			FOR_EACH_VEC((*list), j)
+			{
+				const CNavLadder* ladder = (*list)[j].ladder;
+				if (ladder == nullptr)
+					continue;
+				link(area, ladder->m_topForwardArea);
+				link(area, ladder->m_topLeftArea);
+				link(area, ladder->m_topRightArea);
+				link(area, ladder->m_topBehindArea);
+				link(area, ladder->m_bottomArea);
+			}
+		}
+	}
+
+	int components = 0, largest = 0, small = 0;
+	std::vector<unsigned> stack;
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea* area = TheNavAreas[i];
+		if (area == nullptr || s_areaComponent.count(area->GetID()) != 0)
+			continue;
+		int size = 0;
+		stack.push_back(area->GetID());
+		s_areaComponent[area->GetID()] = components;
+		while (!stack.empty())
+		{
+			const unsigned id = stack.back();
+			stack.pop_back();
+			++size;
+			const auto it = links.find(id);
+			if (it == links.end())
+				continue;
+			for (unsigned next : it->second)
+				if (s_areaComponent.emplace(next, components).second)
+					stack.push_back(next);
+		}
+		largest = std::max(largest, size);
+		if (size < 5)
+			++small;
+		++components;
+	}
+	s_componentsValid = true;
+	s_componentAreaCount = count;
+	Msg("[RCBOT2] navmesh-components areas=%d components=%d largest=%d islands_small=%d\n",
+		static_cast<int>(count), components, largest, small);
+}
+
+int ComponentOf(const CNavArea* area)
+{
+	const auto it = s_areaComponent.find(area->GetID());
+	return it != s_areaComponent.end() ? it->second : -1;
+}
+
+// Nearest area of the given component to point (2D and height limits).
+CNavArea* NearestAreaInComponent(const Vector& point, int component,
+	float maxDist2D, float maxDz, float& gapOut)
+{
+	CNavArea* best = nullptr;
+	float bestDist = 0.0f;
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea* area = TheNavAreas[i];
+		if (area == nullptr || ComponentOf(area) != component)
+			continue;
+		Vector closest;
+		area->GetClosestPointOnArea(point, &closest);
+		if ((closest - point).Length2D() > maxDist2D || std::fabs(closest.z - point.z) > maxDz)
+			continue;
+		const float dist = (closest - point).Length();
+		if (best == nullptr || dist < bestDist)
+		{
+			best = area;
+			bestDist = dist;
+		}
+	}
+	gapOut = bestDist;
+	return best;
+}
+
+void LogIslandSnap(const char* what, const CNavArea* oldArea, const CNavArea* newArea,
+	float gap, const Vector& at)
+{
+	if (!s_loggedIslandSnaps.insert({oldArea->GetID(), newArea->GetID()}).second)
+		return;
+	Msg("[RCBOT2] navmesh-island snap=%s from_area=%u to_area=%u gap=%.0f at=(%.0f %.0f %.0f)\n",
+		what, oldArea->GetID(), newArea->GetID(), gap, at.x, at.y, at.z);
+}
+}
+
 PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 	CBot* observer)
 {
@@ -1082,6 +1236,27 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 		goalArea = TheNavMesh->GetNearestNavArea(to, 10000.0f, false, false);
 	if (goalArea == nullptr)
 		return PathResult::GOAL_AREA_NOT_FOUND;
+
+	EnsureNavComponents();
+	const int startComponent = ComponentOf(startArea);
+	const int goalComponent = ComponentOf(goalArea);
+	if (startComponent != goalComponent)
+	{
+		float gap = 0.0f;
+		if (CNavArea* snapped = NearestAreaInComponent(to, startComponent, 600.0f, 200.0f, gap))
+		{
+			LogIslandSnap("goal", goalArea, snapped, gap, to);
+			goalArea = snapped;
+		}
+		else if (CNavArea* snappedStart = NearestAreaInComponent(from, goalComponent, 300.0f, 100.0f, gap))
+		{
+			LogIslandSnap("start", startArea, snappedStart, gap, from);
+			startArea = snappedStart;
+			path.startAreaId = static_cast<int>(startArea->GetID());
+		}
+		else
+			return PathResult::NO_PATH;
+	}
 	path.goalAreaId = static_cast<int>(goalArea->GetID());
 
 	CNavArea *closestArea = nullptr;
