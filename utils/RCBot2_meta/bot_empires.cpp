@@ -21449,7 +21449,25 @@ bool CBotEmpires::startGame()
 	m_bNormalTeamStartComplete = true;
 	m_bNormalTeamCommandPending = false;
 	if (m_eNormalSpawnState == EmpiresNormalSpawnState::FAILED)
-		return false;
+	{
+		// The 4 s result window can expire before the next respawn wave; Empires spawns the bot
+		// later anyway (rainbowroad: 11 of 22 bots idle for up to 490 s). A bot that is alive
+		// with its requested class has simply spawned late: continue as after COMPLETE.
+		IPlayerInfo* info = playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(m_pEdict) : nullptr;
+		int classId = -1;
+		bool classDesired = false;
+		bool classDesiredKnown = false;
+		const char* classPropertyName = nullptr;
+		const bool classKnown = readEmpiresClass(m_pEdict, classId, classDesired,
+			classDesiredKnown, classPropertyName);
+		if (info == nullptr || info->IsDead() || info->GetHealth() <= 0 ||
+			!classKnown || classId != m_iDesiredClass)
+			return false;
+		m_eNormalSpawnState = EmpiresNormalSpawnState::COMPLETE;
+		logger->Log(LogLevel::INFO,
+			"Empires normal spawn recovered-alive index=%d userid=%d class=%d health=%d",
+			engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict), classId, info->GetHealth());
+	}
 	if (m_eNormalSpawnState == EmpiresNormalSpawnState::COMPLETE)
 	{
 		// Spawn completion returns directly to the ordinary Empires task loop.
