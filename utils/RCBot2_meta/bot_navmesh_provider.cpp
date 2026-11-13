@@ -658,6 +658,18 @@ void Frame()
 							e != nullptr ? engine->IndexOfEdict(e) : -1,
 							hit.endpos.x, hit.endpos.y, hit.endpos.z,
 							hit.plane.normal.x, hit.plane.normal.y, hit.plane.normal.z);
+						// TODO 3.1 diagnosis: whose vehicle, where, is the bot on foot.
+						if (lift == 2.0f && hit.startsolid && e != nullptr && e->GetClassName() != nullptr &&
+							std::strcmp(e->GetClassName(), "emp_vehicle") == 0 && e->GetCollideable() != nullptr)
+						{
+							const Vector vehiclePos = e->GetCollideable()->GetCollisionOrigin();
+							Vector botVelocity(0, 0, 0);
+							CClassInterface::getVelocity(bot->getEdict(), &botVelocity);
+							Msg("[RCBOT2] navmesh-stuck-vehicle userid=%d veh=%d vehicle_pos=(%.0f %.0f %.0f) dist2d=%.0f dz=%.0f bot_speed=%.0f\n",
+								engine != nullptr ? engine->GetPlayerUserId(bot->getEdict()) : -1,
+								engine->IndexOfEdict(e), vehiclePos.x, vehiclePos.y, vehiclePos.z,
+								(vehiclePos - here).Length2D(), vehiclePos.z - here.z, botVelocity.Length());
+						}
 					}
 				}
 				// Target straight below through a floor: the mesh dropped from an

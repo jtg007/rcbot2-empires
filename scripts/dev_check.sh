@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression check, ca. 4 Min: runs the short tests one after another and
+# Regression check, ca. 5 Min: runs the short tests one after another and
 # prints PASS/FAIL per test. Run after every change.
 # Usage: scripts/dev_check.sh [map]   (the pad test uses the default map of dev_pad.sh)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -41,6 +41,24 @@ if grep -aq "vehicle repaired" "$TMP/pad.txt" && ! grep -aq "Crashes: YES" "$TMP
   row pad PASS "$((SECONDS - t0))s $(grep -a 'vehicle repaired' "$TMP/pad.txt" | head -1 | sed 's/.*\(vehicle repaired\)/\1/' | cut -c1-80)"
 else
   row pad FAIL "$(grep -a 'retreat-timeout\|retreat-abort\|give-up\|Crashes\|error:' "$TMP/pad.txt" | tr '\n' '|' | cut -c1-200)"
+fi
+
+# 4) Engineer builds an MG turret at its own refinery (default map of dev_turret.sh)
+t0=$SECONDS
+scripts/dev_turret.sh >"$TMP/turret.txt" 2>&1
+if grep -aq "refinery-turret complete" "$TMP/turret.txt" && ! grep -aq "Crashes: YES" "$TMP/turret.txt"; then
+  row turret PASS "$((SECONDS - t0))s $(grep -a 'refinery-turret complete' "$TMP/turret.txt" | head -1 | grep -o 'health=[0-9/]*')"
+else
+  row turret FAIL "$(grep -a 'refinery-turret\|Crashes\|error:' "$TMP/turret.txt" | tail -4 | tr '\n' '|' | cut -c1-200)"
+fi
+
+# 5) Revive engineer revives a killed team mate (default map of dev_revive.sh)
+t0=$SECONDS
+scripts/dev_revive.sh >"$TMP/revive.txt" 2>&1
+if grep -aq "revive end .*reason=revived" "$TMP/revive.txt" && ! grep -aq "Crashes: YES" "$TMP/revive.txt"; then
+  row revive PASS "$((SECONDS - t0))s"
+else
+  row revive FAIL "$(grep -a 'revive \|Crashes\|error:' "$TMP/revive.txt" | tail -4 | tr '\n' '|' | cut -c1-200)"
 fi
 
 echo "Rohausgaben: $TMP"

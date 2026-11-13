@@ -1741,6 +1741,17 @@ void CBotEmpires::tickEmpiresVehicle()
 		return;
 	}
 
+	// A foot schedule that is still queued would plan from the seat-local origin
+	// (run 215735: CFindPathTask, start (0 -117 86), start-area-not-found).
+	if (!v.commanderCV && m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+	{
+		Msg("[RCBOT2] vehicle drop-foot-schedule userid=%d veh=%d\n", userId, v.vehicleIndex);
+		if (m_bEmpiresNavGoalActive)
+			endEmpiresNavmeshGoal("drop", "vehicle-driving", 0.0f);
+		cancelNavigationAttempt("vehicle-driving");
+		m_pSchedules->freeMemory();
+	}
+
 	RefreshPushZones();
 	const Vector origin = CBotGlobals::entityOrigin(vehicle);
 	QAngle bodyAngles(0, 0, 0);
