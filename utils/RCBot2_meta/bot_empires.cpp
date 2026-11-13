@@ -5252,6 +5252,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	if (empiresVehicleOwnsBot())
 		return;
 
+	// Seated (e.g. as passenger) the origin is vehicle-local: no foot planning.
+	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+		return;
+
 	if (m_eNormalPathState == EmpiresNormalPathState::SEARCHING ||
 		m_eNormalPathState == EmpiresNormalPathState::ARMED ||
 		m_eNormalPathState == EmpiresNormalPathState::ACTIVE)

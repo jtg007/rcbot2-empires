@@ -881,6 +881,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		Msg("[RCBOT2] vehicle stage userid=%d %s->%s bill_nye=%d vehicle=%d\n", userId,
 			StageName(v.stage), StageName(stage), v.billNye ? 1 : 0, v.vehicleIndex);
 		v.stage = stage;
+		v.stageSince = now;
 		v.stageUntil = timeout > 0.0f ? now + timeout : 0.0f;
 	};
 	// Walking to the factory/buy spot: drop the running goal-roam. Its
@@ -894,6 +895,15 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
 			m_pSchedules->freeMemory();
 	};
+
+	if (v.bailLogStep > 0 && now >= v.bailLogAt && isAlive())
+	{
+		const Vector at = getOrigin();
+		Msg("[RCBOT2] vehicle bail-exit userid=%d step=%d pos=(%.0f %.0f %.0f) ground=%d\n", userId, v.bailLogStep, at.x,
+			at.y, at.z, GroundAt(at, at.z) ? 1 : 0);
+		v.bailLogStep = v.bailLogStep >= 4 ? 0 : v.bailLogStep + 1;
+		v.bailLogAt = now + (v.bailLogStep == 2 ? 0.7f : 1.0f);
+	}
 
 	// ---------------------------------------------------------------- decide
 	if (v.stage == EmpiresVehicleStage::NONE)
@@ -1361,9 +1371,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			readEmpiresEntityHandleProperty(vehicle, "m_hPassengers", 0, driver);
 			if (driver != engine->IndexOfEdict(m_pEdict))
 			{
-				// Not the driver seat: leave again and give up on this one.
-				v.buttons = IN_USE;
-				resetEmpiresVehicle("not-driver-seat", 10.0f);
+				// Not the driver seat: leave again and give up on this one. The reset used to wipe the
+				// IN_USE button, so the bot stayed seated and planned on foot from the seat origin
+				// (TODO 3.4b, run 132330); GIVE_UP_EXIT presses USE until the bot is out.
+				Msg("[RCBOT2] vehicle not-driver-seat userid=%d vehicle=%d\n", userId, v.vehicleIndex);
+				v.nextAction = now;
+				setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
 				return;
 			}
 			stopMoving();
@@ -1418,10 +1431,15 @@ void CBotEmpires::tickEmpiresVehicle()
 	{
 		if (inVehicle < 0)
 		{
+			const Vector at = getOrigin();
+			Msg("[RCBOT2] vehicle bail-exit userid=%d t=0 pos=(%.0f %.0f %.0f) ground=%d\n", userId, at.x, at.y, at.z,
+				GroundAt(at, at.z) ? 1 : 0);
 			resetEmpiresVehicle("gave-up-stuck", 30.0f);
+			v.bailLogAt = now + 0.3f; // after the reset, which clears the whole brain
+			v.bailLogStep = 1;
 			return;
 		}
-		v.buttons = 0x08000000; // handbrake; exit needs a slow vehicle
+		v.buttons = 0x08000000; // handbrake (exit itself works up to 100 mph)
 		if (now >= v.nextAction)
 		{
 			v.buttons |= IN_USE;
@@ -2544,6 +2562,39 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 	}
 	const bool headingSafe = SafeHeading(origin, heading, lookAhead);
+
+	// Bail out before an unavoidable fall (user: falling off is fine, but leave the vehicle first;
+	// the game allows exit up to 100 mph = 1760 u/s, CEmpTank::CanExitVehicle, not before 1 s after
+	// boarding). Not for the commander's CV and not while Bill Nye pushes in contact (!shortLook; falling together is wanted).
+	// A: braking distance no longer reaches the edge and turning left/right is no way out either.
+	// B: last moment, no ground under the nose and under the vehicle itself.
+	// The deceleration (kBailDecel) is a guess until measured, hence the log line.
+	if (v.stage == EmpiresVehicleStage::DRIVING && !v.commanderCV && !IsCommanderChassis(chassis) &&
+		now - v.stageSince > 1.0f && speed > 60.0f && !shortLook)
+	{
+		constexpr float kBailDecel = 600.0f;
+		const float velYaw = YawTo(Vector(0.0f, 0.0f, 0.0f), v.velocity);
+		const Vector velDir = YawDir(velYaw);
+		const float drop = DropDistance(origin, velYaw, 1500.0f);
+		const float brake = speed * speed / (2.0f * kBailDecel) + speed * 0.15f;
+		const char* bailReason = nullptr;
+		// DropDistance returns 2*range when no drop was found (runs 125334: 3 false alarms at 1900 u/s).
+		// Run 125647: 4 of 8 at 226-257 u/s with 150 to the edge would have stopped in time.
+		if (speed > 350.0f && drop <= 1500.0f && drop < brake &&
+			!SafeHeading(origin, velYaw + 45.0f, std::max(200.0f, drop)) &&
+			!SafeHeading(origin, velYaw - 45.0f, std::max(200.0f, drop)))
+			bailReason = "A";
+		else if (!GroundAt(origin + velDir * (v.width * 0.5f + 40.0f), origin.z) && !GroundAt(origin, origin.z))
+			bailReason = "B";
+		if (bailReason != nullptr)
+		{
+			Msg("[RCBOT2] vehicle bail-out userid=%d veh=%d chassis=%d pos=(%.0f %.0f %.0f) speed=%.0f drop=%.0f brake=%.0f reason=%s\n",
+				userId, v.vehicleIndex, chassis, origin.x, origin.y, origin.z, speed, drop, brake, bailReason);
+			v.nextAction = now;
+			setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
+			return;
+		}
+	}
 	// Circling into an edge: turn the other way round the target.
 	if (v.fightMove && (!found || std::fabs(NormalizeYaw(chosen - desired)) > 60.0f))
 		v.fightSwitch = std::min(v.fightSwitch, now);

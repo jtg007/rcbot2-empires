@@ -603,6 +603,7 @@ void Frame()
 									servergameents->BaseEntityToEdict(base) : nullptr;
 								const char* name = e != nullptr ? e->GetClassName() : nullptr;
 								return name == nullptr || (strcmp(name, "emp_eng_restrict") != 0 &&
+									strcmp(name, "emp_comm_restrict") != 0 &&
 									strcmp(name, "emp_building_vehicle_physbox") != 0 &&
 									strcmp(name, "player") != 0);
 							}

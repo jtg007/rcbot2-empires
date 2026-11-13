@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <string>
 
+int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
+
 namespace
 {
 constexpr float kEmpiresCaptureRejectedCooldown = 30.0f;
@@ -1726,6 +1728,16 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 	m_iEmpiresDefendHoldEntity = -1;
 	m_flEmpiresDefendMineAimUntil = 0.0f;
 
+	// Boarded a vehicle with a running goal: end it without a failure penalty, a foot
+	// route from the seat position would only fail.
+	if (m_bEmpiresNavGoalActive && EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+	{
+		endEmpiresNavmeshGoal("drop", "in-vehicle", 0.0f);
+		cancelNavigationAttempt("goal-roam-drop");
+		m_pSchedules->freeMemory();
+		return true;
+	}
+
 	if (m_bEmpiresNavGoalActive)
 	{
 		// Target still valid?
@@ -1888,6 +1900,14 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 
 	if (!m_pSchedules->isEmpty() || now < m_flEmpiresNavGoalNextPick)
 		return false;
+
+	// Seated in a vehicle (passenger of another bot's vehicle, run 20261113-122756 userid=7):
+	// the origin is not a world position, so planning on foot fails with start-area-not-found.
+	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+	{
+		m_flEmpiresNavGoalNextPick = now + 2.0f;
+		return false;
+	}
 
 	return pickEmpiresNavmeshGoal();
 }

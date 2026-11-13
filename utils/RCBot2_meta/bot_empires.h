@@ -470,6 +470,9 @@ struct EmpiresVehicleBrain
 	bool routePartial = false; // route ends at the reachable area nearest the goal
 	int routeResult = -1;
 	float width = 0.0f;
+	float bailLogAt = 0.0f; // diagnosis: log the bot's position after a bail-out (0.3 s, 1 s, 3 s)
+	int bailLogStep = 0;
+	float stageSince = 0.0f; // curtime of the last stage change (bail-out waits 1 s after boarding)
 	// Damage: retreat to a repair station or the base and call engineers.
 	float maxHealth = 0.0f;
 	int armorMaxSeen[4] = {0, 0, 0, 0};
