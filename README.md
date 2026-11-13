@@ -116,6 +116,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of the team's bots) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |
+| `rcbot_empires_force_offsets` | 0 | The plugin checks the game's `server_srv.so` and switches off features that read fixed memory offsets (revive, skills, vehicle armour, commander economy) on an unknown build. 1 = use them anyway |
 
 ## Build
 

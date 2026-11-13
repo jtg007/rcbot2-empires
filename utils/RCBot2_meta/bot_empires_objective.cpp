@@ -2260,6 +2260,12 @@ void CBotEmpires::handleEmpiresDefendMines(const float now)
 	}
 }
 
+namespace
+{
+// button -> (userid, until in curtime); cleared on map change
+std::vector<std::pair<int, std::pair<int, float>>> s_doorButtonClaims;
+}
+
 // A map button that opens a closed door nearby: walk to it, look at it, press use once.
 // as_escort: BE spawns behind gate door1; 60 s after spawn button control1 unlocks and
 // toggles it. One bot per button; the door leaving its closed rest ends the job.
@@ -2268,7 +2274,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
 		m_pEdict == nullptr || m_pEdict->IsFree())
 		return false;
-	static std::vector<std::pair<int, std::pair<int, float>>> s_claims; // button -> (userid, until)
+	auto& s_claims = s_doorButtonClaims;
 	const float now = gpGlobals->curtime;
 	const int team = getTeam();
 	const int userId = engine->GetPlayerUserId(m_pEdict);
@@ -2389,4 +2395,11 @@ bool CBotEmpires::handleEmpiresDoorButton()
 			m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetLastUserCommand().buttons : -1);
 	}
 	return true;
+}
+
+void EmpiresObjectiveLevelReset()
+{
+	for (TeamTurretThreat& t : s_teamTurretThreat)
+		t = TeamTurretThreat();
+	s_doorButtonClaims.clear();
 }

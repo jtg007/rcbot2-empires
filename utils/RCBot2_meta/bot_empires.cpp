@@ -1,4 +1,5 @@
 #include "bot_empires.h"
+#include "bot_empires_binary.h"
 #include "bot_empires_combat_fixture_waypoints.h"
 #include "bot_empires_squad_join.h"
 #include "bot_empires_squad_observation.h"
@@ -2529,6 +2530,9 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
 	m_flEmpiresTurretRocketUntil = 0.0f;
 	m_bEmpiresTurretRocketApproach = false;
+	m_flVoidNextCheck = 0.0f;
+	m_flVoidSince = -1.0f;
+	m_bVoidKilled = false;
 	m_iEmpiresLastHealth = 0;
 	if (m_bEmpiresNavGoalActive)
 		endEmpiresNavmeshGoal("drop", "died", 0.0f);
@@ -6290,6 +6294,8 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 	const int flags = (repair ? 1 : 0) | (revive ? 2 : 0) | (turret ? 4 : 0);
 	// Rank points (CEmpPlayer+0x12c0); slots unlock at >0, >9, >29, >59.
 	CBaseEntity* base = m_pEdict->GetUnknown() != nullptr ? m_pEdict->GetUnknown()->GetBaseEntity() : nullptr;
+	if (!EmpiresBinaryOffsetsTrusted())
+		base = nullptr; // rank/skill/gate offsets unverified: read as unavailable
 	const int rank = base != nullptr ? *reinterpret_cast<const int*>(reinterpret_cast<const char*>(base) + 0x12c0) : -1;
 	const int gates = base != nullptr ? (reinterpret_cast<const char*>(base)[0x121e] != 0 ? 8 : 0) |
 		(reinterpret_cast<const char*>(base)[0x121f] != 0 ? 16 : 0) : 0;
@@ -6313,6 +6319,7 @@ void CBotEmpires::modThink()
 {
 	updateEmpiresEngineerSkills();
 	tickEmpiresVehicle();
+	tickEmpiresVoidSuicide();
 	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
 	{
 		handleEmpiresRevive();
@@ -6876,6 +6883,24 @@ bool CBotEmpires::readEmpiresWeaponFloatProperty(const edict_t* pEdict,
 	return true;
 }
 
+namespace
+{
+// Entity index of a handle, -1 if the handle is invalid or stale: the edict
+// serial (low NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS bits of the handle
+// serial, see CBaseEntity::NetworkProp in the SDK) must match the slot.
+int CheckedHandleIndex(const CBaseHandle* handle)
+{
+	if (handle == nullptr || engine == nullptr || !handle->IsValid())
+		return -1;
+	const int index = handle->GetEntryIndex();
+	edict_t* edict = engine->PEntityOfEntIndex(index);
+	if (edict == nullptr || edict->IsFree())
+		return -1;
+	const int mask = (1 << NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS) - 1;
+	return (edict->m_NetworkSerialNumber & mask) == (handle->GetSerialNumber() & mask) ? index : -1;
+}
+}
+
 bool CBotEmpires::readEmpiresWeaponHandleProperty(const edict_t* pEdict,
 	const char* propertyName, int& entityIndex) const
 {
@@ -6906,7 +6931,7 @@ bool CBotEmpires::readEmpiresWeaponHandleProperty(const edict_t* pEdict,
 			CBaseHandle* pHandle = propertyValue.getEntityHandle(pCurrentEdict);
 			if (pHandle != nullptr)
 			{
-				entityIndex = pHandle->GetEntryIndex();
+				entityIndex = CheckedHandleIndex(pHandle);
 				return true;
 			}
 		}
@@ -6924,7 +6949,7 @@ bool CBotEmpires::readEmpiresWeaponHandleProperty(const edict_t* pEdict,
 
 	CBaseHandle* pHandle = reinterpret_cast<CBaseHandle*>(
 		reinterpret_cast<char*>(pEntity) + offset);
-	entityIndex = pHandle->GetEntryIndex();
+	entityIndex = CheckedHandleIndex(pHandle);
 	return true;
 }
 
@@ -6967,7 +6992,7 @@ bool CBotEmpires::readEmpiresEntityHandleProperty(const edict_t* pEdict,
 		if (pHandle == nullptr)
 			return false;
 
-		entityIndex = pHandle->GetEntryIndex();
+		entityIndex = CheckedHandleIndex(pHandle);
 		return true;
 	}
 
@@ -6990,7 +7015,7 @@ bool CBotEmpires::readEmpiresEntityHandleProperty(const edict_t* pEdict,
 
 	CBaseHandle* pHandle = reinterpret_cast<CBaseHandle*>(
 		reinterpret_cast<char*>(pEntity) + elementOffset);
-	entityIndex = pHandle->GetEntryIndex();
+	entityIndex = CheckedHandleIndex(pHandle);
 	return true;
 }
 
@@ -13304,7 +13329,8 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		// pointNumber at +0x358. Maps switch spawn groups by I/O (as_escort BE: groups
 		// 2-6, the first one in entity order is off at start and the spawn failed).
 		const bool enabled = validSpawnPoint &&
-			*(reinterpret_cast<const unsigned char*>(pEntity) + 0x354) != 0;
+			(!EmpiresBinaryOffsetsTrusted() || // unverified offset: treat every spawn as enabled
+				*(reinterpret_cast<const unsigned char*>(pEntity) + 0x354) != 0);
 		logger->Log(LogLevel::INFO,
 			"Empires bootstrap spawn discovery team=%d classname=%s candidate_class=%s index=%d pointNumber=%s valid=%d enabled=%d",
 			team, classname, candidateClassname != nullptr ? candidateClassname : "unavailable",
@@ -21659,6 +21685,9 @@ void CBotEmpires::freeMapMemory()
 	m_bEmpiresNavGoalActive = false;
 	m_flEmpiresNavGoalHoldUntil = 0.0f;
 	m_flEmpiresNavGoalNextPick = 0.0f;
+	m_flVoidNextCheck = 0.0f;
+	m_flVoidSince = -1.0f;
+	m_bVoidKilled = false;
 	for (EmpiresNavGoalAvoid& slot : m_EmpiresNavGoalAvoid)
 		slot = EmpiresNavGoalAvoid();
 	RCBotLocalYielding::Reset();
@@ -21870,6 +21899,107 @@ void CBotEmpires::freeMapMemory()
 	m_flEmpiresMortarAimLastSampleTime = 0.0f;
 	m_vEmpiresMortarAimFirstShellOrigin = Vector(0.0f, 0.0f, 0.0f);
 	m_vEmpiresMortarAimLastShellOrigin = Vector(0.0f, 0.0f, 0.0f);
+	// Orders and timers of the old map: entity indices and gpGlobals->curtime
+	// deadlines mean nothing on the next map. Initial values as in the header.
+	m_vehicle = EmpiresVehicleBrain();
+	m_iCommanderEntryStage = 0;
+	m_iCommanderEntryUserId = -1;
+	m_hCommanderEntryVehicle = nullptr;
+	m_fCommanderEntryDeadline = 0.0f;
+	m_vCommanderEntrySpot = Vector(0.0f, 0.0f, 0.0f);
+	m_fCommanderEntryNextReplan = 0.0f;
+	m_iCommanderBuildStage = 0;
+	m_hCommanderBuildTarget = nullptr;
+	m_fCommanderBuildDeadline = 0.0f;
+	m_vCommanderBuildDriveGoal = Vector(0.0f, 0.0f, 0.0f);
+	m_bCommanderBuildTurret = false;
+	m_bCommanderTurretStarted = false;
+	m_bCommanderHunt = false;
+	m_fCommanderHuntZone = 0.0f;
+	m_commanderEconomy = CommanderEconomyState();
+	m_fEmpiresGuardNextCheck = 0.0f;
+	m_iEmpiresGuardLoggedTarget = -1;
+	m_iBuildAssignStage = 0;
+	m_iBuildAssignAttempts = 0;
+	m_hBuildAssignBuilding = nullptr;
+	m_fBuildAssignStart = 0.0f;
+	m_fBuildAssignNextTry = 0.0f;
+	m_vBuildAssignSpot = Vector(0.0f, 0.0f, 0.0f);
+	m_fBuildAssignNextLog = 0.0f;
+	m_vEmpiresKitAim = Vector(0.0f, 0.0f, 0.0f);
+	m_iReviveTarget = 0;
+	m_flReviveUntil = 0.0f;
+	m_flReviveNextNav = 0.0f;
+	m_flReviveSent = 0.0f;
+	m_flReviveNextSearch = 0.0f;
+	m_flReviveNextLog = 0.0f;
+	m_flReviveDeathTime = 0.0f;
+	m_bReviveHoldLogged = false;
+	m_bReviveHoldActive = false;
+	m_iTurretRefinery = 0;
+	m_iTurretAttempt = 0;
+	m_iTurretBuilding = 0;
+	m_iTurretAssignRejects = 0;
+	m_bTurretBuildArmed = false;
+	m_vTurretSpot = vec3_origin;
+	m_flTurretYaw = 0.0f;
+	m_flTurretUntil = 0.0f;
+	m_flTurretNextNav = 0.0f;
+	m_flTurretNextSearch = 0.0f;
+	m_flTurretNextLog = 0.0f;
+	m_pEmpiresLastSpotTarget = nullptr;
+	m_flEmpiresNextSpotTime = 0.0f;
+	m_iEmpiresNavGoalType = -1;
+	m_iEmpiresNavGoalEntity = -1;
+	m_vEmpiresNavGoalOrigin = Vector(0, 0, 0);
+	m_flEmpiresNavGoalStart = 0.0f;
+	m_flEmpiresNavGoalDeadline = 0.0f;
+	m_bEmpiresNavGoalArrivedAtCapture = false;
+	m_iEmpiresNavGoalRetries = 0;
+	m_iEmpiresNavGoalAttempts = 0;
+	m_iEmpiresDefendHoldEntity = -1;
+	m_vEmpiresDefendHoldOrigin = vec3_origin;
+	m_flEmpiresDefendMineNext = 0.0f;
+	m_flEmpiresDefendMineAimUntil = 0.0f;
+	m_bEmpiresDefendMineFullLogged = false;
+	m_iEmpiresLastHealth = 0;
+	m_iEmpiresTurretThreat = 0;
+	m_vEmpiresTurretThreatOrigin = vec3_origin;
+	m_flEmpiresTurretThreatRange = 0.0f;
+	m_flEmpiresTurretThreatUntil = 0.0f;
+	m_bEmpiresTurretRetreatPending = false;
+	m_bEmpiresTurretRetreating = false;
+	m_vEmpiresTurretRetreatPoint = vec3_origin;
+	m_flEmpiresTurretRetreatDeadline = 0.0f;
+	m_hEmpiresTurretHitBy = nullptr;
+	m_hEmpiresTurretFireTarget = nullptr;
+	m_hEmpiresTurretRocketTarget = nullptr;
+	m_hEmpiresTurretRocketWeapon = nullptr;
+	m_qEmpiresTurretRocketAim = QAngle(0.0f, 0.0f, 0.0f);
+	m_flEmpiresTurretRocketUntil = 0.0f;
+	m_iEmpiresTurretRocketAmmoType = -1;
+	m_iEmpiresTurretRocketAmmo = 0;
+	m_iEmpiresTurretRocketHealth = 0;
+	m_bEmpiresTurretRocketFired = false;
+	m_bEmpiresTurretRocketApproach = false;
+	m_iEmpiresDoorButton = -1;
+	m_iEmpiresDoorButtonDoor = -1;
+	m_vEmpiresDoorButtonOrigin = Vector(0, 0, 0);
+	m_flEmpiresDoorButtonUntil = 0.0f;
+	m_flEmpiresDoorButtonNext = 0.0f;
+	m_flEmpiresDoorButtonLastUse = 0.0f;
+	m_bEmpiresDoorButtonMoving = false;
+	m_flEmpiresTurretMortarNext = 0.0f;
+	m_flEmpiresTurretFireMoveUntil = 0.0f;
+	m_flEmpiresTurretFireMoveNext = 0.0f;
+	m_iEmpiresTurretMortarFails = 0;
+	m_iEmpiresTurretMortarShots = 0;
+	m_vEmpiresTurretLastFireSpot = vec3_origin;
+	m_vEmpiresTurretFailedMortarSpot = vec3_origin;
+	m_vEmpiresTurretSettleOrigin = vec3_origin;
+	m_flEmpiresTurretSettledSince = 0.0f;
+	m_bEmpiresTurretMortarWasActive = false;
+	m_bEmpiresTurretOutOfReachLogged = false;
 	resetControlledTestState();
 
 	if (wasAttached)

@@ -431,7 +431,8 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 			"path_result=%s start=(%.1f %.1f %.1f) goal=(%.1f %.1f %.1f)",
 			RCBotNavMesh::PathResultName(pathResult), start.x, start.y,
 			start.z, goal.x, goal.y, goal.z);
-		Msg("[RCBOT2] navmesh-plan-failed %s\n", detail);
+		Msg("[RCBOT2] navmesh-plan-failed %s userid=%d\n", detail,
+			engine != nullptr && bot->getEdict() != nullptr ? engine->GetPlayerUserId(bot->getEdict()) : -1);
 		bot->handleNavigationProviderFailure(
 			RCBotNavigation::Provider::NAVMESH,
 			RCBotNavigation::FailureClass::STRUCTURAL_PLANNING,

@@ -118,6 +118,7 @@ ConVar rcbot_empires_vehicle_debug_buy("rcbot_empires_vehicle_debug_buy", "0", 0
 ConVar rcbot_empires_billnye("rcbot_empires_billnye", "-1", 0, "Bill Nye mode: one Scout bot of a team always takes a jeep, rams enemy vehicles off the map, stuns them when stuck and runs over infantry. -1 = on maps named *rainbowroad* for NF, 0 = off, 2 = NF, 3 = BE");
 ConVar rcbot_empires_commander_engineer("rcbot_empires_commander_engineer", "1", 0, "the auto Commander seat goes to the team's first Engineer bot (Repair role); he leaves the CV to finish buildings near it when no other Engineer is close and idle");
 ConVar rcbot_empires_commander_drive_from("rcbot_empires_commander_drive_from", "1000", 0, "Commander Engineer drives the CV toward a building farther than this before leaving it to build");
+ConVar rcbot_empires_force_offsets("rcbot_empires_force_offsets", "0", 0, "Use the fixed game-object offsets even when the game binary (server_srv.so) is not a known build: 0 off, 1 on");
 ConVar rcbot_empires_commander_boomtank("rcbot_empires_commander_boomtank", "1", 0, "Commander bot drives the CV over enemy infantry inside the base zone: 0 off, 1 on except rainbowroad maps, 2 on everywhere");
 ConVar rcbot_empires_engineer_turrets("rcbot_empires_engineer_turrets", "1", 0, "Engineer bots build an MG turret on the front side of own refineries");
 ConVar rcbot_empires_vacancy_revive("rcbot_empires_vacancy_revive", "1", 0, "if 1, bots may run the death-vacancy Engineer Mass Revive transaction (promote/revive/restore) on a consumed per-vacancy-epoch basis");

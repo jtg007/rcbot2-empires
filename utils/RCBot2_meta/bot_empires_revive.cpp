@@ -9,6 +9,7 @@
 // (user rule 2026-11-12); the command checks byte +0x121f on the reviver. Skills are applied in CEmpPlayer::Spawn
 // (UpdateSkills), so a newly chosen skill counts after the next respawn.
 #include "bot_empires.h"
+#include "bot_empires_binary.h"
 #include "bot_globals.h"
 #include "bot_getprop.h"
 #include "bot_navmesh_api.h"
@@ -39,7 +40,7 @@ CBaseEntity* BaseOf(edict_t* e)
 edict_t* PlayerRagdoll(edict_t* player)
 {
 	CBaseEntity* base = BaseOf(player);
-	if (base == nullptr || engine == nullptr)
+	if (base == nullptr || engine == nullptr || !EmpiresBinaryOffsetsTrusted())
 		return nullptr;
 	const char* p = reinterpret_cast<const char*>(base);
 	const unsigned int handle = *reinterpret_cast<const unsigned int*>(p + 0x1e34);
@@ -57,7 +58,7 @@ edict_t* PlayerRagdoll(edict_t* player)
 Vector RagdollOrigin(edict_t* ragdoll, edict_t* player)
 {
 	const CBaseEntity* base = BaseOf(ragdoll);
-	if (base != nullptr)
+	if (base != nullptr && EmpiresBinaryOffsetsTrusted())
 	{
 		const Vector v = *reinterpret_cast<const Vector*>(reinterpret_cast<const char*>(base) + 0x294);
 		if (v.x != 0.0f || v.y != 0.0f || v.z != 0.0f)
@@ -127,7 +128,7 @@ bool CBotEmpires::handleEmpiresRevive()
 				if (now >= m_flReviveNextLog)
 				{
 					m_flReviveNextLog = now + 5.0f;
-					const char* p = reinterpret_cast<const char*>(BaseOf(player));
+					const char* p = EmpiresBinaryOffsetsTrusted() ? reinterpret_cast<const char*>(BaseOf(player)) : nullptr;
 					Msg("[RCBOT2] revive skip userid=%d target=%d handle=%08x f1e3c=%d f1e45=%d\n", userId, i,
 						p != nullptr ? *reinterpret_cast<const unsigned int*>(p + 0x1e34) : 0u,
 						p != nullptr ? p[0x1e3c] : -1, p != nullptr ? p[0x1e45] : -1);
@@ -253,4 +254,10 @@ bool CBotEmpires::holdRespawnForRevive()
 	if (!hold)
 		m_bReviveHoldLogged = false;
 	return hold;
+}
+
+void EmpiresReviveLevelReset()
+{
+	for (ReviveClaim& c : s_reviveClaim)
+		c = ReviveClaim();
 }

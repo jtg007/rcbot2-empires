@@ -417,6 +417,13 @@ enum class EmpiresVehicleStage
 
 int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors);
 
+// Called on map change: expiry times count in curtime and entries are keyed by entity index.
+void EmpiresTurretBuildLevelReset();
+void EmpiresReviveLevelReset();
+void EmpiresVehicleLevelReset();
+void EmpiresCommanderEconomyLevelReset();
+void EmpiresObjectiveLevelReset();
+
 struct EmpiresVehicleBrain
 {
 	EmpiresVehicleStage stage = EmpiresVehicleStage::NONE;
@@ -612,6 +619,10 @@ public:
 	bool requestEmpiresVehicleFactoryDriveOnce();
 	// Vehicle use (bot_empires_vehicle.cpp).
 	void tickEmpiresVehicle();
+	void tickEmpiresVoidSuicide();
+	float m_flVoidNextCheck = 0.0f;
+	float m_flVoidSince = -1.0f;
+	bool m_bVoidKilled = false;
 	bool empiresVehicleOwnsBot() const
 	{
 		return m_vehicle.stage != EmpiresVehicleStage::NONE;

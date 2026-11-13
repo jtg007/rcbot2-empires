@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Regression check, ca. 3 Min: runs the short tests one after another and
+# Regression check, ca. 4 Min: runs the short tests one after another and
 # prints PASS/FAIL per test. Run after every change.
-# Usage: scripts/dev_check.sh [map]
+# Usage: scripts/dev_check.sh [map]   (the pad test uses the default map of dev_pad.sh)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 MAP="${1:-emp_streetsoffire}"
 TMP="$(mktemp -d)"
@@ -27,6 +27,15 @@ if grep -aq "commander-move result=COMPLETE" "$TMP/move.txt" && ! grep -aq "Cras
   row long-move PASS "retries=$retries"
 else
   row long-move FAIL "retries=$retries $(grep -a 'Crashes\|error:' "$TMP/move.txt" | tr '\n' '|' | cut -c1-160)"
+fi
+
+# 3) Damaged tank drives onto the repair pad and refits (default map of dev_pad.sh)
+t0=$SECONDS
+scripts/dev_pad.sh >"$TMP/pad.txt" 2>&1
+if grep -aq "vehicle repaired" "$TMP/pad.txt" && ! grep -aq "Crashes: YES" "$TMP/pad.txt"; then
+  row pad PASS "$((SECONDS - t0))s $(grep -a 'vehicle repaired' "$TMP/pad.txt" | head -1 | sed 's/.*\(vehicle repaired\)/\1/' | cut -c1-80)"
+else
+  row pad FAIL "$(grep -a 'retreat-timeout\|retreat-abort\|give-up\|Crashes\|error:' "$TMP/pad.txt" | tr '\n' '|' | cut -c1-200)"
 fi
 
 echo "Rohausgaben: $TMP"

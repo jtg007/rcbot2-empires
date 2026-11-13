@@ -326,3 +326,9 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	m_iTurretRefinery = 0;
 	return false;
 }
+
+void EmpiresTurretBuildLevelReset()
+{
+	for (Claim& c : s_claim)
+		c = Claim();
+}

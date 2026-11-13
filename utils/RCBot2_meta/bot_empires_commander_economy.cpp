@@ -3,6 +3,7 @@
 // bot_empires_commander_economy.h; the rules the game enforces are in
 // reverse-engineering/notes/buildings.md ("Commander building via `emp_build`").
 #include "bot_empires.h"
+#include "bot_empires_binary.h"
 #include "in_buttons.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
@@ -76,6 +77,9 @@ struct BuildingInfo
 
 const char* RawEntity(edict_t* e)
 {
+	// Only used for fixed-offset reads (+0x118, +0x3a8, +0x3b4, +0x4a8, +0x4b0).
+	if (!EmpiresBinaryOffsetsTrusted())
+		return nullptr;
 	IServerUnknown* unknown = e != nullptr ? e->GetUnknown() : nullptr;
 	return reinterpret_cast<const char*>(unknown != nullptr ? unknown->GetBaseEntity() : nullptr);
 }
@@ -84,6 +88,8 @@ const char* RawEntity(edict_t* e)
 bool MarkedForDeletion(edict_t* e)
 {
 	const char* raw = RawEntity(e);
+	if (!EmpiresBinaryOffsetsTrusted())
+		return false; // cannot tell: mark nothing
 	return raw == nullptr || (*reinterpret_cast<const int*>(raw + 0x118) & 0x1) != 0;
 }
 
@@ -1298,4 +1304,15 @@ bool EmpiresFrontYaw(const Vector& at, int team, float& yaw)
 {
 	const char* source = nullptr;
 	return FrontYaw(at, team, yaw, source);
+}
+
+void EmpiresCommanderEconomyLevelReset()
+{
+	for (int i = 0; i < 4; i++)
+	{
+		s_humanCommanderUntil[i] = 0.0f;
+		s_testYieldRequest[i] = false;
+		s_cvHome[i] = Vector();
+		s_cvHomeVehicle[i] = 0;
+	}
 }

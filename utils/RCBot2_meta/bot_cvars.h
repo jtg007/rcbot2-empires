@@ -93,6 +93,7 @@ extern ConVar rcbot_empires_vehicle_debug_buy;
 extern ConVar rcbot_empires_billnye;
 extern ConVar rcbot_empires_engineer_turrets;
 extern ConVar rcbot_empires_commander_engineer;
+extern ConVar rcbot_empires_force_offsets;
 extern ConVar rcbot_empires_commander_boomtank;
 extern ConVar rcbot_empires_commander_drive_from;
 extern ConVar rcbot_listen_dist;

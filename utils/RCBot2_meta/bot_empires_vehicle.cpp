@@ -3,6 +3,7 @@
 // reverse-engineering/notes/vehicle-driving.md.
 
 #include "bot_empires.h"
+#include "bot_empires_binary.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_globals.h"
@@ -78,6 +79,8 @@ int* VehicleHealthField(const edict_t* e)
 				return p;
 		}
 	}
+	if (!EmpiresBinaryOffsetsTrusted())
+		return nullptr;
 	CBaseEntity* base = edict->GetUnknown()->GetBaseEntity();
 	return base != nullptr ? reinterpret_cast<int*>(reinterpret_cast<char*>(base) + 0xf8) : nullptr;
 }
@@ -100,6 +103,8 @@ float* VehicleArmorSides(const edict_t* e)
 	edict_t* edict = const_cast<edict_t*>(e);
 	if (edict == nullptr || edict->IsFree() || edict->GetUnknown() == nullptr ||
 		edict->GetClassName() == nullptr || std::strcmp(edict->GetClassName(), "emp_vehicle") != 0)
+		return nullptr;
+	if (!EmpiresBinaryOffsetsTrusted())
 		return nullptr;
 	CBaseEntity* base = edict->GetUnknown()->GetBaseEntity();
 	return base != nullptr ? reinterpret_cast<float*>(reinterpret_cast<char*>(base) + 0xfe4) : nullptr;
@@ -796,6 +801,50 @@ bool CBotEmpires::applyEmpiresVehicleCommand(CBotCmd& command)
 		m_vehicle.stage == EmpiresVehicleStage::REPAIR_ASSIST)
 		command.weaponselect = m_iSelectWeapon;
 	return true;
+}
+
+// A living bot on foot with no world floor within 2000 below and no navmesh area
+// within 1500 for 2 s has nothing to plan from (fell off rainbowroad): respawn.
+void CBotEmpires::tickEmpiresVoidSuicide()
+{
+	if (gpGlobals == nullptr || engine == nullptr || enginetrace == nullptr || helpers == nullptr || m_pEdict == nullptr ||
+		m_pEdict->IsFree())
+		return;
+	const float now = gpGlobals->curtime;
+	if (!isAlive() || m_pPlayerInfo == nullptr || m_pPlayerInfo->IsDead() ||
+		!RCBotNavMesh::IsLoaded() || m_vehicle.stage != EmpiresVehicleStage::NONE ||
+		commanderVehicleEntryActive() || m_iCommanderEntryStage != 0 ||
+		EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+	{
+		m_flVoidSince = -1.0f;
+		m_bVoidKilled = false;
+		return;
+	}
+	if (now < m_flVoidNextCheck)
+		return;
+	m_flVoidNextCheck = now + 1.0f;
+	const Vector pos = getOrigin();
+	Ray_t ray;
+	ray.Init(pos, pos - Vector(0, 0, 2000.0f));
+	CTraceFilterWorldOnly filter;
+	trace_t hit;
+	enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+	Vector mesh;
+	const bool floor = hit.fraction < 1.0f || hit.startsolid || hit.allsolid;
+	if (floor || RCBotNavMesh::ClosestPointOnMesh(pos, 1500.0f, mesh))
+	{
+		m_flVoidSince = -1.0f;
+		m_bVoidKilled = false;
+		return;
+	}
+	if (m_flVoidSince < 0.0f)
+		m_flVoidSince = now;
+	if (now - m_flVoidSince < 2.0f || m_bVoidKilled)
+		return;
+	m_bVoidKilled = true;
+	Msg("[RCBOT2] void-suicide userid=%d pos=(%.0f %.0f %.0f)\n", engine->GetPlayerUserId(m_pEdict),
+		pos.x, pos.y, pos.z);
+	helpers->ClientCommand(m_pEdict, "kill\n");
 }
 
 void CBotEmpires::tickEmpiresVehicle()
@@ -2975,4 +3024,12 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors)
 		++changed;
 	}
 	return changed;
+}
+
+void EmpiresVehicleLevelReset()
+{
+	for (RepairRequest& r : s_repairRequest)
+		r = RepairRequest();
+	g_pushZones.clear();
+	g_pushZonesAt = -1.0f;
 }
