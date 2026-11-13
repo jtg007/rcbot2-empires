@@ -13,11 +13,11 @@ real-time strategy. Built on [RCBot2][rcbot2-fork], running on a Linux dedicated
 
 Bots that play Empires the way a team does, not generic shooter bots:
 
-- **No hand-made waypoints.** Every map works with an automatically generated navmesh.
+- **Automatic navigation.** Use generated navmeshes; map coverage and some waypoint-based behavior still need testing.
 - **A bot commander** builds the base, keeps the economy running and leads the team,
   or hands the seat to a human player.
 - **Human commanders can command bots** like units in a real-time strategy game:
-  move here, attack that, guard this building.
+  move and guard orders are supported in part; attack orders are planned.
 - **Engineers** keep the base alive: build, repair, revive, place turrets.
 - **Vehicles** are bought, driven, fought with and brought back for repairs.
 
@@ -32,7 +32,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Navigation without waypoints | Generated navmesh (`p_nav_generate`) |
 | ✅ | Walk around buildings | Also buildings placed during the match |
 | ✅ | Get unstuck | Notice when stuck, back off, take another route |
-| ✅ | Doors | Open doors and press map buttons that open gates |
+| 🟡 | Doors and gates | Some doors and buttons work; crossroads base gates and ramps remain a problem |
 | 🟡 | All maps | Tested on 7 maps: streetsoffire, crossroads, as_escort, rainbowroad, palmbay, coast, cyclopean |
 
 ### Commander
@@ -57,7 +57,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Build and repair buildings | |
 | ✅ | Repair vehicles | Heals the damaged armor side |
 | ✅ | Revive teammates | Dead bots wait a moment for a nearby engineer |
-| ✅ | Turrets at refineries | MG turret next to the team's refineries |
+| 🟡 | Turrets at refineries | MG turret construction works in some cases; map-placed rainbowroad refineries still fail |
 | ✅ | Skills | Repair and revive split across the team's engineers |
 | ⬜ | Walls, cameras, radar | |
 
@@ -72,7 +72,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Follow move orders | From a human commander |
 | 🟡 | Destroy turrets | Grenadier with mortar or rockets; often finds no firing position yet |
 | 🟡 | Follow guard orders | Engineers repair the ordered building; not tested with a human commander yet |
-| 🟡 | Squads | Bots join squads; roles and teamwork inside a squad are planned |
+| 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
 | 🟡 | Mines, scout binoculars | Implemented, rarely used in matches |
 | ⬜ | Seismic grenades | Engineers against turrets |
 
@@ -85,14 +85,14 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Fight | Cannon against vehicles, MG against infantry, lead moving targets, circle the enemy |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
-| 🟡 | Re-customize on the repair pad | Implemented, not confirmed in a match |
+| 🟡 | Re-customize on the repair pad | Confirmed in controlled tests using a debug purchase; regular match still unconfirmed |
 | 🟡 | Bill Nye mode | One scout jeep rams enemy vehicles off the road (on `emp_rainbowroad`); still falls off itself sometimes |
 
 ## Install
 
 1. Install [Metamod:Source][mms] on the Empires dedicated server.
 2. Build the plugin (see [Build](#build)).
-3. Copy `build/package/addons` into the server's `empires/` folder.
+3. Install the built plugin at `empires/addons/rcbot2/bin/rcbot.2.sdk2013.so` on the server.
 4. Every map needs a navmesh (`empires/maps/<map>.nav`). If it is missing, load the
    map and run `sv_cheats 1; p_nav_generate` once (takes up to a minute).
 5. Add bots from the server console:
@@ -114,41 +114,44 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | `rcbot_empires_commander_boomtank` | 1 | Commander runs over enemies in the base: 0 off, 1 on except on rainbowroad maps, 2 everywhere |
 | `rcbot_empires_engineer_turrets` | 1 | Engineers build MG turrets at the team's refineries |
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
-| `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of the team's bots) |
+| `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, minimum 2; Bill Nye excluded) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |
-| `rcbot_empires_force_offsets` | 0 | The plugin checks the game's `server_srv.so` and switches off features that read fixed memory offsets (revive, skills, vehicle armour, commander economy) on an unknown build. 1 = use them anyway |
+| `rcbot_empires_force_offsets` | 0 | Checks `server_srv.so`; on an unknown build, fixed-offset reads are disabled and affected features use fallbacks. 1 = use the offsets anyway |
 
 ## Build
 
-Needs Git, Python 3 with [AMBuild][], and GCC with 32-bit support (`gcc-multilib`).
+Needs Git, Python 3 with [AMBuild][], GCC with 32-bit support, and SDK2013,
+Metamod, SourceMod and the HL2SDK manifests. For a local sibling dependency checkout, a clean build is:
 
 ```sh
-git submodule update --init hl2sdk-manifests alliedmodders/hl2sdk-sdk2013 \
-    alliedmodders/metamod-source alliedmodders/sourcemod
-mkdir build && cd build
-CC=gcc CXX=g++ python3 ../configure.py -s sdk2013 --targets x86 --enable-optimize \
-    --hl2sdk-root ../alliedmodders \
-    --mms-path ../alliedmodders/metamod-source \
-    --sm-path ../alliedmodders/sourcemod
-ambuild
+SDK_ROOT="../rcbot2-clean/alliedmodders" \
+MANIFEST_DIR="../rcbot2-clean/hl2sdk-manifests" scripts/build_empires.sh
 ```
 
-The finished files are in `build/package/addons/`.
+The script prints the resulting `.so` path (by default
+`/tmp/rcbot2-build-output-v2/rcbot.2.sdk2013.so`). For iterative development,
+`scripts/dev_build.sh` uses a cache and the sibling `rcbot2-clean` checkout;
+`RCBOT_DEPS_DIR` overrides that dependency location. Install the plugin package
+and Metamod configuration on the server before replacing the binary.
 
 ## Known issues
 
 - The Bill Nye jeep sometimes drives off edges on `emp_rainbowroad`.
 - Engineers cannot place turrets at the map's own refineries on `emp_rainbowroad`.
-- Infantry can get stuck inside vehicles.
+- Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
+- Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
 - Only Linux servers are tested.
+
+Planned work includes coordinated squad passengers, jeep attacks and refinery defenses.
 
 ## Development
 
 - `scripts/dev.sh <map> <bots> <minutes>` builds, deploys to an isolated test server
   and prints a summary of the match. Set `EMPIRES_TEST_SERVER` (or put it in
-  `scripts/dev.local`) to that server.
-- `scripts/dev_check.sh` is the quick regression check (about 3 minutes).
-- `scripts/run_*_tests.sh` are unit tests that run without a game server.
+  `scripts/dev.local`) to that server. The addon must already be installed there;
+  the script replaces its binary. Use `DEV_UNTIL` to end a targeted run on a result.
+- `scripts/dev_check.sh` runs the commander chain, long-move and repair-pad checks; runtime varies.
+- `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).
 

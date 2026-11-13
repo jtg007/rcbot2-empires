@@ -1106,7 +1106,9 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 
 	edict_t* vehicle = v.vehicle.get();
-	if (v.stageUntil > 0.0f && now > v.stageUntil)
+	// Keep trying to leave the same vehicle even after the deadline. Resetting
+	// while still seated leaves the bot unable to plan or exit (run 125334).
+	if (v.stageUntil > 0.0f && now > v.stageUntil && v.stage != EmpiresVehicleStage::GIVE_UP_EXIT)
 	{
 		++v.failures;
 		if (v.failures >= 2 && !v.billNye)
@@ -1316,6 +1318,18 @@ void CBotEmpires::tickEmpiresVehicle()
 				std::find(v.baseline.begin(), v.baseline.end(), i) != v.baseline.end() ||
 				EmpiresVehicleReadInt(this, e, "m_iTeamNum", team) != team)
 				continue;
+			int driver = -1;
+			if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver >= 0)
+				continue;
+			bool claimed = false;
+			for (int slot = 0; slot < RCBOT_MAXPLAYERS && !claimed; ++slot)
+			{
+				CBot* bot = CBots::getBot(slot);
+				if (bot != nullptr && bot != this && bot->inUse())
+					claimed = static_cast<const CBotEmpires*>(bot)->m_vehicle.vehicleIndex == i;
+			}
+			if (claimed)
+				continue;
 			const float distance = (CBotGlobals::entityOrigin(e) - v.goal).Length();
 			if (distance < bestDistance)
 			{
@@ -1437,6 +1451,11 @@ void CBotEmpires::tickEmpiresVehicle()
 			resetEmpiresVehicle("gave-up-stuck", 30.0f);
 			v.bailLogAt = now + 0.3f; // after the reset, which clears the whole brain
 			v.bailLogStep = 1;
+			return;
+		}
+		if (inVehicle != v.vehicleIndex)
+		{
+			resetEmpiresVehicle("vehicle-changed", 5.0f);
 			return;
 		}
 		v.buttons = 0x08000000; // handbrake (exit itself works up to 100 mph)
