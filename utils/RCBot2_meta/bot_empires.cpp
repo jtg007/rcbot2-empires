@@ -3260,11 +3260,12 @@ void CBotEmpires::alterOutgoingUserCmd(CBotCmd& command)
 	// This is the final command boundary. A competing action may have left
 	// stale attack or movement buttons in the generic command, but it must never
 	// cancel or redirect an active Commander MOVE. Movement comes from the
-	// route task's move vector.
+	// route task's move vector. IN_JUMP stays: the navmesh follower jumps onto ledges
+	// (masking it left the bot pressed against a 32-unit ledge on emp_streetsoffire).
 	if (isEmpiresCommanderMoveActive())
 	{
 		command.buttons &= ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT |
-			IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_JUMP | IN_SPEED | IN_WALK);
+			IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_SPEED | IN_WALK);
 		if (logger != nullptr && engine != nullptr && gpGlobals != nullptr &&
 			m_pEdict != nullptr && !m_pEdict->IsFree() &&
 			gpGlobals->curtime >= m_flEmpiresCommanderMoveNextCommandDiagnosticLog)

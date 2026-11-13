@@ -49,6 +49,12 @@ sha256sum "$PLUGIN" | cut -c1-16
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$SERVER_ROOT/dev-runs/$STAMP-$MAP-${BOTS}b-${MINUTES}m"
 mkdir -p "$RUN_DIR"
+# Record which source state produced this run (SHA, dirty flag, plugin hash).
+{
+  echo "sha=$(git -C "$ROOT" rev-parse --short HEAD)"
+  if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then echo "dirty=1"; else echo "dirty=0"; fi
+  echo "plugin_sha256=$(sha256sum "$PLUGIN" | cut -c1-16)"
+} > "$RUN_DIR/build-info.txt"
 # Loopback is enough: the bots are internal clients. Override with DEV_SERVER_IP.
 SERVER_IP="${DEV_SERVER_IP:-127.0.0.1}"
 

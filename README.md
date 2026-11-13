@@ -57,7 +57,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Build and repair buildings | |
 | ✅ | Repair vehicles | Heals the damaged armor side |
 | ✅ | Revive teammates | Dead bots wait a moment for a nearby engineer |
-| 🟡 | Turrets at refineries | MG turret construction works in some cases; map-placed rainbowroad refineries still fail |
+| 🟡 | Turrets at refineries | MG turret construction works; unreachable Rainbowroad stand points are rejected and rotated, while rare placement failures remain |
 | ✅ | Skills | Repair and revive split across the team's engineers |
 | ⬜ | Walls, cameras, radar | |
 
@@ -70,7 +70,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
 | ✅ | Follow move orders | From a human commander |
-| 🟡 | Destroy turrets | Grenadier with mortar or rockets; often finds no firing position yet |
+| 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
 | 🟡 | Follow guard orders | Engineers repair the ordered building; not tested with a human commander yet |
 | 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
 | 🟡 | Mines, scout binoculars | Implemented, rarely used in matches |
@@ -85,7 +85,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Fight | Cannon against vehicles, MG against infantry, lead moving targets, circle the enemy |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
-| 🟡 | Re-customize on the repair pad | Confirmed in controlled tests using a debug purchase; regular match still unconfirmed |
+| 🟡 | Re-customize on the repair pad | Seen in 22-bot matches after a purchase at the factory; not yet confirmed on a server without `emp_sv_debug_build_vehicles 1` |
 | 🟡 | Bill Nye mode | One scout jeep rams enemy vehicles off the road (on `emp_rainbowroad`); still falls off itself sometimes |
 
 ## Install
@@ -137,7 +137,7 @@ and Metamod configuration on the server before replacing the binary.
 ## Known issues
 
 - The Bill Nye jeep sometimes drives off edges on `emp_rainbowroad`.
-- Engineers cannot place turrets at the map's own refineries on `emp_rainbowroad`.
+- Turret placement at map-owned refineries on `emp_rainbowroad` is still intermittent; unreachable stand points are skipped and retried at another angle.
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
 - Only Linux servers are tested.
@@ -150,7 +150,8 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   and prints a summary of the match. Set `EMPIRES_TEST_SERVER` (or put it in
   `scripts/dev.local`) to that server. The addon must already be installed there;
   the script replaces its binary. Use `DEV_UNTIL` to end a targeted run on a result.
-- `scripts/dev_check.sh` runs the commander chain, long-move and repair-pad checks; runtime varies.
+  Each run folder gets a `build-info.txt` with the git SHA and whether the tree was dirty.
+- `scripts/dev_check.sh` runs the commander chain, long-move and repair-pad checks; runtime varies. The long-move check fails if the bot only arrives after retries.
 - `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).

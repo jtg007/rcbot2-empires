@@ -194,7 +194,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 			}
 		}
 		float best = kSearchRange;
-		int nOurs = 0, nClaimed = 0, nNoYaw = 0, nCovered = 0, nNoMesh = 0;
+		int nOurs = 0, nClaimed = 0, nNoYaw = 0, nCovered = 0, nNoMesh = 0, nNoPath = 0;
 		for (edict_t* e : refineries)
 		{
 			const int index = engine->IndexOfEdict(e);
@@ -245,6 +245,22 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 					continue;
 				}
 				spot = onMesh;
+				// A target on a disconnected/island area can be silently snapped to
+				// a distant area by BuildPath. Do not claim a stand point unless the
+				// actual route reaches it within the same arrival tolerance used below.
+				RCBotNavMesh::Path placementPath;
+				const RCBotNavMesh::PathResult placementResult =
+					RCBotNavMesh::BuildPath(getOrigin(), spot, placementPath, this);
+				const bool placementReachable =
+					placementResult == RCBotNavMesh::PathResult::SUCCESS &&
+					!placementPath.points.empty() &&
+					Dist2D(placementPath.points.back(), spot) <= kArrive &&
+					std::fabs(placementPath.points.back().z - spot.z) <= 80.0f;
+				if (!placementReachable)
+				{
+					++nNoPath;
+					continue;
+				}
 			}
 			const float d = Dist2D(at, getOrigin());
 			if (d < best)
@@ -260,8 +276,8 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 			if (now >= m_flTurretNextLog)
 			{
 				m_flTurretNextLog = now + 30.0f;
-				Msg("[RCBOT2] refinery-turret none userid=%d refineries=%d ours=%d claimed=%d no_yaw=%d covered=%d no_mesh=%d\n",
-					userId, static_cast<int>(refineries.size()), nOurs, nClaimed, nNoYaw, nCovered, nNoMesh);
+				Msg("[RCBOT2] refinery-turret none userid=%d refineries=%d ours=%d claimed=%d no_yaw=%d covered=%d no_mesh=%d no_path=%d\n",
+					userId, static_cast<int>(refineries.size()), nOurs, nClaimed, nNoYaw, nCovered, nNoMesh, nNoPath);
 			}
 			return false;
 		}

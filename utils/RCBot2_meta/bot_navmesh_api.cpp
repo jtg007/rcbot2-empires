@@ -751,12 +751,14 @@ bool SegmentHitsBox(const Vector& a, const Vector& b, const BuildingBox& box,
 	return true;
 }
 
-bool HullClearOfBuilding(const Vector& a, const Vector& b, const BuildingBox& box)
+bool HullClearOfBuilding(const Vector& a, const Vector& b, const BuildingBox& box, float* fraction = nullptr)
 {
 	Ray_t ray;
 	ray.Init(a, b, Vector(-g_detourHalf, -g_detourHalf, 0.0f), Vector(g_detourHalf, g_detourHalf, 72.0f));
 	trace_t hit;
 	enginetrace->ClipRayToEntity(ray, MASK_PLAYERSOLID, box.handle, &hit);
+	if (fraction != nullptr)
+		*fraction = hit.startsolid ? 0.0f : hit.fraction;
 	return !hit.startsolid && hit.fraction >= 1.0f;
 }
 
@@ -1013,6 +1015,8 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 		const Vector a = path.points[i];
 		const Vector b = path.points[i + 1];
 		const float planeZ = b.z + kDetourFloorClearance;
+		const BuildingBox* first = nullptr;
+		float firstFraction = 1.0f;
 		for (const BuildingBox& box : boxes)
 		{
 			// Vehicles driving onto a repair pad: the goal building is the way in. Also a
@@ -1020,10 +1024,19 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 			// the vehicle stops before it anyway.
 			if (skipGoalBuilding && InPaddedBox(path.points.back(), box, 300.0f))
 				continue;
-			if (planeZ < box.mins.z || planeZ > box.maxs.z ||
-				!SegmentHitsBox(a, b, box, 16.0f) ||
-				HullClearOfBuilding(Vector(a.x, a.y, planeZ), Vector(b.x, b.y, planeZ), box))
+			if (planeZ < box.mins.z || planeZ > box.maxs.z || !SegmentHitsBox(a, b, box, 16.0f))
 				continue;
+			float fraction = 1.0f;
+			if (!HullClearOfBuilding(Vector(a.x, a.y, planeZ), Vector(b.x, b.y, planeZ), box, &fraction) &&
+				(first == nullptr || fraction < firstFraction))
+			{
+				first = &box;
+				firstFraction = fraction;
+			}
+		}
+		if (first != nullptr)
+		{
+			const BuildingBox& box = *first;
 
 			// Plan to the first route point beyond this building.
 			std::size_t last = i + 1;
@@ -1052,7 +1065,7 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 				knownBad = knownBad || (now < f.until && now >= f.until - 15.0f && f.bx == key.bx && f.by == key.by &&
 					f.ax == key.ax && f.ay == key.ay && f.tx == key.tx && f.ty == key.ty);
 			if (knownBad)
-				break;
+				continue;
 			std::vector<Vector> detour;
 			const bool planned = PlanDetour(a, path.points[last], planeZ, box, boxes, detour);
 			if (!planned)
@@ -1070,10 +1083,10 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 			{
 				path.points.erase(path.points.begin() + i + 1, path.points.begin() + last);
 				path.points.insert(path.points.begin() + i + 1, detour.begin(), detour.end());
-				i += detour.size();
+				// Check the outgoing leg for another building as well.
+				i += detour.size() - 1;
 				++applied;
 			}
-			break;
 		}
 	}
 }

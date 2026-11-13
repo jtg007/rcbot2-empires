@@ -22,9 +22,14 @@ DEV_CMDS="wait 10;rcbotd empires_test_commander_move bot 2 888 3085 -142" \
 DEV_UNTIL="commander-move retry=6|commander-move result=COMPLETE" \
 DEV_SHOW="commander-move (result|retry)|error:" \
 scripts/dev.sh "$MAP" 1 8 >"$TMP/move.txt" 2>&1
-retries=$(grep -a -c "commander-move retry=" "$TMP/move.txt")
+retries=$(grep -a -c "^\[RCBOT2\] commander-move retry=" "$TMP/move.txt")  # not the harness echo "Ende: ..."
 if grep -aq "commander-move result=COMPLETE" "$TMP/move.txt" && ! grep -aq "Crashes: YES" "$TMP/move.txt"; then
-  row long-move PASS "retries=$retries"
+  # COMPLETE after retries means the bot hung on the way (TODO 1.3b): not a PASS.
+  if [[ "$retries" -eq 0 ]]; then
+    row long-move PASS "retries=0"
+  else
+    row long-move FAIL "COMPLETE only after retries=$retries (hang on the route)"
+  fi
 else
   row long-move FAIL "retries=$retries $(grep -a 'Crashes\|error:' "$TMP/move.txt" | tr '\n' '|' | cut -c1-160)"
 fi

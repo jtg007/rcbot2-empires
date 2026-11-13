@@ -25,6 +25,7 @@ namespace
 {
 constexpr float kGoalTolerance = 64.0f;
 constexpr float kStepHeight = 18.0f;
+constexpr float kBelowPointReach = 48.0f;
 
 struct Route
 {
@@ -537,10 +538,21 @@ void Frame()
 		observeAreaTransition(route, bot);
 
 		// A point up on a ledge only counts once the bot is up there too.
-		while (route.point < route.path.points.size() &&
-			bot->distanceFrom(route.path.points[route.point]) <=
-				(route.point + 1 == route.path.points.size() ? kGoalTolerance : 20.0f) &&
-			route.path.points[route.point].z - bot->getOrigin().z <= kStepHeight)
+		// A point just below the bot (the mesh area lies under a ledge crown) is never within 20
+		// in 3D when the bot stands on the crown; it counts once the bot is above it (streetsoffire
+		// (-4244 -6269 -15), bot 21 higher: stood still for 127 s).
+		const auto pointReached = [&]() {
+			const Vector& pt = route.path.points[route.point];
+			const Vector bo = bot->getOrigin();
+			if (pt.z - bo.z > kStepHeight)
+				return false;
+			if (route.point + 1 == route.path.points.size())
+				return bot->distanceFrom(pt) <= kGoalTolerance;
+			if (bot->distanceFrom(pt) <= 20.0f)
+				return true;
+			return bo.z - pt.z <= kBelowPointReach && Vector(pt.x - bo.x, pt.y - bo.y, 0.0f).Length() <= 20.0f;
+		};
+		while (route.point < route.path.points.size() && pointReached())
 		{
 			for (const Vector& ladderPoint : route.path.ladderPoints)
 				if ((ladderPoint - route.path.points[route.point]).LengthSqr() < 1.0f)
