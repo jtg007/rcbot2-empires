@@ -152,7 +152,10 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   `scripts/dev.local`) to that server. The addon must already be installed there;
   the script replaces its binary. Use `DEV_UNTIL` to end a targeted run on a result.
   Each run folder gets a `build-info.txt` with the git SHA and whether the tree was dirty.
-- `scripts/dev_check.sh` runs the commander chain, long-move and repair-pad checks; runtime varies. The long-move check fails if the bot only arrives after retries.
+- `scripts/dev_check.sh` runs the commander chain, long-move, repair-pad, turret-build and
+  revive checks (about 3–4 minutes). The long-move check fails if the bot only arrives after retries.
+- `scripts/dev_econ.sh [map] [game-minutes]` plays with production economy values (no debug
+  vehicle purchase) and ends when a bot drives a vehicle it bought.
 - `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).
