@@ -16,3 +16,12 @@ Leave sequence for a bot: `emp_comm_exit`, wait until `m_hVehicle == CV` (>= 1 s
 Measured (emp_streetsoffire): tick 1 comm_exit (vehicle=4095), tick 2 use (vehicle=74), then `LEFT_SEAT` (`IsCommander` = 0).
 
 Who is commander: player netprop `m_bCommander` (`+0x1438`), view `m_bInCommanderInterface` (probably `+0x1449`), team pointer `CEmpTeam+0x474`. `m_hVehicle` does not show a commander in the commander view.
+
+## Exit point (2026-11-14)
+
+`CEmpTank::GetExitPoint` 0x69c620 uses the attachments `exit_pos_%i_%i` (string 0x9ded55) and sweeps
+a player hull there with `TraceRay`, ignoring the CV and its 8 passengers (loop 0x69c780). A point is
+rejected only for fraction < 1.0 or start/allsolid (0x69c9e7–0x69ca08). Building footprints are not
+checked: a free spot in a niche of a building counts as valid. Run 20261114-093847: the commander
+drove the CV onto the BE barracks (drive goal inside its footprint), got out into a niche and could
+not leave for ~10 minutes. The bot now keeps the CV drive goal 150 away from buildings.

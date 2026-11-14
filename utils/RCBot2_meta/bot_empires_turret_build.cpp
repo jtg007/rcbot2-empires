@@ -93,7 +93,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 			m_flTurretNextNav = now + 2.0f;
 			if (requestEmpiresBuildAssignment(turret))
 			{
-				Msg("[RCBOT2] refinery-turret finish userid=%d turret=%d health=%d/%d\n", userId,
+				RCBOT_DIAG("[RCBOT2] refinery-turret finish userid=%d turret=%d health=%d/%d\n", userId,
 					m_iTurretBuilding, health, maxHealth);
 				return true;
 			}
@@ -102,7 +102,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		}
 		else if (alive && !full)
 			return false;
-		Msg("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d health=%d/%d yaw=%.0f\n",
+		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d health=%d/%d yaw=%.0f\n",
 			full ? "complete" : (alive ? "unfinished reason=assign-rejected" : "failed reason=turret-gone"),
 			userId, m_iTurretRefinery, m_iTurretBuilding, health, maxHealth, m_flTurretYaw);
 		s_claim[m_iTurretRefinery] = {userId, now + 5.0f};
@@ -126,7 +126,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				Dist2D(CBotGlobals::entityOrigin(e), m_vTurretSpot) < 250.0f)
 				turret = e;
 		}
-		Msg("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d spot=(%.0f %.0f %.0f) yaw=%.0f\n",
+		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d spot=(%.0f %.0f %.0f) yaw=%.0f\n",
 			turret != nullptr ? "placed" : "failed", userId, m_iTurretRefinery,
 			turret != nullptr ? engine->IndexOfEdict(turret) : -1, m_vTurretSpot.x, m_vTurretSpot.y,
 			m_vTurretSpot.z, m_flTurretYaw);
@@ -159,7 +159,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 			if (now >= m_flTurretNextLog)
 			{
 				m_flTurretNextLog = now + 30.0f;
-				Msg("[RCBOT2] refinery-turret limit userid=%d built=%d allotted=%d\n", userId, built, allotted);
+				RCBOT_DIAG("[RCBOT2] refinery-turret limit userid=%d built=%d allotted=%d\n", userId, built, allotted);
 			}
 			m_flTurretNextSearch = now + 10.0f;
 			return false;
@@ -276,14 +276,14 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 			if (now >= m_flTurretNextLog)
 			{
 				m_flTurretNextLog = now + 30.0f;
-				Msg("[RCBOT2] refinery-turret none userid=%d refineries=%d ours=%d claimed=%d no_yaw=%d covered=%d no_mesh=%d no_path=%d\n",
+				RCBOT_DIAG("[RCBOT2] refinery-turret none userid=%d refineries=%d ours=%d claimed=%d no_yaw=%d covered=%d no_mesh=%d no_path=%d\n",
 					userId, static_cast<int>(refineries.size()), nOurs, nClaimed, nNoYaw, nCovered, nNoMesh, nNoPath);
 			}
 			return false;
 		}
 		m_flTurretUntil = now + 60.0f;
 		m_flTurretNextNav = 0.0f;
-		Msg("[RCBOT2] refinery-turret start userid=%d refinery=%d spot=(%.0f %.0f %.0f) yaw=%.0f dist=%.0f attempt=%d\n",
+		RCBOT_DIAG("[RCBOT2] refinery-turret start userid=%d refinery=%d spot=(%.0f %.0f %.0f) yaw=%.0f dist=%.0f attempt=%d\n",
 			userId, m_iTurretRefinery, m_vTurretSpot.x, m_vTurretSpot.y, m_vTurretSpot.z, m_flTurretYaw, best,
 			m_iTurretAttempt);
 	}
@@ -292,7 +292,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	edict_t* refinery = engine->PEntityOfEntIndex(m_iTurretRefinery);
 	if (refinery == nullptr || refinery->IsFree() || now > m_flTurretUntil)
 	{
-		Msg("[RCBOT2] refinery-turret end userid=%d refinery=%d reason=%s\n", userId, m_iTurretRefinery,
+		RCBOT_DIAG("[RCBOT2] refinery-turret end userid=%d refinery=%d reason=%s\n", userId, m_iTurretRefinery,
 			now > m_flTurretUntil ? "timeout" : "gone");
 		s_claim[m_iTurretRefinery] = {userId, now + 60.0f};
 		++m_iTurretAttempt;
@@ -316,7 +316,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				m_pSchedules->freeMemory();
 			if (dist < 200.0f || !requestNavigation(m_vTurretSpot, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
 				setMoveTo(m_vTurretSpot);
-			Msg("[RCBOT2] refinery-turret walk userid=%d refinery=%d dist=%.0f\n", userId, m_iTurretRefinery, dist);
+			RCBOT_DIAG("[RCBOT2] refinery-turret walk userid=%d refinery=%d dist=%.0f\n", userId, m_iTurretRefinery, dist);
 		}
 		if (dist < 200.0f)
 			setMoveTo(m_vTurretSpot);
@@ -333,11 +333,11 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	if (requestEmpiresEngineerBuildOnce(-1, &target, false))
 	{
 		m_bTurretBuildArmed = true;
-		Msg("[RCBOT2] refinery-turret place userid=%d refinery=%d target=(%.0f %.0f %.0f)\n", userId,
+		RCBOT_DIAG("[RCBOT2] refinery-turret place userid=%d refinery=%d target=(%.0f %.0f %.0f)\n", userId,
 			m_iTurretRefinery, target.x, target.y, target.z);
 		return true;
 	}
-	Msg("[RCBOT2] refinery-turret end userid=%d refinery=%d reason=build-rejected\n", userId, m_iTurretRefinery);
+	RCBOT_DIAG("[RCBOT2] refinery-turret end userid=%d refinery=%d reason=build-rejected\n", userId, m_iTurretRefinery);
 	s_claim[m_iTurretRefinery] = {userId, now + 30.0f};
 	m_iTurretRefinery = 0;
 	return false;

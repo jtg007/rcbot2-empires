@@ -17,6 +17,7 @@
 #include "iplayerinfo.h"
 #include <cstdio>
 #include <cstring>
+#include "bot_cvars.h"
 
 namespace
 {
@@ -91,7 +92,7 @@ bool CBotEmpires::handleEmpiresRevive()
 		if (ragdoll == nullptr || now > m_flReviveUntil)
 		{
 			const bool alive = info != nullptr && info->IsConnected() && CBotGlobals::entityIsAlive(target);
-			Msg("[RCBOT2] revive end userid=%d target=%d reason=%s sent=%d\n", userId, m_iReviveTarget,
+			RCBOT_DIAG("[RCBOT2] revive end userid=%d target=%d reason=%s sent=%d\n", userId, m_iReviveTarget,
 				alive ? (m_flReviveSent > 0.0f ? "revived" : "alive") : (ragdoll == nullptr ? "no-ragdoll" : "timeout"),
 				m_flReviveSent > 0.0f ? 1 : 0);
 			s_reviveClaim[m_iReviveTarget].until = 0.0f;
@@ -129,7 +130,7 @@ bool CBotEmpires::handleEmpiresRevive()
 				{
 					m_flReviveNextLog = now + 5.0f;
 					const char* p = EmpiresBinaryOffsetsTrusted() ? reinterpret_cast<const char*>(BaseOf(player)) : nullptr;
-					Msg("[RCBOT2] revive skip userid=%d target=%d handle=%08x f1e3c=%d f1e45=%d\n", userId, i,
+					RCBOT_DIAG("[RCBOT2] revive skip userid=%d target=%d handle=%08x f1e3c=%d f1e45=%d\n", userId, i,
 						p != nullptr ? *reinterpret_cast<const unsigned int*>(p + 0x1e34) : 0u,
 						p != nullptr ? p[0x1e3c] : -1, p != nullptr ? p[0x1e45] : -1);
 				}
@@ -148,7 +149,7 @@ bool CBotEmpires::handleEmpiresRevive()
 			if (now >= m_flReviveNextLog)
 			{
 				m_flReviveNextLog = now + 10.0f;
-				Msg("[RCBOT2] revive scan userid=%d none\n", userId);
+				RCBOT_DIAG("[RCBOT2] revive scan userid=%d none\n", userId);
 			}
 			return false;
 		}
@@ -157,7 +158,7 @@ bool CBotEmpires::handleEmpiresRevive()
 		m_flReviveNextNav = 0.0f;
 		m_flReviveSent = 0.0f;
 		const Vector at = RagdollOrigin(ragdoll, target);
-		Msg("[RCBOT2] revive start userid=%d target=%d target_userid=%d at=(%.0f %.0f %.0f) dist=%.0f\n", userId,
+		RCBOT_DIAG("[RCBOT2] revive start userid=%d target=%d target_userid=%d at=(%.0f %.0f %.0f) dist=%.0f\n", userId,
 			m_iReviveTarget, engine->GetPlayerUserId(target), at.x, at.y, at.z, best);
 	}
 	s_reviveClaim[m_iReviveTarget] = {userId, now + 3.0f};
@@ -181,7 +182,7 @@ bool CBotEmpires::handleEmpiresRevive()
 				m_pSchedules->freeMemory();
 			if (!requestNavigation(goal, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
 				setMoveTo(goal);
-			Msg("[RCBOT2] revive walk userid=%d target=%d dist=%.0f\n", userId, m_iReviveTarget, dist);
+			RCBOT_DIAG("[RCBOT2] revive walk userid=%d target=%d dist=%.0f\n", userId, m_iReviveTarget, dist);
 		}
 		return true;
 	}
@@ -199,7 +200,7 @@ bool CBotEmpires::handleEmpiresRevive()
 	readEmpiresEntityIntProperty(weapon, "m_iClip1", clip);
 	if (clip < kReviveClip)
 	{
-		Msg("[RCBOT2] revive end userid=%d target=%d reason=low-clip clip=%d sent=0\n", userId, m_iReviveTarget, clip);
+		RCBOT_DIAG("[RCBOT2] revive end userid=%d target=%d reason=low-clip clip=%d sent=0\n", userId, m_iReviveTarget, clip);
 		s_reviveClaim[m_iReviveTarget].until = 0.0f;
 		m_iReviveTarget = 0;
 		m_flReviveNextSearch = now + 15.0f;
@@ -212,7 +213,7 @@ bool CBotEmpires::handleEmpiresRevive()
 			static_cast<int>(at.y), static_cast<int>(at.z + 8.0f));
 		helpers->ClientCommand(m_pEdict, command);
 		m_flReviveSent = now;
-		Msg("[RCBOT2] revive send userid=%d target=%d clip=%d dist=%.0f\n", userId, m_iReviveTarget, clip, dist);
+		RCBOT_DIAG("[RCBOT2] revive send userid=%d target=%d clip=%d dist=%.0f\n", userId, m_iReviveTarget, clip, dist);
 	}
 	return true;
 }
@@ -249,7 +250,7 @@ bool CBotEmpires::holdRespawnForRevive()
 	if (hold && targeted && !m_bReviveHoldLogged)
 	{
 		m_bReviveHoldLogged = true;
-		Msg("[RCBOT2] revive hold-respawn userid=%d dead=%.1f\n", engine->GetPlayerUserId(m_pEdict), dead);
+		RCBOT_DIAG("[RCBOT2] revive hold-respawn userid=%d dead=%.1f\n", engine->GetPlayerUserId(m_pEdict), dead);
 	}
 	if (!hold)
 		m_bReviveHoldLogged = false;

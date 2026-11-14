@@ -90,6 +90,11 @@ extern ConVar rcbot_empires_commander_first;
 extern ConVar rcbot_empires_vehicles;
 extern ConVar rcbot_empires_vehicle_drivers;
 extern ConVar rcbot_empires_vehicle_debug_buy;
+extern ConVar rcbot_empires_debug_log;
+// Diagnostic "[RCBOT2] ..." lines (hundreds per minute in a full match): only with
+// rcbot_empires_debug_log 1. The dev harness turns it on; warnings and console tools use Msg.
+// Arguments are NOT evaluated with the log off: never pass a call that has effects.
+#define RCBOT_DIAG(...) do { if (rcbot_empires_debug_log.GetBool()) Msg(__VA_ARGS__); } while (0)
 extern ConVar rcbot_empires_billnye;
 extern ConVar rcbot_empires_engineer_turrets;
 extern ConVar rcbot_empires_commander_engineer;

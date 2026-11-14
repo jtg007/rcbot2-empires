@@ -2648,7 +2648,7 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	if (m_iBuildAssignStage > 0)
 	{
 		m_iBuildAssignStage = 1; // resumes from the walk after respawn
-		Msg("[RCBOT2] build-assign event=died resuming-after-respawn\n");
+		RCBOT_DIAG("[RCBOT2] build-assign event=died resuming-after-respawn\n");
 	}
 	CBot::died(pKiller, pszWeapon);
 	if (EmpiresAnalysis::IsActive())
@@ -4471,9 +4471,13 @@ void CBotEmpires::onNavigationIntentTerminal(
 	if (!terminalApplied)
 		return;
 
-	Msg("[RCBOT2] commander-move result=%s reason=%s retries=%d\n",
+	// The game ends a MOVE only within 100 units of m_vCommandLocation
+	// (PostThink, squared threshold 10000 at 0x957f98); log how far off the bot is.
+	RCBOT_DIAG("[RCBOT2] commander-move result=%s reason=%s retries=%d dist=%.0f dist2d=%.0f\n",
 		result == RCBotNavigation::Result::COMPLETE ? "COMPLETE" : "FAIL",
-		reason != nullptr ? reason : "-", m_iEmpiresCommanderMoveRetries);
+		reason != nullptr ? reason : "-", m_iEmpiresCommanderMoveRetries,
+		(getOrigin() - m_vEmpiresCommanderMoveTarget).Length(),
+		(getOrigin() - m_vEmpiresCommanderMoveTarget).Length2D());
 	if (result == RCBotNavigation::Result::COMPLETE)
 	{
 		m_bEmpiresCommanderMoveFinished = true;
@@ -5101,13 +5105,34 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 				m_bEmpiresCommanderMoveTestActive = true;
 				m_vEmpiresCommanderMoveTestTarget = m_vEmpiresCommanderMoveTarget;
 			}
-			Msg("[RCBOT2] commander-move retry=%d from=(%.0f %.0f %.0f)\n",
+			RCBOT_DIAG("[RCBOT2] commander-move retry=%d from=(%.0f %.0f %.0f)\n",
 				m_iEmpiresCommanderMoveRetries, getOrigin().x, getOrigin().y, getOrigin().z);
 		}
 	}
 
 	if (!readEmpiresCommanderMove(target, synthetic, expired, commandType))
 	{
+		// m_iCommandType left MOVE. The game ends a MOVE itself only within 100 of the
+		// location (PostThink 0x669561, squared 10000); farther away 0 is an abort
+		// (emp_unit_order 0, "Negative", team change) and 2/3/4 a new order (TODO 3.19).
+		int liveType = -1;
+		if (m_bEmpiresCommanderMoveRouteIssued && !m_bEmpiresCommanderMoveFinished &&
+			!m_bEmpiresCommanderMoveFailed && !m_bEmpiresCommanderMoveTestActive && isAlive() &&
+			m_pEdict != nullptr && readEmpiresIntProperty(m_pEdict, "m_iCommandType", liveType) &&
+			liveType != kEmpiresCommanderMoveType &&
+			(getOrigin() - m_vEmpiresCommanderMoveTarget).Length() > 110.0f)
+		{
+			m_bEmpiresCommanderMoveFailed = true;
+			m_commanderMoveShadow.ObserveAbort(liveType == 0 ?
+				RCBotOrder::DetailReason::CANCELLED : RCBotOrder::DetailReason::REPLACED, now);
+			EmpiresAnalysis::RecordCommanderEvent(this, "COMMANDER_ORDER_CANCELLED",
+				m_vEmpiresCommanderMoveTarget, liveType == 0 ? "native-order-cleared" : "native-order-replaced");
+			RCBOT_DIAG("[RCBOT2] commander-move result=CANCELLED type=%d dist=%.0f\n", liveType,
+				(getOrigin() - m_vEmpiresCommanderMoveTarget).Length());
+			if (hasActiveNavigationIntent())
+				cancelNavigationAttempt("commander-order-cancelled");
+			return false;
+		}
 		// A cleared public sendprop is not a cancellation. Keep the active order
 		// alive until the provider-neutral navigation path reports a result.
 		if (!m_bEmpiresCommanderMoveRouteIssued ||
@@ -6312,7 +6337,7 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 		// command gates +0x121e (emp_eng_upgrade) and +0x121f (emp_revive).
 		const char* b = base != nullptr ? reinterpret_cast<const char*>(base) : nullptr;
 		auto at = [b](int off) { return b != nullptr ? *reinterpret_cast<const int*>(b + off) : -1; };
-		Msg("[RCBOT2] engineer-skills userid=%d first=%s sent=%d rank=%d active repair=%d revive=%d turret=%d "
+		RCBOT_DIAG("[RCBOT2] engineer-skills userid=%d first=%s sent=%d rank=%d active repair=%d revive=%d turret=%d "
 			"want=%d,%d,%d,%d have=%d,%d,%d,%d gate_upgrade=%d gate_revive=%d\n",
 			myId, repairFirst ? "repair" : "revive", changed ? 1 : 0, rank, repair ? 1 : 0, revive ? 1 : 0, turret ? 1 : 0,
 			at(0x1200), at(0x1204), at(0x1208), at(0x120c), at(0x11f0), at(0x11f4), at(0x11f8), at(0x11fc),
@@ -7310,7 +7335,7 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	cancelNavigationAttempt("build-assignment-replaced");
 	m_pSchedules->freeMemory();
 	queueEmpiresBuildAssignRoute();
-	Msg("[RCBOT2] build-assign stage=approach userid=%d building=%d distance=%.1f spot=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] build-assign stage=approach userid=%d building=%d distance=%.1f spot=(%.0f %.0f %.0f)\n",
 		engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(building),
 		distanceFrom(building), spot.x, spot.y, spot.z);
 	return true;
@@ -7429,7 +7454,7 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	}
 	if (spotCost == std::numeric_limits<float>::max())
 	{
-		Msg("[RCBOT2] build-assign result=REJECT reason=no-standing-spot building=%d no_surface=%d no_ground=%d blocked=%d no_aim=%d\n",
+		RCBOT_DIAG("[RCBOT2] build-assign result=REJECT reason=no-standing-spot building=%d no_surface=%d no_ground=%d blocked=%d no_aim=%d\n",
 			engine->IndexOfEdict(building), noSurface, noGround, blocked, noAim);
 		return false;
 	}
@@ -7443,7 +7468,7 @@ void CBotEmpires::queueEmpiresBuildAssignRoute()
 	route->addTask(new CFindPathTask(m_vBuildAssignSpot));
 	route->addTask(new CMoveToTask(m_vBuildAssignSpot));
 	m_pSchedules->addFront(route);
-	Msg("[RCBOT2] build-assign route from=(%.0f %.0f %.0f)\n", here.x, here.y, here.z);
+	RCBOT_DIAG("[RCBOT2] build-assign route from=(%.0f %.0f %.0f)\n", here.x, here.y, here.z);
 }
 
 // Commander "Guard unit" (m_iCommandType 4, target entity in
@@ -7466,7 +7491,7 @@ void CBotEmpires::damageEmpiresTestGuardBuilding(int entIndex)
 	if (health == nullptr)
 		return;
 	*health = 100;
-	Msg("[RCBOT2] guard-order test damaged building %d to 100\n", entIndex);
+	RCBOT_DIAG("[RCBOT2] guard-order test damaged building %d to 100\n", entIndex);
 }
 
 void CBotEmpires::tickEmpiresGuardOrder()
@@ -7532,7 +7557,7 @@ void CBotEmpires::tickEmpiresGuardOrder()
 	if (m_iEmpiresGuardLoggedTarget != targetIndex)
 	{
 		m_iEmpiresGuardLoggedTarget = targetIndex;
-		Msg("[RCBOT2] guard-order userid=%d target=%d class=%s health=%d/%d started=%d\n",
+		RCBOT_DIAG("[RCBOT2] guard-order userid=%d target=%d class=%s health=%d/%d started=%d\n",
 			engine->GetPlayerUserId(m_pEdict), targetIndex, target->GetClassName(),
 			health, maxHealth, started ? 1 : 0);
 	}
@@ -7554,7 +7579,7 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 
 	const auto finish = [&](const char* result)
 	{
-		Msg("[RCBOT2] build-assign result=%s userid=%d elapsed=%.1f attempts=%d health=%d max_health=%d distance=%.1f\n",
+		RCBOT_DIAG("[RCBOT2] build-assign result=%s userid=%d elapsed=%.1f attempts=%d health=%d max_health=%d distance=%.1f\n",
 			result, engine->GetPlayerUserId(m_pEdict), elapsed, m_iBuildAssignAttempts, health, maxHealth,
 			building != nullptr ? distanceFrom(building) : -1.0f);
 		m_iBuildAssignStage = 0;
@@ -7586,7 +7611,7 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 			edict_t* weapon = CClassInterface::getCurrentWeapon(m_pEdict);
 			if (weapon != nullptr)
 				readEmpiresEntityIntProperty(weapon, "m_iClip1", clip);
-			Msg("[RCBOT2] build-assign progress t=%.0f health=%d/%d clip=%d\n", elapsed, health, maxHealth, clip);
+			RCBOT_DIAG("[RCBOT2] build-assign progress t=%.0f health=%d/%d clip=%d\n", elapsed, health, maxHealth, clip);
 		}
 		return;
 	}
@@ -7624,7 +7649,7 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 			m_pSchedules->freeMemory();
 		stopMoving();
 		m_iBuildAssignStage = 2;
-		Msg("[RCBOT2] build-assign stage=arrived elapsed=%.1f distance=%.1f health=%d/%d\n",
+		RCBOT_DIAG("[RCBOT2] build-assign stage=arrived elapsed=%.1f distance=%.1f health=%d/%d\n",
 			elapsed, distance, health, maxHealth);
 	}
 
@@ -7638,7 +7663,7 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 		return;
 	}
 	const bool started = requestEmpiresEngineerRepairOnce(engine->IndexOfEdict(building), true);
-	Msg("[RCBOT2] build-assign stage=work attempt=%d started=%d health=%d/%d distance=%.1f\n",
+	RCBOT_DIAG("[RCBOT2] build-assign stage=work attempt=%d started=%d health=%d/%d distance=%.1f\n",
 		m_iBuildAssignAttempts, started ? 1 : 0, health, maxHealth, distance);
 }
 
@@ -7671,7 +7696,7 @@ bool CBotEmpires::requestCommanderVehicleEntryOnce()
 	}
 	if (target == nullptr)
 	{
-		Msg("[RCBOT2] commander-entry result=REJECT reason=no-command-vehicle team=%d\n", getTeam());
+		RCBOT_DIAG("[RCBOT2] commander-entry result=REJECT reason=no-command-vehicle team=%d\n", getTeam());
 		return false;
 	}
 
@@ -7709,7 +7734,7 @@ bool CBotEmpires::requestCommanderVehicleEntryOnce()
 	}
 	if (standCost == std::numeric_limits<float>::max())
 	{
-		Msg("[RCBOT2] commander-entry result=REJECT reason=no-standing-spot vehicle=%d\n",
+		RCBOT_DIAG("[RCBOT2] commander-entry result=REJECT reason=no-standing-spot vehicle=%d\n",
 			engine->IndexOfEdict(target));
 		return false;
 	}
@@ -7718,11 +7743,12 @@ bool CBotEmpires::requestCommanderVehicleEntryOnce()
 	m_iCommanderEntryUserId = engine->GetPlayerUserId(m_pEdict);
 	m_fCommanderEntryDeadline = gpGlobals->curtime + 180.0f;
 	m_iCommanderEntryStage = 1;
+	m_bCommanderEntryFarUseTried = false;
 	m_vCommanderEntrySpot = standSpot;
 	cancelNavigationAttempt("commander-entry-replaced");
 	m_pSchedules->freeMemory();
 	m_pSchedules->addFront(new CBotGotoOriginSched(standSpot));
-	Msg("[RCBOT2] commander-entry stage=approach userid=%d vehicle=%d distance=%.1f spot=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] commander-entry stage=approach userid=%d vehicle=%d distance=%.1f spot=(%.0f %.0f %.0f)\n",
 		m_iCommanderEntryUserId, engine->IndexOfEdict(target), std::sqrt(nearest),
 		standSpot.x, standSpot.y, standSpot.z);
 	return true;
@@ -7739,7 +7765,7 @@ void CBotEmpires::handleCommanderVehicleEntry()
 		!isAlive() || CClassInterface::getTeam(vehicle) != getTeam();
 	if (stale || (m_iCommanderEntryStage < 4 && gpGlobals->curtime > m_fCommanderEntryDeadline))
 	{
-		Msg("[RCBOT2] commander-entry result=FAIL reason=%s stage=%d distance=%.1f\n",
+		RCBOT_DIAG("[RCBOT2] commander-entry result=FAIL reason=%s stage=%d distance=%.1f\n",
 			stale ? "stale-context" : "deadline", m_iCommanderEntryStage,
 			vehicle != nullptr ? (CBotGlobals::entityOrigin(vehicle) - getOrigin()).Length() : -1.0f);
 		m_iCommanderEntryStage = 0;
@@ -7760,18 +7786,27 @@ void CBotEmpires::handleCommanderVehicleEntry()
 	if (m_iCommanderEntryStage == 1)
 	{
 		const float distance = (CBotGlobals::entityOrigin(vehicle) - getOrigin()).Length();
+		// The CV hull reaches past 200 from its origin: run 093847 had the commander
+		// wedged against it at 263.5 for 12 minutes. A Use ray that hits the hull
+		// (96 units) is in reach whatever the origin distance.
+		trace_t hit{};
+		// From farther than 200 only once per approach: the game may still refuse
+		// (pad test 115726: stuck in stage 2 at 204.8 until the deadline).
+		const bool useHits = distance <= 400.0f && (distance <= 200.0f || !m_bCommanderEntryFarUseTried) &&
+			TraceCommanderEntryUse(m_pEdict, vehicle, getEyePosition(), hit);
 		// A stuck route ends the schedule; keep trying until the deadline.
-		if (distance > 200.0f && m_pSchedules->isEmpty() &&
+		if (distance > 200.0f && !useHits && m_pSchedules->isEmpty() &&
 			gpGlobals->curtime >= m_fCommanderEntryNextReplan)
 		{
 			m_fCommanderEntryNextReplan = gpGlobals->curtime + 2.0f;
 			m_pSchedules->addFront(new CBotGotoOriginSched(m_vCommanderEntrySpot));
-			Msg("[RCBOT2] commander-entry stage=replan distance=%.1f\n", distance);
+			RCBOT_DIAG("[RCBOT2] commander-entry stage=replan distance=%.1f use_start_solid=%d use_frac=%.2f use_hit=%s\n",
+				distance, hit.startsolid ? 1 : 0, hit.fraction,
+				hit.m_pEnt != nullptr ? "entity" : "none");
 		}
-		if (distance > 200.0f)
+		if (distance > 200.0f && !useHits)
 			return;
-		trace_t hit;
-		if (!TraceCommanderEntryUse(m_pEdict, vehicle, getEyePosition(), hit))
+		if (!useHits)
 		{
 			// The route task stops up to 64 short of the spot, where the Use ray
 			// may miss the hull; walk the rest directly.
@@ -7784,8 +7819,11 @@ void CBotEmpires::handleCommanderVehicleEntry()
 		m_pSchedules->freeMemory();
 		stopMoving();
 		m_pButtons->tap(IN_USE);
+		if (distance > 200.0f)
+			m_bCommanderEntryFarUseTried = true;
+		m_fCommanderEntryUseAt = gpGlobals->curtime;
 		m_iCommanderEntryStage = 2;
-		Msg("[RCBOT2] commander-entry stage=use distance=%.1f\n", distance);
+		RCBOT_DIAG("[RCBOT2] commander-entry stage=use distance=%.1f\n", distance);
 		return;
 	}
 
@@ -7794,11 +7832,21 @@ void CBotEmpires::handleCommanderVehicleEntry()
 		int currentVehicle = -1;
 		if (!readEmpiresWeaponHandleProperty(m_pEdict, "m_hVehicle", currentVehicle) ||
 			currentVehicle != engine->IndexOfEdict(vehicle))
+		{
+			// USE did not seat the bot: walk on to the stand spot and try again.
+			if (gpGlobals->curtime - m_fCommanderEntryUseAt > 1.5f)
+			{
+				m_iCommanderEntryStage = 1;
+				m_fCommanderEntryNextReplan = 0.0f;
+				RCBOT_DIAG("[RCBOT2] commander-entry stage=use-retry distance=%.1f\n",
+					(CBotGlobals::entityOrigin(vehicle) - getOrigin()).Length());
+			}
 			return;
+		}
 		m_pButtons->letGo(IN_USE);
 		helpers->ClientCommand(m_pEdict, "emp_change_seat 1\n");
 		m_iCommanderEntryStage = 3;
-		Msg("[RCBOT2] commander-entry stage=seat vehicle=%d\n", currentVehicle);
+		RCBOT_DIAG("[RCBOT2] commander-entry stage=seat vehicle=%d\n", currentVehicle);
 		return;
 	}
 
@@ -7809,7 +7857,7 @@ void CBotEmpires::handleCommanderVehicleEntry()
 		{
 			m_iCommanderEntryStage = 4;
 			stopMoving();
-			Msg("[RCBOT2] commander-entry result=COMPLETE userid=%d vehicle=%d native_commander=1\n",
+			RCBOT_DIAG("[RCBOT2] commander-entry result=COMPLETE userid=%d vehicle=%d native_commander=1\n",
 				m_iCommanderEntryUserId, engine->IndexOfEdict(vehicle));
 		}
 		return;
@@ -7817,7 +7865,7 @@ void CBotEmpires::handleCommanderVehicleEntry()
 
 	if (readCommanderMode(commander) && !commander)
 	{
-		Msg("[RCBOT2] commander-entry result=LEFT_SEAT userid=%d\n", m_iCommanderEntryUserId);
+		RCBOT_DIAG("[RCBOT2] commander-entry result=LEFT_SEAT userid=%d\n", m_iCommanderEntryUserId);
 		m_iCommanderEntryStage = 0;
 	}
 }
@@ -21156,7 +21204,7 @@ bool CBotEmpires::suppressBotThink()
 	{
 		m_bNormalDeathEventPending = false;
 		m_bReviveHoldActive = false;
-		Msg("[RCBOT2] revive revived-skip-respawn userid=%d\n", engine->GetPlayerUserId(m_pEdict));
+		RCBOT_DIAG("[RCBOT2] revive revived-skip-respawn userid=%d\n", engine->GetPlayerUserId(m_pEdict));
 	}
 	if (m_bNormalDeathEventPending && holdRespawnForRevive())
 	{

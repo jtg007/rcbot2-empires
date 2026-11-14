@@ -58,6 +58,17 @@ constexpr float kCommanderZoneMargin = 1500.0f;
 // Farther than rcbot_empires_commander_drive_from: drive the CV first, stop this far
 // before the building (at most half the way).
 constexpr float kCommanderDriveStop = 700.0f;
+// Pull the drive goal back towards the CV until it is clear of buildings: the goal used to
+// lie in the BE barracks footprint (run 093847), the vehicle route skips detours around a
+// building near its end, so the CV drove onto the barracks and the commander got out into
+// a niche it could not leave for ~10 minutes.
+Vector CommanderDriveGoal(const Vector& at, const Vector& back, float cvDistance)
+{
+	float stop = std::min(kCommanderDriveStop, cvDistance * 0.5f);
+	while (stop < cvDistance && RCBotNavMesh::PointNearBuilding(at + back * stop, 150.0f))
+		stop += 64.0f;
+	return at + back * std::min(stop, cvDistance);
+}
 constexpr float kCommanderWalkRange = 2500.0f; // after a stuck drive, walk only this far
 constexpr float kCommanderDriveSeconds = 90.0f;
 constexpr float kCommanderHuntSeconds = 120.0f;
@@ -241,11 +252,11 @@ float FactoryExitYaw(const Vector& at, int team, bool quiet = false)
 		if (ExitLaneClear(at, toFront + turn))
 		{
 			if (!quiet)
-				Msg("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s yaw=%.0f\n", toFront, source, toFront + turn);
+				RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s yaw=%.0f\n", toFront, source, toFront + turn);
 			return toFront + turn;
 		}
 	if (!quiet)
-		Msg("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s no-clear-lane\n", toFront, source);
+		RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s no-clear-lane\n", toFront, source);
 	return toFront;
 }
 
@@ -320,7 +331,7 @@ float RepairPadYaw(const Vector& at, int team, bool quiet = false, float* outTur
 	if (outFree != nullptr)
 		*outFree = bestFree;
 	if (!quiet)
-		Msg("[RCBOT2] commander-econ pad-yaw front=%.0f src=%s axis=%.0f yaw=%.0f free=%.0f\n", toFront, source,
+		RCBOT_DIAG("[RCBOT2] commander-econ pad-yaw front=%.0f src=%s axis=%.0f yaw=%.0f free=%.0f\n", toFront, source,
 		toFront + bestTurn, toFront + bestTurn - 90.0f, bestFree);
 	return toFront + bestTurn - 90.0f;
 }
@@ -577,7 +588,7 @@ void CBotEmpires::tickCommanderEconomy()
 		const bool modeRead = captured && EmpiresNativePlacement::ReadCommanderMode(yieldContext, yieldCommander);
 		int commanderProp = -1; // same reader as the human check above
 		readEmpiresEntityIntProperty(m_pEdict, "m_bCommander", commanderProp);
-		Msg("[RCBOT2] commander-econ yield userid=%d team=%d stage=%d mode_read=%d commander=%d m_bCommander=%d vehicle=%d reason=%s\n",
+		RCBOT_DIAG("[RCBOT2] commander-econ yield userid=%d team=%d stage=%d mode_read=%d commander=%d m_bCommander=%d vehicle=%d reason=%s\n",
 			engine->GetPlayerUserId(m_pEdict), team, m_iCommanderEntryStage, modeRead ? 1 : 0,
 			yieldCommander ? 1 : 0, commanderProp, seatVehicle,
 			humanReason != nullptr ? humanReason : "hold");
@@ -592,7 +603,7 @@ void CBotEmpires::tickCommanderEconomy()
 		{
 			if (now > m_fCommanderBuildDeadline || target == nullptr)
 			{
-				Msg("[RCBOT2] commander-build result=ABORT reason=%s userid=%d\n",
+				RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=%s userid=%d\n",
 					target == nullptr ? "target-gone" : "exit-deadline", engine->GetPlayerUserId(m_pEdict));
 				m_iCommanderBuildStage = 0;
 				return;
@@ -612,7 +623,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (m_bCommanderBuildTurret)
 		{
 			// The refinery-turret job (bot_empires_turret_build.cpp) runs once out of the seat.
-			Msg("[RCBOT2] commander-build stage=turret userid=%d refinery=%d\n", engine->GetPlayerUserId(m_pEdict),
+			RCBOT_DIAG("[RCBOT2] commander-build stage=turret userid=%d refinery=%d\n", engine->GetPlayerUserId(m_pEdict),
 				target != nullptr ? engine->IndexOfEdict(target) : -1);
 			m_iCommanderBuildStage = 5;
 			m_bCommanderTurretStarted = false;
@@ -622,7 +633,7 @@ void CBotEmpires::tickCommanderEconomy()
 			return;
 		}
 		const bool requested = target != nullptr && requestEmpiresBuildAssignment(target);
-		Msg("[RCBOT2] commander-build stage=build userid=%d building=%d requested=%d\n",
+		RCBOT_DIAG("[RCBOT2] commander-build stage=build userid=%d building=%d requested=%d\n",
 			engine->GetPlayerUserId(m_pEdict), target != nullptr ? engine->IndexOfEdict(target) : -1, requested ? 1 : 0);
 		m_iCommanderBuildStage = requested ? 2 : 0;
 		state.nextEntryTry = 0.0f;
@@ -640,7 +651,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (m_iCommanderEntryStage != 4 || cv == nullptr || target == nullptr)
 		{
 			m_bCommanderHunt = false;
-			Msg("[RCBOT2] commander-build result=ABORT reason=%s userid=%d\n",
+			RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=%s userid=%d\n",
 				target == nullptr ? "target-gone" : "seat-lost", userId);
 			if (m_vehicle.commanderCV)
 				resetEmpiresVehicle("commander-build-abort", 0.0f);
@@ -656,7 +667,7 @@ void CBotEmpires::tickCommanderEconomy()
 			{
 				if (now > m_fCommanderBuildDeadline)
 				{
-					Msg("[RCBOT2] commander-build result=ABORT reason=driver-seat-deadline userid=%d\n", userId);
+					RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=driver-seat-deadline userid=%d\n", userId);
 					m_iCommanderBuildStage = 0;
 				}
 				else
@@ -684,7 +695,7 @@ void CBotEmpires::tickCommanderEconomy()
 			m_vehicle.cvEnd != nullptr ? m_vehicle.cvEnd : "?";
 		if (m_bCommanderHunt)
 		{
-			Msg("[RCBOT2] commander-hunt end userid=%d reason=%s targets=%d\n", userId, end, m_vehicle.cvKillsTried);
+			RCBOT_DIAG("[RCBOT2] commander-hunt end userid=%d reason=%s targets=%d\n", userId, end, m_vehicle.cvKillsTried);
 			resetEmpiresVehicle("commander-hunt-end", 0.0f);
 			helpers->ClientCommand(m_pEdict, "emp_change_seat 1\n"); // back to the commander view
 			m_bCommanderHunt = false;
@@ -695,14 +706,14 @@ void CBotEmpires::tickCommanderEconomy()
 		resetEmpiresVehicle("commander-drive-end", 0.0f);
 		if (distance < kCommanderWalkRange)
 		{
-			Msg("[RCBOT2] commander-build stage=exit-after-drive userid=%d end=%s building_distance=%.0f\n",
+			RCBOT_DIAG("[RCBOT2] commander-build stage=exit-after-drive userid=%d end=%s building_distance=%.0f\n",
 				userId, end, distance);
 			m_iCommanderBuildStage = 1;
 			m_fCommanderBuildDeadline = now + 10.0f;
 		}
 		else
 		{
-			Msg("[RCBOT2] commander-build result=ABORT reason=drive-%s userid=%d building_distance=%.0f\n",
+			RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=drive-%s userid=%d building_distance=%.0f\n",
 				end, userId, distance);
 			helpers->ClientCommand(m_pEdict, "emp_change_seat 1\n"); // back to the commander view
 			m_iCommanderBuildStage = 0;
@@ -716,7 +727,7 @@ void CBotEmpires::tickCommanderEconomy()
 		const bool noStart = !m_bCommanderTurretStarted && now > m_fCommanderBuildDeadline;
 		if (m_iTurretRefinery != 0 || m_iBuildAssignStage != 0 || (!m_bCommanderTurretStarted && !noStart))
 			return;
-		Msg("[RCBOT2] commander-build result=%s userid=%d turret=1\n", noStart ? "NO_START" : "DONE",
+		RCBOT_DIAG("[RCBOT2] commander-build result=%s userid=%d turret=1\n", noStart ? "NO_START" : "DONE",
 			engine->GetPlayerUserId(m_pEdict));
 		m_iCommanderBuildStage = 0;
 	}
@@ -724,7 +735,7 @@ void CBotEmpires::tickCommanderEconomy()
 	{
 		if (m_iBuildAssignStage != 0)
 			return;
-		Msg("[RCBOT2] commander-build result=DONE userid=%d\n", engine->GetPlayerUserId(m_pEdict));
+		RCBOT_DIAG("[RCBOT2] commander-build result=DONE userid=%d\n", engine->GetPlayerUserId(m_pEdict));
 		m_iCommanderBuildStage = 0;
 	}
 
@@ -764,7 +775,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (requestCommanderVehicleEntryOnce())
 		{
 			++state.entryAttempts;
-			Msg("[RCBOT2] commander-econ seat attempt=%d team=%d userid=%d\n", state.entryAttempts, team,
+			RCBOT_DIAG("[RCBOT2] commander-econ seat attempt=%d team=%d userid=%d\n", state.entryAttempts, team,
 				engine->GetPlayerUserId(m_pEdict));
 		}
 		return;
@@ -880,7 +891,7 @@ void CBotEmpires::tickCommanderEconomy()
 			m_iCommanderBuildStage = 3;
 			m_fCommanderBuildDeadline = now + 10.0f;
 			state.nextTick = now + 0.1f;
-			Msg("[RCBOT2] commander-hunt start userid=%d prey=%d distance=%.0f zone=%.0f\n",
+			RCBOT_DIAG("[RCBOT2] commander-hunt start userid=%d prey=%d distance=%.0f zone=%.0f\n",
 				engine->GetPlayerUserId(m_pEdict), prey, preyDistance, zone);
 			return;
 		}
@@ -913,7 +924,12 @@ void CBotEmpires::tickCommanderEconomy()
 			continue;
 		// The Commander Engineer builds it himself when it is in the safe zone around the CV,
 		// no enemy is near it and no other Engineer is close and not fighting (user 2026-11-12).
-		if (commanderEngineer)
+		// Not for a scratch (run 100232: out of the CV for barracks 242/250 and armory 117/125,
+		// minutes to get back in, the vehicle factory never came); free Engineers still take those.
+		const bool scratch = info.health * 4 >= info.maxHealth * 3;
+		if (scratch && freeEngineers.empty())
+			continue;
+		if (commanderEngineer && !scratch)
 		{
 			const Vector at = CBotGlobals::entityOrigin(building);
 			const float cvDistance = (at - vehicleOrigin).Length();
@@ -950,8 +966,8 @@ void CBotEmpires::tickCommanderEconomy()
 				Vector back = vehicleOrigin - at;
 				back.z = 0.0f;
 				back = back.Length() > 1.0f ? back / back.Length() : Vector(1, 0, 0);
-				m_vCommanderBuildDriveGoal = at + back * std::min(kCommanderDriveStop, cvDistance * 0.5f);
-				Msg("[RCBOT2] commander-build stage=%s userid=%d building=%d class=%s health=%d/%d cv_distance=%.0f "
+				m_vCommanderBuildDriveGoal = CommanderDriveGoal(at, back, cvDistance);
+				RCBOT_DIAG("[RCBOT2] commander-build stage=%s userid=%d building=%d class=%s health=%d/%d cv_distance=%.0f "
 					"home_distance=%.0f zone=%.0f try=%d\n", drive ? "drive" : "exit",
 					engine->GetPlayerUserId(m_pEdict), info.entity, building->GetClassName(), info.health,
 					info.maxHealth, cvDistance, homeDistance, zone, tries->tries);
@@ -962,7 +978,7 @@ void CBotEmpires::tickCommanderEconomy()
 				if (helper < 0 && state.lastSelfBuildSkip != info.entity)
 				{
 					state.lastSelfBuildSkip = info.entity;
-					Msg("[RCBOT2] commander-build skip building=%d reason=%s home_distance=%.0f zone=%.0f\n", info.entity,
+					RCBOT_DIAG("[RCBOT2] commander-build skip building=%d reason=%s home_distance=%.0f zone=%.0f\n", info.entity,
 						enemyNear ? "enemy-near" : "outside-zone", homeDistance, zone);
 				}
 				continue;
@@ -975,7 +991,7 @@ void CBotEmpires::tickCommanderEconomy()
 		++tries->tries;
 		tries->next = now + 10.0f;
 		const bool assigned = freeEngineers.front()->requestEmpiresBuildAssignment(building);
-		Msg("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d\n",
+		RCBOT_DIAG("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d\n",
 			info.entity, building->GetClassName(), info.health, info.maxHealth,
 			engine->GetPlayerUserId(freeEngineers.front()->getEdict()), assigned ? 1 : 0, tries->tries);
 		if (assigned)
@@ -1041,8 +1057,8 @@ void CBotEmpires::tickCommanderEconomy()
 			Vector back = vehicleOrigin - at;
 			back.z = 0.0f;
 			back = back.Length() > 1.0f ? back / back.Length() : Vector(1, 0, 0);
-			m_vCommanderBuildDriveGoal = at + back * std::min(kCommanderDriveStop, cvDistance * 0.5f);
-			Msg("[RCBOT2] commander-build stage=%s userid=%d refinery=%d turret=1 cv_distance=%.0f home_distance=%.0f "
+			m_vCommanderBuildDriveGoal = CommanderDriveGoal(at, back, cvDistance);
+			RCBOT_DIAG("[RCBOT2] commander-build stage=%s userid=%d refinery=%d turret=1 cv_distance=%.0f home_distance=%.0f "
 				"zone=%.0f try=%d\n", drive ? "drive" : "exit", engine->GetPlayerUserId(m_pEdict), info.entity,
 				cvDistance, (at - home).Length(), zone, tries->tries);
 			return;
@@ -1072,7 +1088,7 @@ void CBotEmpires::tickCommanderEconomy()
 			ICollideable* box = createdEdict != nullptr ? createdEdict->GetCollideable() : nullptr;
 			const Vector mins = box != nullptr ? box->OBBMins() : Vector(0, 0, 0);
 			const Vector maxs = box != nullptr ? box->OBBMaxs() : Vector(0, 0, 0);
-			Msg("[RCBOT2] commander-econ result=CREATED type=%d entity=%d class=%s pos=(%.0f %.0f %.0f) obb=(%.0f %.0f)-(%.0f %.0f) resources=%.0f->%.0f\n",
+			RCBOT_DIAG("[RCBOT2] commander-econ result=CREATED type=%d entity=%d class=%s pos=(%.0f %.0f %.0f) obb=(%.0f %.0f)-(%.0f %.0f) resources=%.0f->%.0f\n",
 				state.verifyType, created, createdEdict != nullptr ? createdEdict->GetClassName() : "?", at.x, at.y, at.z,
 				mins.x, mins.y, maxs.x, maxs.y, state.verifyResources, resources);
 		}
@@ -1082,7 +1098,7 @@ void CBotEmpires::tickCommanderEconomy()
 			state.blockedUntil[state.verifyType] = now + BackoffSeconds(failures);
 			if (state.verifyType == Refinery && state.verifyResIndex >= 0)
 				state.refineryPointBlocked.push_back({state.verifyResIndex, now + kPointBlockSeconds});
-			Msg("[RCBOT2] commander-econ result=REJECTED type=%d res_index=%d failures=%d retry_in=%.0fs resources=%.0f->%.0f\n",
+			RCBOT_DIAG("[RCBOT2] commander-econ result=REJECTED type=%d res_index=%d failures=%d retry_in=%.0fs resources=%.0f->%.0f\n",
 				state.verifyType, state.verifyResIndex, failures, BackoffSeconds(failures), state.verifyResources, resources);
 		}
 		return;
@@ -1166,7 +1182,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (best != nullptr && escort != nullptr && escort->requestEmpiresCommanderMoveTest(best->origin))
 		{
 			state.escortUntil = now + kEscortSeconds;
-			Msg("[RCBOT2] commander-econ escort engineer_userid=%d res_index=%d point=(%.0f %.0f %.0f) distance=%.0f cv_distance=%.0f candidates=%zu\n",
+			RCBOT_DIAG("[RCBOT2] commander-econ escort engineer_userid=%d res_index=%d point=(%.0f %.0f %.0f) distance=%.0f cv_distance=%.0f candidates=%zu\n",
 				engine->GetPlayerUserId(escort->getEdict()), best->resIndex, best->origin.x, best->origin.y,
 				best->origin.z, escort->distanceFrom(best->origin), best->distance, candidates.size());
 		}
@@ -1201,14 +1217,14 @@ void CBotEmpires::tickCommanderEconomy()
 					if (research.active != 0 && research.paused)
 					{
 						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
-						Msg("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
+						RCBOT_DIAG("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
 					}
 					else
 					{
 						char researchCommand[48];
 						std::snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
 						helpers->ClientCommand(m_pEdict, researchCommand);
-						Msg("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
+						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
 					}
 					state.nextResearch = now + 10.0f;
 				}
@@ -1217,7 +1233,7 @@ void CBotEmpires::tickCommanderEconomy()
 			{
 				state.lastResearchActive = research.active;
 				state.lastResearchPaused = research.paused;
-				Msg("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
+				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
 					research.active, research.remaining, int(research.paused), int(research.building),
 					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]));
 			}
@@ -1234,7 +1250,7 @@ void CBotEmpires::tickCommanderEconomy()
 	else if (logKey != state.lastLogKey)
 	{
 		state.lastLogKey = logKey;
-		Msg("[RCBOT2] commander-econ plan decision=%s type=%d resources=%.0f refineries=%d barracks=%d factory=%d armory=%d repair=%d sites=%d\n",
+		RCBOT_DIAG("[RCBOT2] commander-econ plan decision=%s type=%d resources=%.0f refineries=%d barracks=%d factory=%d armory=%d repair=%d sites=%d\n",
 			decision == Decision::Saving ? "saving" : (decision == Decision::NoSite ? "no-site" : "done"), int(type), resources,
 			inventory.count[Refinery], inventory.count[Barracks], inventory.count[VehicleFactory],
 			inventory.count[Armory], inventory.count[Repair], int(refinerySites.size()));
@@ -1355,7 +1371,7 @@ void CBotEmpires::tickCommanderEconomy()
 		{
 			const int failures = ++state.failures[type];
 			state.blockedUntil[type] = now + BackoffSeconds(failures);
-			Msg("[RCBOT2] commander-econ result=NO_SPOT type=%d search=%s areas=%u queries=%u invalid=%u failures=%d\n",
+			RCBOT_DIAG("[RCBOT2] commander-econ result=NO_SPOT type=%d search=%s areas=%u queries=%u invalid=%u failures=%d\n",
 				int(type), EmpiresSpatial::Name(search.status), search.areasInspected, search.nativeQueries,
 				search.invalid, failures);
 			return;
@@ -1363,7 +1379,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (!laneFree)
 			at = first.selected.origin;
 		if (!lanes.empty() || type == Repair)
-			Msg("[RCBOT2] commander-econ lane-check type=%d lanes=%zu checked=%zu ring=%d%s\n", int(type),
+			RCBOT_DIAG("[RCBOT2] commander-econ lane-check type=%d lanes=%zu checked=%zu ring=%d%s\n", int(type),
 				lanes.size(), checked, usedRing, laneFree ? "" : " all-block");
 		const float yaw = yawAt(Vector(at.x, at.y, at.z), false);
 		std::snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g %.1f\n", int(type),
@@ -1374,7 +1390,7 @@ void CBotEmpires::tickCommanderEconomy()
 	state.verifyResources = resources;
 	state.verifyAt = now + kVerifyDelay;
 	state.verifyPending = true;
-	Msg("[RCBOT2] commander-econ submit type=%d cmd=%s", int(type), command);
+	RCBOT_DIAG("[RCBOT2] commander-econ submit type=%d cmd=%s", int(type), command);
 	helpers->ClientCommand(m_pEdict, command);
 }
 

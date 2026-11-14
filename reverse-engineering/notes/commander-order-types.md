@@ -37,7 +37,7 @@ input codes 1/2/3/4 directly, 14 = resupply, 15 = heal, 30 = repair (all set typ
 
 ## End of an order (PostThink)
 
-- Type 1: ends when the player is close to m_vCommandLocation (threshold 0x957f98, squared distance).
+- Type 1: ends when the player is within **100 units (3D)** of m_vCommandLocation (PostThink 0x669561, squared threshold 10000.0 at 0x957f98). Dispatch on the type at 0x668eb4; flag `+0x119 & 8` jumps to 0x6694b7 first. A type that changes from 1 to 0 while the player is farther away is therefore an abort, 2/3/4 a new order.
 - Type 3: target dead/invalid, out of range or m_flOrderCancelTime expired -> type 0.
 - Type 4: no distance or time limit. Ends only when the target is missing or dead/destroyed ("Unit was lost", 0x6696d0..0x66977b), on abort or team change (ChangeTeam 0x667f75).
 

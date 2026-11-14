@@ -435,6 +435,7 @@ struct EmpiresVehicleBrain
 	bool buyInPlace = false;
 	bool wantJeep = false;
 	int purchaseStep = 0;
+	float factoryProbeAt = 0.0f; // diagnostic: log the factory state once in WAIT_SPAWN
 	std::vector<Vector> factoryRoute; // corners around the factory to its ramp
 	std::size_t factoryRouteIndex = 0;
 	float nextAction = 0.0f;
@@ -658,6 +659,8 @@ public:
 	float m_fCommanderEntryDeadline = 0.0f;
 	Vector m_vCommanderEntrySpot = Vector(0.0f, 0.0f, 0.0f);
 	float m_fCommanderEntryNextReplan = 0.0f;
+	float m_fCommanderEntryUseAt = 0.0f;      // when IN_USE was tapped (stage 2)
+	bool m_bCommanderEntryFarUseTried = false; // one USE from > 200 per approach
 	// Commander Engineer out of the CV to finish a building himself: 1 leaving the seat,
 	// 2 building (build-assign), then the seat choice puts him back in.
 	int m_iCommanderBuildStage = 0;

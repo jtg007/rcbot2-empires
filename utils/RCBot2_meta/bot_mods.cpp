@@ -61,6 +61,7 @@
 
 #include "dt_send.h"
 #include "server_class.h"
+#include "bot_cvars.h"
 
 #if defined(_WIN64) || defined(_WIN32)
 #define strcmpi _strcmpi
@@ -405,7 +406,7 @@ void CEmpiresMod::mapInit()
 	EmpiresVehicleLevelReset();
 	EmpiresCommanderEconomyLevelReset();
 	EmpiresObjectiveLevelReset();
-	Msg("[RCBOT2] empires level-reset\n");
+	RCBOT_DIAG("[RCBOT2] empires level-reset\n");
 	m_CapturePoints.clear();
 	m_flNextCapturePointScan = 0.0f;
 	m_bCapturePointInventoryLogged = false;

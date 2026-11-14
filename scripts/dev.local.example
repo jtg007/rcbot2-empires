@@ -1,0 +1,6 @@
+# Copy to scripts/dev.local (ignored by git) and adjust.
+# Isolated Empires dedicated server with Metamod:Source and this plugin installed once.
+export EMPIRES_TEST_SERVER="$HOME/empires-test-server"
+# Folder with alliedmodders/{hl2sdk-sdk2013,metamod-source,sourcemod} and hl2sdk-manifests/
+# (default: ../rcbot2-clean next to this repository).
+# export RCBOT_DEPS_DIR="$HOME/src/rcbot2-deps"

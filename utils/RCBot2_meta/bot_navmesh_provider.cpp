@@ -16,6 +16,7 @@
 #include "bot_getprop.h"
 #include "bot_globals.h"
 #include "bot_navmesh_api.h"
+#include "bot_cvars.h"
 
 extern IServerGameEnts* servergameents;
 
@@ -133,7 +134,7 @@ void UpdateInputOnlyDoorBlocks()
 				s_closed[index] != 1);
 		}
 		if (s_closed[index] != (closed ? 1 : 0))
-			Msg("[RCBOT2] navmesh-input-door door=%d state=%s links=%d\n", index,
+			RCBOT_DIAG("[RCBOT2] navmesh-input-door door=%d state=%s links=%d\n", index,
 				closed ? "closed" : "open", links);
 		s_closed[index] = closed ? 1 : 0;
 	}
@@ -432,7 +433,7 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 			"path_result=%s start=(%.1f %.1f %.1f) goal=(%.1f %.1f %.1f)",
 			RCBotNavMesh::PathResultName(pathResult), start.x, start.y,
 			start.z, goal.x, goal.y, goal.z);
-		Msg("[RCBOT2] navmesh-plan-failed %s userid=%d\n", detail,
+		RCBOT_DIAG("[RCBOT2] navmesh-plan-failed %s userid=%d\n", detail,
 			engine != nullptr && bot->getEdict() != nullptr ? engine->GetPlayerUserId(bot->getEdict()) : -1);
 		bot->handleNavigationProviderFailure(
 			RCBotNavigation::Provider::NAVMESH,
@@ -557,7 +558,7 @@ void Frame()
 			for (const Vector& ladderPoint : route.path.ladderPoints)
 				if ((ladderPoint - route.path.points[route.point]).LengthSqr() < 1.0f)
 				{
-					Msg("[RCBOT2] navmesh-ladder-climbed bot=(%.0f %.0f %.0f)\n",
+					RCBOT_DIAG("[RCBOT2] navmesh-ladder-climbed bot=(%.0f %.0f %.0f)\n",
 						bot->getOrigin().x, bot->getOrigin().y, bot->getOrigin().z);
 					break;
 				}
@@ -581,7 +582,7 @@ void Frame()
 			{
 				const Vector here = bot->getOrigin();
 				const Vector& target = route.path.points[route.point];
-				Msg("[RCBOT2] navmesh-stuck point=%zu/%zu target=(%.0f %.0f %.0f) bot=(%.0f %.0f %.0f) on_ground=%d jumps=%d since_jump=%.1f tick=%d\n",
+				RCBOT_DIAG("[RCBOT2] navmesh-stuck point=%zu/%zu target=(%.0f %.0f %.0f) bot=(%.0f %.0f %.0f) on_ground=%d jumps=%d since_jump=%.1f tick=%d\n",
 					route.point, route.path.points.size(), target.x, target.y, target.z,
 					here.x, here.y, here.z,
 					(CClassInterface::getPlayerFlags(bot->getEdict()) & FL_ONGROUND) != 0 ? 1 : 0,
@@ -652,7 +653,7 @@ void Frame()
 							doorBlocked = true;
 							closedDoor = e;
 						}
-						Msg("[RCBOT2] navmesh-stuck-trace lift=%.0f frac=%.2f start_solid=%d hit=%s index=%d end=(%.0f %.0f %.0f) normal=(%.2f %.2f %.2f)\n",
+						RCBOT_DIAG("[RCBOT2] navmesh-stuck-trace lift=%.0f frac=%.2f start_solid=%d hit=%s index=%d end=(%.0f %.0f %.0f) normal=(%.2f %.2f %.2f)\n",
 							lift, hit.fraction, hit.startsolid ? 1 : 0,
 							e != nullptr && e->GetClassName() != nullptr ? e->GetClassName() : "-",
 							e != nullptr ? engine->IndexOfEdict(e) : -1,
@@ -665,7 +666,7 @@ void Frame()
 							const Vector vehiclePos = e->GetCollideable()->GetCollisionOrigin();
 							Vector botVelocity(0, 0, 0);
 							CClassInterface::getVelocity(bot->getEdict(), &botVelocity);
-							Msg("[RCBOT2] navmesh-stuck-vehicle userid=%d veh=%d vehicle_pos=(%.0f %.0f %.0f) dist2d=%.0f dz=%.0f bot_speed=%.0f\n",
+							RCBOT_DIAG("[RCBOT2] navmesh-stuck-vehicle userid=%d veh=%d vehicle_pos=(%.0f %.0f %.0f) dist2d=%.0f dz=%.0f bot_speed=%.0f\n",
 								engine != nullptr ? engine->GetPlayerUserId(bot->getEdict()) : -1,
 								engine->IndexOfEdict(e), vehiclePos.x, vehiclePos.y, vehiclePos.z,
 								(vehiclePos - here).Length2D(), vehiclePos.z - here.z, botVelocity.Length());
@@ -683,14 +684,14 @@ void Frame()
 					CTraceFilterWorldOnly worldOnly;
 					trace_t down;
 					enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &worldOnly, &down);
-					Msg("[RCBOT2] navmesh-stuck-floor drop=%.0f frac=%.2f\n", here.z - target.z, down.fraction);
+					RCBOT_DIAG("[RCBOT2] navmesh-stuck-floor drop=%.0f frac=%.2f\n", here.z - target.z, down.fraction);
 					if (!down.startsolid && down.fraction < 1.0f)
 					{
 						worldBlocked = true;
 						// The roof edge carries several such links side by side (as_escort
 						// (4488 2612) then (4500 2575)): block them all at once.
-						Msg("[RCBOT2] navmesh-drop-under-floor links=%d\n",
-							RCBotNavMesh::BlockDropsUnderFloor(here, 128.0f));
+						const int blockedLinks = RCBotNavMesh::BlockDropsUnderFloor(here, 128.0f);
+						RCBOT_DIAG("[RCBOT2] navmesh-drop-under-floor links=%d\n", blockedLinks);
 					}
 				}
 				// The mesh links this step through geometry: forbid the link so the
@@ -710,7 +711,7 @@ void Frame()
 						links = RCBotNavMesh::BlockEdgesThroughBox(mins - Vector(8, 8, 0), maxs + Vector(8, 8, 0), blockSeconds);
 						links += RCBotNavMesh::BlockEdgesBehindBox(here, mins - Vector(8, 8, 0), maxs + Vector(8, 8, 0), blockSeconds);
 					}
-					Msg("[RCBOT2] navmesh-door-closed door=%d class=%s block_seconds=%.0f links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n",
+					RCBOT_DIAG("[RCBOT2] navmesh-door-closed door=%d class=%s block_seconds=%.0f links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n",
 						closedDoor != nullptr ? engine->IndexOfEdict(closedDoor) : -1,
 						closedDoor != nullptr ? closedDoor->GetClassName() : "-", blockSeconds, links,
 						mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
@@ -726,7 +727,7 @@ void Frame()
 						if (id != exactArea && id != nearArea)
 							continue;
 						RCBotNavMesh::BlockEdge(route.path.areaIds[i], route.path.areaIds[i + 1], blockSeconds);
-						Msg("[RCBOT2] navmesh-edge-blocked from=%u to=%u\n",
+						RCBOT_DIAG("[RCBOT2] navmesh-edge-blocked from=%u to=%u\n",
 							route.path.areaIds[i], route.path.areaIds[i + 1]);
 						blocked = true;
 					}
@@ -734,9 +735,9 @@ void Frame()
 					{
 						unsigned fromId = 0, toId = 0;
 						if (RCBotNavMesh::BlockEdgeNearestOnPath(here, route.path.areaIds, fromId, toId, blockSeconds))
-							Msg("[RCBOT2] navmesh-edge-blocked from=%u to=%u (nearest)\n", fromId, toId);
+							RCBOT_DIAG("[RCBOT2] navmesh-edge-blocked from=%u to=%u (nearest)\n", fromId, toId);
 						else
-							Msg("[RCBOT2] navmesh-edge-block-miss exact=%d near=%d areas=%zu\n",
+							RCBOT_DIAG("[RCBOT2] navmesh-edge-block-miss exact=%d near=%d areas=%zu\n",
 								exactArea, nearArea, route.path.areaIds.size());
 					}
 				}
@@ -762,7 +763,7 @@ void Frame()
 				{
 					bot->use();
 					route.lastDoorUse = engine->Time();
-					Msg("[RCBOT2] navmesh-door-use door=%d class=%s bot=(%.0f %.0f %.0f)\n",
+					RCBOT_DIAG("[RCBOT2] navmesh-door-use door=%d class=%s bot=(%.0f %.0f %.0f)\n",
 						engine->IndexOfEdict(door), door->GetClassName(),
 						bot->getOrigin().x, bot->getOrigin().y, bot->getOrigin().z);
 				}
@@ -941,7 +942,7 @@ void ParseDoorButtons()
 				entry.team = team;
 				entry.origin = CBotGlobals::entityOrigin(button);
 				s_doorButtons.push_back(entry);
-				Msg("[RCBOT2] door-button map button=%d(%s) door=%d(%s) team=%d at=(%.0f %.0f %.0f)\n",
+				RCBOT_DIAG("[RCBOT2] door-button map button=%d(%s) door=%d(%s) team=%d at=(%.0f %.0f %.0f)\n",
 					entry.button, buttonName.c_str(), entry.door, doorName.c_str(), team,
 					entry.origin.x, entry.origin.y, entry.origin.z);
 			}

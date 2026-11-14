@@ -17,5 +17,6 @@ Empires version will have different addresses. No game files are included here.
 | [Commander orders](notes/commander-order-types.md) | Order types, fields, when an order ends |
 | [Engineer](notes/engineer.md) | Engineer kit, repair, revive, deployables, turret upgrade |
 | [Vehicles](notes/vehicle-driving.md) | Driver input, aiming and firing, buying, repair, factory orientation |
+| [Research](notes/research.md) | Starting/resuming research, team research fields, item indices |
 | [Squads](notes/squads.md) | Squad membership, points, powers |
 | [Spawn](notes/spawn.md) | Spawn selection and respawn |

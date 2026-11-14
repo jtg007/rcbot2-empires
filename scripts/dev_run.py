@@ -69,7 +69,7 @@ class Server:
             ["./srcds_run", "-norestart", "-console", "-condebug", "-game", "empires",
              "-insecure", "-nomaster", *([] if source_tv else ["-nohltv"]), "-nojoy",
              "-ip", args.ip, "-port", SERVER_PORT,
-             "+sv_lan", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
+             "+sv_lan", "1", "+rcbot_empires_debug_log", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
             cwd=args.server_root, env=dict(os.environ, SteamAppId="17740", SteamGameId="17740"),
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True, close_fds=True)
         os.close(slave)
@@ -267,6 +267,8 @@ def run_match(args):
         if not server.wait_for(r"RCBot2", 15, mark):
             raise SystemExit("RCBot2 not loaded, see server.log")
 
+        # Diagnostic [RCBOT2] lines are off by default (public servers); every check here reads them.
+        server.send("rcbot_empires_debug_log 1")
         server.send("rcbotd config min_bots -1")
         server.send("rcbotd config max_bots -1")
         if not NO_RECORDER:

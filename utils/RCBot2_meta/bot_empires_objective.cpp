@@ -24,6 +24,7 @@
 #include <vector>
 #include <cstdio>
 #include <string>
+#include "bot_cvars.h"
 
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
 
@@ -950,7 +951,7 @@ void CBotEmpires::endEmpiresNavmeshGoal(const char* event, const char* reason,
 	const float avoidSeconds)
 {
 	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
-	Msg("[RCBOT2] goal-roam %s userid=%d type=%s entity=%d class=%s reason=%s dist=%.0f elapsed=%.1f avoid=%.0f bot=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] goal-roam %s userid=%d type=%s entity=%d class=%s reason=%s dist=%.0f elapsed=%.1f avoid=%.0f bot=(%.0f %.0f %.0f)\n",
 		event, engine != nullptr && m_pEdict != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1,
 		empiresNavGoalTypeName(m_iEmpiresNavGoalType), m_iEmpiresNavGoalEntity,
 		m_szEmpiresNavGoalClass, reason,
@@ -1102,7 +1103,7 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 	if (ammoType < 0 || getAmmo(ammoType) <= 0)
 	{
 		if (logFailure)
-			Msg("[RCBOT2] turret-rpg unavailable userid=%d reason=%s\n",
+			RCBOT_DIAG("[RCBOT2] turret-rpg unavailable userid=%d reason=%s\n",
 				engine->GetPlayerUserId(m_pEdict), launcher == nullptr ? "no-launcher" : "no-ammo");
 		return false;
 	}
@@ -1134,7 +1135,7 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 		m_bEmpiresTurretRocketApproach = false;
 		m_flEmpiresTurretRocketUntil = gpGlobals->curtime + 12.0f;
 		selectWeaponName(weaponName);
-		Msg("[RCBOT2] turret-rpg armed userid=%d turret=%d dist=%.0f health=%d\n",
+		RCBOT_DIAG("[RCBOT2] turret-rpg armed userid=%d turret=%d dist=%.0f health=%d\n",
 			userId, turretIndex, distance, health);
 		return true;
 	}
@@ -1167,12 +1168,12 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 		m_vEmpiresTurretLastFireSpot = spot;
 		m_bEmpiresTurretRocketApproach = true;
 		m_flEmpiresTurretFireMoveUntil = gpGlobals->curtime + 30.0f;
-		Msg("[RCBOT2] turret-rpg move userid=%d turret=%d to=(%.0f %.0f %.0f) dist=%.0f\n",
+		RCBOT_DIAG("[RCBOT2] turret-rpg move userid=%d turret=%d to=(%.0f %.0f %.0f) dist=%.0f\n",
 			userId, turretIndex, spot.x, spot.y, spot.z, empiresNavGoalDistance2D(spot, target));
 		return true;
 	}
 	if (logFailure)
-		Msg("[RCBOT2] turret-rpg unavailable userid=%d turret=%d reason=no-reachable-spot visible=%zu\n",
+		RCBOT_DIAG("[RCBOT2] turret-rpg unavailable userid=%d turret=%d reason=no-reachable-spot visible=%zu\n",
 			userId, turretIndex, visibleSpots.size());
 	return false;
 }
@@ -1188,7 +1189,7 @@ void CBotEmpires::tickEmpiresTurretRocket()
 	if (hit || !targetAlive || weapon == nullptr || m_hEmpiresTurretHitBy.get() != turret ||
 		now >= m_flEmpiresTurretRocketUntil)
 	{
-		Msg("[RCBOT2] turret-rpg result=%s userid=%d health_before=%d health=%d fired=%d\n",
+		RCBOT_DIAG("[RCBOT2] turret-rpg result=%s userid=%d health_before=%d health=%d fired=%d\n",
 			hit ? "hit" : "fail", engine->GetPlayerUserId(m_pEdict), m_iEmpiresTurretRocketHealth,
 			health, m_bEmpiresTurretRocketFired);
 		m_flEmpiresTurretRocketUntil = 0.0f;
@@ -1214,7 +1215,7 @@ void CBotEmpires::tickEmpiresTurretRocket()
 	{
 		m_bEmpiresTurretRocketFired = true;
 		m_pButtons->letGo(IN_ATTACK);
-		Msg("[RCBOT2] turret-rpg fired userid=%d turret=%d ammo=%d\n",
+		RCBOT_DIAG("[RCBOT2] turret-rpg fired userid=%d turret=%d ammo=%d\n",
 			engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(turret),
 			getAmmo(m_iEmpiresTurretRocketAmmoType));
 	}
@@ -1280,7 +1281,7 @@ void CBotEmpires::noteEmpiresTurretThreat(edict_t* pAttacker, const Vector* dama
 		{
 			if (m_hEmpiresTurretHitBy.get() != pEdict)
 			{
-				Msg("[RCBOT2] turret-hit confirmed userid=%d turret=%d\n",
+				RCBOT_DIAG("[RCBOT2] turret-hit confirmed userid=%d turret=%d\n",
 					engine->GetPlayerUserId(m_pEdict), index);
 				m_hEmpiresTurretHitBy = pEdict;
 			}
@@ -1310,7 +1311,7 @@ void CBotEmpires::noteEmpiresTurretThreat(edict_t* pAttacker, const Vector* dama
 	if (turret == nullptr)
 	{
 		if (pAttacker == nullptr)
-			Msg("[RCBOT2] turret-threat none userid=%d bot=(%.0f %.0f %.0f)\n", engine->GetPlayerUserId(m_pEdict),
+			RCBOT_DIAG("[RCBOT2] turret-threat none userid=%d bot=(%.0f %.0f %.0f)\n", engine->GetPlayerUserId(m_pEdict),
 				getOrigin().x, getOrigin().y, getOrigin().z);
 		return;
 	}
@@ -1331,7 +1332,7 @@ void CBotEmpires::noteEmpiresTurretThreat(edict_t* pAttacker, const Vector* dama
 	if (!m_bEmpiresTurretRetreating)
 		m_bEmpiresTurretRetreatPending = true;
 	if (!known)
-		Msg("[RCBOT2] turret-threat userid=%d turret=%d class=%s pos=(%.0f %.0f %.0f) range=%.0f dist=%.0f bot=(%.0f %.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] turret-threat userid=%d turret=%d class=%s pos=(%.0f %.0f %.0f) range=%.0f dist=%.0f bot=(%.0f %.0f %.0f)\n",
 			engine->GetPlayerUserId(m_pEdict), index, turret->GetClassName(),
 			m_vEmpiresTurretThreatOrigin.x, m_vEmpiresTurretThreatOrigin.y, m_vEmpiresTurretThreatOrigin.z,
 			m_flEmpiresTurretThreatRange, best, getOrigin().x, getOrigin().y, getOrigin().z);
@@ -1359,7 +1360,7 @@ bool CBotEmpires::isEmpiresTurretThreatOnLine(const Vector& a, const Vector& b)
 	if (className == nullptr || std::strstr(className, "mgturret") == nullptr ||
 		!readEmpiresEntityIntProperty(turret, "m_iHealth", health) || health <= 0)
 	{
-		Msg("[RCBOT2] turret-destroyed team=%d turret=%d\n", team, threat.entity);
+		RCBOT_DIAG("[RCBOT2] turret-destroyed team=%d turret=%d\n", team, threat.entity);
 		threat.entity = 0;
 		RCBotNavMesh::SetTeamDangerCircle(team, threat.origin, 0.0f);
 		return false;
@@ -1380,7 +1381,7 @@ bool CBotEmpires::handleEmpiresTurretThreat()
 		if (dist < 120.0f || (outside && m_pSchedules->isEmpty()) || now > m_flEmpiresTurretRetreatDeadline)
 		{
 			m_bEmpiresTurretRetreating = false;
-			Msg("[RCBOT2] turret-retreat end userid=%d reason=%s dist=%.0f turret_dist=%.0f\n", userId,
+			RCBOT_DIAG("[RCBOT2] turret-retreat end userid=%d reason=%s dist=%.0f turret_dist=%.0f\n", userId,
 				dist < 120.0f ? "arrived" : (now > m_flEmpiresTurretRetreatDeadline ? "timeout" : "outside"),
 				dist, empiresNavGoalDistance2D(getOrigin(), m_vEmpiresTurretThreatOrigin));
 			return false;
@@ -1427,7 +1428,7 @@ bool CBotEmpires::handleEmpiresTurretThreat()
 	}
 	if (!found)
 	{
-		Msg("[RCBOT2] turret-retreat none userid=%d turret=%d\n", userId, m_iEmpiresTurretThreat);
+		RCBOT_DIAG("[RCBOT2] turret-retreat none userid=%d turret=%d\n", userId, m_iEmpiresTurretThreat);
 		return false;
 	}
 	if (m_bEmpiresNavGoalActive)
@@ -1436,13 +1437,13 @@ bool CBotEmpires::handleEmpiresTurretThreat()
 	m_pSchedules->freeMemory();
 	if (!requestNavigation(best, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
 	{
-		Msg("[RCBOT2] turret-retreat rejected userid=%d\n", userId);
+		RCBOT_DIAG("[RCBOT2] turret-retreat rejected userid=%d\n", userId);
 		return false;
 	}
 	m_bEmpiresTurretRetreating = true;
 	m_vEmpiresTurretRetreatPoint = best;
 	m_flEmpiresTurretRetreatDeadline = now + kTurretRetreatTimeout;
-	Msg("[RCBOT2] turret-retreat start userid=%d turret=%d to=(%.0f %.0f %.0f) dist=%.0f\n",
+	RCBOT_DIAG("[RCBOT2] turret-retreat start userid=%d turret=%d to=(%.0f %.0f %.0f) dist=%.0f\n",
 		userId, m_iEmpiresTurretThreat, best.x, best.y, best.z, bestDistance);
 	return true;
 }
@@ -1507,7 +1508,7 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 			m_vEmpiresTurretFailedMortarSpot = m_vEmpiresTurretSettleOrigin;
 		m_flEmpiresTurretMortarNext = now + (ok ? 0.5f : 0.0f);
 		m_flEmpiresTurretFireMoveUntil = 0.0f;
-		Msg("[RCBOT2] turret-mortar shot userid=%d turret=%d result=%s health=%d fails=%d shots=%d\n",
+		RCBOT_DIAG("[RCBOT2] turret-mortar shot userid=%d turret=%d result=%s health=%d fails=%d shots=%d\n",
 			userId, threat.entity, ok ? "fired" : "fail", health, m_iEmpiresTurretMortarFails,
 			m_iEmpiresTurretMortarShots);
 		if (canUseRocket && m_iEmpiresTurretMortarFails >= 2 &&
@@ -1584,19 +1585,19 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 			// Under host_timescale curtime outruns realtime and every shell bursts at the muzzle.
 			if (gpGlobals != nullptr && gpGlobals->curtime - gpGlobals->realtime > 25.0f)
 			{
-				Msg("[RCBOT2] turret-mortar unavailable userid=%d reason=timescale-shell-fuse cur-real=%.1f\n",
+				RCBOT_DIAG("[RCBOT2] turret-mortar unavailable userid=%d reason=timescale-shell-fuse cur-real=%.1f\n",
 					userId, gpGlobals->curtime - gpGlobals->realtime);
 				m_flEmpiresTurretMortarNext = now + 30.0f;
 				return false;
 			}
 			if (!requestEmpiresMortarAtPointOnce(target, true))
 			{
-				Msg("[RCBOT2] turret-mortar unavailable userid=%d\n", userId);
+				RCBOT_DIAG("[RCBOT2] turret-mortar unavailable userid=%d\n", userId);
 				m_flEmpiresTurretMortarNext = now + 30.0f;
 				return false;
 			}
 			m_bEmpiresTurretMortarWasActive = true;
-			Msg("[RCBOT2] turret-mortar fire userid=%d turret=%d dist=%.0f range=%.0f health=%d bot=(%.0f %.0f %.0f)\n",
+			RCBOT_DIAG("[RCBOT2] turret-mortar fire userid=%d turret=%d dist=%.0f range=%.0f health=%d bot=(%.0f %.0f %.0f)\n",
 				userId, threat.entity, distance, threat.range, health, origin.x, origin.y, origin.z);
 			return true;
 		}
@@ -1650,13 +1651,13 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 		m_vEmpiresTurretLastFireSpot = spot;
 		m_flEmpiresTurretFireMoveUntil = now + 30.0f;
 		m_bEmpiresTurretOutOfReachLogged = false;
-		Msg("[RCBOT2] turret-mortar move userid=%d turret=%d to=(%.0f %.0f %.0f) spot_dist=%.0f\n",
+		RCBOT_DIAG("[RCBOT2] turret-mortar move userid=%d turret=%d to=(%.0f %.0f %.0f) spot_dist=%.0f\n",
 			userId, threat.entity, spot.x, spot.y, spot.z, empiresNavGoalDistance2D(spot, threat.origin));
 		return true;
 	}
 	const bool firstNoSpot = !m_bEmpiresTurretOutOfReachLogged;
 	if (firstNoSpot)
-		Msg("[RCBOT2] turret-mortar no-spot userid=%d turret=%d range=%.0f reach=%.0f dist=%.0f bot=(%.0f %.0f %.0f) candidates=%zu arc_fail=%d route_fail=%d first_hit=(%.0f %.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] turret-mortar no-spot userid=%d turret=%d range=%.0f reach=%.0f dist=%.0f bot=(%.0f %.0f %.0f) candidates=%zu arc_fail=%d route_fail=%d first_hit=(%.0f %.0f %.0f)\n",
 			userId, threat.entity, threat.range, maxReach(origin.z), distance, origin.x, origin.y, origin.z,
 			candidates.size(), arcFails, routeFails, firstHit.x, firstHit.y, firstHit.z);
 	m_bEmpiresTurretOutOfReachLogged = true;
@@ -1694,7 +1695,7 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 			}
 		if (alarm)
 		{
-			Msg("[RCBOT2] goal-roam defend-hold-break userid=%d entity=%d reason=alarm\n",
+			RCBOT_DIAG("[RCBOT2] goal-roam defend-hold-break userid=%d entity=%d reason=alarm\n",
 				engine->GetPlayerUserId(m_pEdict), m_iEmpiresDefendHoldEntity);
 			m_flEmpiresNavGoalHoldUntil = 0.0f;
 		}
@@ -1828,7 +1829,7 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 				for (const CEmpiresMod::CapturePointObservation& point : pHeldMod->getCapturePoints())
 					if (point.entityIndex == heldEntity)
 						m_vEmpiresDefendHoldOrigin = point.groundApproachKnown ? point.groundApproachOrigin : point.origin;
-				Msg("[RCBOT2] goal-roam defend-hold userid=%d entity=%d seconds=%.0f\n",
+				RCBOT_DIAG("[RCBOT2] goal-roam defend-hold userid=%d entity=%d seconds=%.0f\n",
 					engine->GetPlayerUserId(m_pEdict), heldEntity, kNavGoalCaptureHold);
 				return true;
 			}
@@ -1849,7 +1850,7 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 					std::to_string(m_iEmpiresNavGoalEntity) + ";navmesh-goal";
 				EmpiresAnalysis::RecordBotEvent(this, "CAPTURE_STARTED",
 					nullptr, startDetail.c_str());
-				Msg("[RCBOT2] goal-roam hold userid=%d entity=%d seconds=%.0f\n",
+				RCBOT_DIAG("[RCBOT2] goal-roam hold userid=%d entity=%d seconds=%.0f\n",
 					engine->GetPlayerUserId(m_pEdict), m_iEmpiresNavGoalEntity,
 					kNavGoalCaptureHold);
 			}
@@ -1882,7 +1883,7 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 			// This is a bounded, deliberate retry after the previous route
 			// drained; do not spend it on the same attempt's failure cooldown.
 			clearNavigationAttemptCooldownForStartAnchorRetry();
-			Msg("[RCBOT2] goal-roam retry userid=%d type=%s entity=%d attempt=%d learned=%d dist=%.0f\n",
+			RCBOT_DIAG("[RCBOT2] goal-roam retry userid=%d type=%s entity=%d attempt=%d learned=%d dist=%.0f\n",
 				engine->GetPlayerUserId(m_pEdict),
 				empiresNavGoalTypeName(m_iEmpiresNavGoalType),
 				m_iEmpiresNavGoalEntity, m_iEmpiresNavGoalAttempts, learned ? 1 : 0, dist);
@@ -1992,7 +1993,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		if (!attacked.empty())
 		{
 			tiers[NAVGOAL_DEFEND] = attacked;
-			Msg("[RCBOT2] goal-roam defend-alarm userid=%d team=%d entity=%d\n", userId, team,
+			RCBOT_DIAG("[RCBOT2] goal-roam defend-alarm userid=%d team=%d entity=%d\n", userId, team,
 				attacked.front().entity);
 		}
 		else if (!threatened.empty() && total > 0 && teamSize > 0 &&
@@ -2013,7 +2014,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 			Vector spot;
 			if (!layMines && pickEmpiresDefendSpot(guard.origin, (m_iEmpiresNavGoalPicks + teamRank) % 2 == 0, spot))
 			{
-				Msg("[RCBOT2] goal-roam defend-spot userid=%d entity=%d flag=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f) dist=%.0f dz=%.0f\n",
+				RCBOT_DIAG("[RCBOT2] goal-roam defend-spot userid=%d entity=%d flag=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f) dist=%.0f dz=%.0f\n",
 					userId, guard.entity, guard.origin.x, guard.origin.y, guard.origin.z, spot.x, spot.y, spot.z,
 					(spot - guard.origin).Length2D(), spot.z - guard.origin.z);
 				guard.origin = spot;
@@ -2134,7 +2135,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 	if (tier >= NAVGOAL_TYPES)
 	{
 		m_flEmpiresNavGoalNextPick = now + kNavGoalNoneRetry;
-		Msg("[RCBOT2] goal-roam none userid=%d team=%d reason=no-candidates\n", userId, team);
+		RCBOT_DIAG("[RCBOT2] goal-roam none userid=%d team=%d reason=no-candidates\n", userId, team);
 		return false;
 	}
 
@@ -2164,7 +2165,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		choice.entity))
 	{
 		m_flEmpiresNavGoalNextPick = now + kNavGoalNoneRetry;
-		Msg("[RCBOT2] goal-roam none userid=%d team=%d reason=request-rejected\n", userId, team);
+		RCBOT_DIAG("[RCBOT2] goal-roam none userid=%d team=%d reason=request-rejected\n", userId, team);
 		return false;
 	}
 
@@ -2179,7 +2180,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 	m_iEmpiresNavGoalRetries = 0;
 	m_iEmpiresNavGoalAttempts = 0;
 	m_uEmpiresNavGoalBlockMark = RCBotNavMesh::BlockGeneration();
-	Msg("[RCBOT2] goal-roam pick userid=%d team=%d type=%s entity=%d class=%s pos=(%.0f %.0f %.0f) dist=%.0f rank=%d candidates=%d deadline=%.0f\n",
+	RCBOT_DIAG("[RCBOT2] goal-roam pick userid=%d team=%d type=%s entity=%d class=%s pos=(%.0f %.0f %.0f) dist=%.0f rank=%d candidates=%d deadline=%.0f\n",
 		userId, team, empiresNavGoalTypeName(tier), choice.entity, choice.className,
 		choice.origin.x, choice.origin.y, choice.origin.z, choice.distance, rank,
 		static_cast<int>(candidates.size()), m_flEmpiresNavGoalDeadline - now);
@@ -2245,7 +2246,7 @@ void CBotEmpires::handleEmpiresDefendMines(const float now)
 			std::string list;
 			for (const Vector& mine : mines)
 				list += " " + std::to_string(static_cast<int>((mine - m_vEmpiresDefendHoldOrigin).Length2D()));
-			Msg("[RCBOT2] defend-mine full userid=%d flag=%d own=%d dist_to_flag=%s\n",
+			RCBOT_DIAG("[RCBOT2] defend-mine full userid=%d flag=%d own=%d dist_to_flag=%s\n",
 				userId, m_iEmpiresDefendHoldEntity, own, list.c_str());
 		}
 		m_flEmpiresDefendMineNext = now + 5.0f;
@@ -2269,13 +2270,13 @@ void CBotEmpires::handleEmpiresDefendMines(const float now)
 	if (requestEmpiresMineFireOnce())
 	{
 		m_flEmpiresDefendMineNext = now + 1.5f;
-		Msg("[RCBOT2] defend-mine throw userid=%d flag=%d slot=%d own_before=%d aim=(%.0f %.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] defend-mine throw userid=%d flag=%d slot=%d own_before=%d aim=(%.0f %.0f %.0f)\n",
 			userId, m_iEmpiresDefendHoldEntity, own, own, aim.x, aim.y, aim.z);
 	}
 	else
 	{
 		m_flEmpiresDefendMineNext = now + 15.0f;
-		Msg("[RCBOT2] defend-mine unavailable userid=%d flag=%d own=%d\n",
+		RCBOT_DIAG("[RCBOT2] defend-mine unavailable userid=%d flag=%d own=%d\n",
 			userId, m_iEmpiresDefendHoldEntity, own);
 	}
 }
@@ -2307,7 +2308,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		return &s_claims.back().second;
 	};
 	auto finish = [&](const char* reason, float retry) {
-		Msg("[RCBOT2] door-button end userid=%d button=%d door=%d reason=%s bot=(%.0f %.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] door-button end userid=%d button=%d door=%d reason=%s bot=(%.0f %.0f %.0f)\n",
 			userId, m_iEmpiresDoorButton, m_iEmpiresDoorButtonDoor, reason, origin.x, origin.y, origin.z);
 		std::pair<int, float>* claim = claimOf(m_iEmpiresDoorButton);
 		if (claim->first == userId)
@@ -2346,7 +2347,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		m_flEmpiresDoorButtonUntil = now + 90.0f;
 		m_flEmpiresDoorButtonLastUse = 0.0f;
 		m_bEmpiresDoorButtonMoving = false;
-		Msg("[RCBOT2] door-button start userid=%d team=%d button=%d door=%d at=(%.0f %.0f %.0f) stand=(%.0f %.0f %.0f) dist=%.0f\n",
+		RCBOT_DIAG("[RCBOT2] door-button start userid=%d team=%d button=%d door=%d at=(%.0f %.0f %.0f) stand=(%.0f %.0f %.0f) dist=%.0f\n",
 			userId, team, entry.button, entry.door, entry.origin.x, entry.origin.y, entry.origin.z,
 			stand.x, stand.y, stand.z, (entry.origin - origin).Length2D());
 	}
@@ -2409,7 +2410,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		const QAngle eyeAngles = CBotGlobals::playerAngles(m_pEdict);
 		QAngle want;
 		VectorAngles(button - getEyePosition(), want);
-		Msg("[RCBOT2] door-button press userid=%d button=%d door=%d bot=(%.0f %.0f %.0f) eye_dist=%.0f eye=(%.1f %.1f) want=(%.1f %.1f) lastcmd_buttons=0x%x\n",
+		RCBOT_DIAG("[RCBOT2] door-button press userid=%d button=%d door=%d bot=(%.0f %.0f %.0f) eye_dist=%.0f eye=(%.1f %.1f) want=(%.1f %.1f) lastcmd_buttons=0x%x\n",
 			userId, m_iEmpiresDoorButton, m_iEmpiresDoorButtonDoor, origin.x, origin.y, origin.z,
 			(button - getEyePosition()).Length(), eyeAngles.x, eyeAngles.y, want.x, want.y,
 			m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetLastUserCommand().buttons : -1);

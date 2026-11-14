@@ -25,6 +25,7 @@
 #include "navmesh/nav_mesh/nav_pathfind.h"
 #include "navmesh/nav_mesh/nav_ladder.h"
 #include "filesystem.h"
+#include "bot_cvars.h"
 extern IFileSystem* filesystem;
 
 CNavMesh *TheNavMesh = nullptr;
@@ -439,7 +440,7 @@ int AddLaddersFromBsp()
 			continue;
 		TheNavMesh->CreateLadder(mins, maxs, 0.0f);
 		const CNavLadder* ladder = TheNavMesh->GetLadders().Tail();
-		Msg("[RCBOT2] navmesh-ladder add bottom=(%.0f %.0f %.0f) top=(%.0f %.0f %.0f) dir=%d bottom_area=%d top_area=%d\n",
+		RCBOT_DIAG("[RCBOT2] navmesh-ladder add bottom=(%.0f %.0f %.0f) top=(%.0f %.0f %.0f) dir=%d bottom_area=%d top_area=%d\n",
 			ladder->m_bottom.x, ladder->m_bottom.y, ladder->m_bottom.z,
 			ladder->m_top.x, ladder->m_top.y, ladder->m_top.z, static_cast<int>(ladder->GetDir()),
 			ladder->m_bottomArea != nullptr ? static_cast<int>(ladder->m_bottomArea->GetID()) : -1,
@@ -477,7 +478,11 @@ void Frame(const bool simulating)
 		Msg("[RCBOT2] NavMesh load result=%d areas=%u\n",
 			static_cast<int>(result), TheNavMesh->GetNavAreaCount());
 		if (TheNavMesh->IsLoaded() && TheNavMesh->GetLadders().Count() == 0)
-			Msg("[RCBOT2] navmesh-ladder bsp added=%d\n", AddLaddersFromBsp());
+		{
+			// The call has effects: never put it inside RCBOT_DIAG (skipped with the log off).
+			const int added = AddLaddersFromBsp();
+			RCBOT_DIAG("[RCBOT2] navmesh-ladder bsp added=%d\n", added);
+		}
 		s_loadAttempted = true;
 	}
 
@@ -854,7 +859,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		}
 	if (startCell < 0 || startDistance > kDetourCell * 4.0f)
 	{
-		Msg("[RCBOT2] nav-detour-fail reason=no-start entry=(%.0f %.0f %.0f) nearest=%.0f box=(%.0f %.0f)-(%.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] nav-detour-fail reason=no-start entry=(%.0f %.0f %.0f) nearest=%.0f box=(%.0f %.0f)-(%.0f %.0f)\n",
 			entry.x, entry.y, actualEntry.z, startDistance, box.mins.x, box.mins.y, box.maxs.x, box.maxs.y);
 		return false;
 	}
@@ -945,7 +950,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	}
 	if (exitCell < 0)
 	{
-		Msg("[RCBOT2] nav-detour-fail reason=no-exit exits=%zu z=%.0f target=(%.0f %.0f %.0f) box=(%.0f %.0f)-(%.0f %.0f)\n",
+		RCBOT_DIAG("[RCBOT2] nav-detour-fail reason=no-exit exits=%zu z=%.0f target=(%.0f %.0f %.0f) box=(%.0f %.0f)-(%.0f %.0f)\n",
 			exits.size(), planeZ, target.x, target.y, target.z, box.mins.x, box.mins.y, box.maxs.x, box.maxs.y);
 		return false;
 	}
@@ -1076,7 +1081,7 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 			}
 			const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - started).count();
-			Msg("[RCBOT2] nav-detour building=%s planned=%d corners=%zu from=(%.0f %.0f) to=(%.0f %.0f) us=%lld\n",
+			RCBOT_DIAG("[RCBOT2] nav-detour building=%s planned=%d corners=%zu from=(%.0f %.0f) to=(%.0f %.0f) us=%lld\n",
 				box.className, planned ? 1 : 0, detour.size(), a.x, a.y,
 				path.points[last].x, path.points[last].y, static_cast<long long>(micros));
 			if (planned)
@@ -1180,7 +1185,7 @@ void EnsureNavComponents()
 	}
 	s_componentsValid = true;
 	s_componentAreaCount = count;
-	Msg("[RCBOT2] navmesh-components areas=%d components=%d largest=%d islands_small=%d\n",
+	RCBOT_DIAG("[RCBOT2] navmesh-components areas=%d components=%d largest=%d islands_small=%d\n",
 		static_cast<int>(count), components, largest, small);
 }
 
@@ -1221,7 +1226,7 @@ void LogIslandSnap(const char* what, const CNavArea* oldArea, const CNavArea* ne
 {
 	if (!s_loggedIslandSnaps.insert({oldArea->GetID(), newArea->GetID()}).second)
 		return;
-	Msg("[RCBOT2] navmesh-island snap=%s from_area=%u to_area=%u gap=%.0f at=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] navmesh-island snap=%s from_area=%u to_area=%u gap=%.0f at=(%.0f %.0f %.0f)\n",
 		what, oldArea->GetID(), newArea->GetID(), gap, at.x, at.y, at.z);
 }
 }
@@ -1594,6 +1599,20 @@ bool IsPointInPathAreas(const Path &path, const Vector &point)
 	{
 		CNavArea *area = TheNavMesh->GetNavAreaByID(areaId);
 		if (area != nullptr && area->Contains(point))
+			return true;
+	}
+	return false;
+}
+
+bool PointNearBuilding(const Vector &point, float pad)
+{
+	for (const BuildingBox& box : CollectSolidBuildings())
+	{
+		// The commander vehicle is the one driving there; it is not a site to keep clear of.
+		if (std::strcmp(box.className, "emp_nf_commander") == 0 ||
+			std::strcmp(box.className, "emp_imp_commander") == 0)
+			continue;
+		if (InPaddedBox(point, box, pad))
 			return true;
 	}
 	return false;

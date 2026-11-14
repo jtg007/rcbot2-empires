@@ -91,6 +91,8 @@ void ClearBlockedEdges();
 PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 	CBot* observer = nullptr);
 bool IsPointInPathAreas(const Path &path, const Vector &point);
+// True if point lies within pad (2D) of a building's collision box; commander vehicles are ignored.
+bool PointNearBuilding(const Vector &point, float pad);
 // Route for a vehicle of the given width: no ladders, jumps or crouch areas,
 // small steps only, narrow links expensive, portal points kept off the edges.
 // allowPartial: with no full path, return the way to the reachable area nearest the goal

@@ -46,7 +46,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
 | ✅ | Drive the CV | To distant buildings, and over enemy infantry in the base |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
-| ⬜ | Research | |
+| 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; further research items are planned |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
 | ⬜ | Give orders to bots | Attack location, attack target, guard |
 
@@ -80,7 +80,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 
 | | Feature | Notes |
 |:-:|---|---|
-| ✅ | Buy at the vehicle factory | Standard loadout; better parts after research are planned |
+| ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
 | ✅ | Drive | On the navmesh, three-point turns, keep away from edges |
 | ✅ | Fight | Cannon against vehicles, MG against infantry, lead moving targets, circle the enemy |
 | ✅ | Run over infantry | |
@@ -116,6 +116,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, minimum 2; Bill Nye excluded) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |
+| `rcbot_empires_debug_log` | 0 | 1 = print the bots' diagnostic `[RCBOT2]` lines (hundreds per minute in a full match) |
 | `rcbot_empires_force_offsets` | 0 | Checks `server_srv.so`; on an unknown build, fixed-offset reads are disabled and affected features use fallbacks. 1 = use the offsets anyway |
 
 ## Build
@@ -155,6 +156,11 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
 - `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).
+- Setup: copy `scripts/dev.local.example` to `scripts/dev.local`. Build dependencies (SDK 2013,
+  Metamod:Source, SourceMod, HL2SDK manifests) go in `../rcbot2-clean` or `RCBOT_DEPS_DIR`.
+- Working with Claude Code or Codex: the rules and tools are in [AGENTS.md](AGENTS.md)
+  (Claude Code reads it through `CLAUDE.md`, with a `tester` and an `expert` agent in
+  `.claude/agents/`). Open work, in order: [docs/OPEN_WORK.md](docs/OPEN_WORK.md).
 
 ## License
 

@@ -98,6 +98,54 @@ Rejections in `emp_vehicle_build` (all via `ClientPrint`, invisible to bots):
 | too heavy | `Total vehicle weight ... exceeds` |
 | too expensive | `... exceeds available personal resources` / `... available resources` |
 | no factory selected (and `emp_sv_debug_build_vehicles 0`) or player dead | `#emp_vehicle_not_in_vf` |
+
+### Factory path without debug purchase (2026-11-14)
+
+`emp_sv_debug_build_vehicles 1` skips the whole factory path (0x652e5d → 0x652fe0). Without it,
+`emp_vehicle_build` aborts **silently** (no `ClientPrint`) when:
+- `IsInFactory` 0x6540ee → 0x652fc0 fails: needs the player's factory handle `player+0x1454` valid
+  (0x65fe95). `emp_vehicle_factory <index>` sets it; `CVehicleFactory::EndTouch` 0x6a9ec2 sets it to -1.
+- the factory is not alive (0x65308b) or not built (`factory+0x492`, 0x6530b3).
+- `#emp_vehicle_blocked` (0x6543e6): hull ±150 around the factory attachment `build`, mask 0x4600400b.
+  The hull trace in `IsInFactory` uses `CTraceFilterNoNPCsOrPlayer` (vtable 0x983c18); the vehicle
+  physbox is ignored (`CGameRules::ShouldCollide(0,12)` = 0, 0x3fd829).
+- `CanBuild` 0x6aa2f4 writes the current time to `factory+0x60c` only when all checks up to the
+  vehicle creation (`CreateEntityByName` 0x654556) passed.
+
+Research, money (~4900 vs ~274), weight (230 of 260) and the limit (32) were ruled out for run
+20261114-103144 (20 purchases, no vehicle). **Assumption:** the factory handle is cleared between
+`emp_vehicle_factory` and `emp_vehicle_build` (sent 0.15 s apart, bots pushing each other at the
+factory). The bot now sends both in the same tick and logs `vehicle factory-probe`
+(handle, built, `+0x60c`).
+**Measured, run 20261114-110533** (production cvars, both commands in one tick): handle valid and
+pointing at the factory (`0x0397f232` = index 562), `built=1`, `+0x60c` stays 0 → the handle
+assumption is **refuted**; the build is rejected after the built check (0x6530b3) and before
+`CanBuild` writes `+0x60c`. No TextMsg reached the bot's message hook.
+
+Checks that run only with a factory (0x654250–0x654ac7): player alive (0x654263, else
+`not_in_vf`), factory attachment `build` (0x6542aa), then a hull trace ±150 at that point
+(`CTraceFilterSimple(passEnt=factory, COLLISION_GROUP_NONE)`, mask 0x4600400b, 0x6543c6–0x6543fb).
+A non-world hit passes only if it `IsPlayer` (vfunc 0x144, 0x654aac) or has collision group 14
+(0x654ac0); otherwise `ClientPrint #emp_vehicle_blocked` (0x654aed) before `CanBuild` (0x654443).
+Players (the buyer too), the factory and its physbox (`ShouldCollide(0,12)` = 0) do not block.
+Part/weight/cost checks (0x6531e0–0x6544b0) are the same with and without the debug cvar; parts
+without a `"Research"` key skip the research check; cost = team resources + salary (0x65448d).
+**Assumption:** another solid object (turret, wall, crate, building, vehicle) stands in the build
+spot. The bot logs `vehicle factory-near` (solid entities within the factory bounds + 150).
+
+`IsInFactory` 0x65fe80 (called at 0x6540ee, failure ends silently 0x6540f5 → 0x652fc0): handle
+`player+0x1454` valid, player alive (0x65fed4), not in a vehicle (0x65fee3), factory `IsBuilding` and
+alive; then two player hull traces (`GetPlayerMins/Maxs`, mask 0x200400b, `CTraceFilterNoNPCsOrPlayer`,
+physbox group 12 ignored): first `TraceRay` **up** from the origin to origin + (0,0,1024) (0x6601d2, end
+built with `addss` 1024 at 0x660055), then `UTIL_TraceHull` **down** to origin − (0,0,1024) (0x6602de).
+Both must hit the factory first (0x660298, 0x6602e3): the buyer must stand on the factory floor
+**under its roof**; ramp or open apron fails silently. **Verified with gdb** (2026-11-14, crossroads,
+production cvars): handle/alive/IsBuilding passed, up-trace frac=1 hit=null, IsInFactory=0, no vehicle.
+
+Attachments from the models (v48, one bone `static_prop`, identity): BE `imp_vehiclefactory.mdl`
+`build` (0, 0, 200), `panel` (0, 270, 150), `ramp` (750, 0, 20); NF `nf_vehiclefactory.mdl` `build`
+(172.5, 0, 172.5), `ramp` (517.5, 0, 23). The surrounding bounds `obb` in the bot log equal the model hull.
+Run 20261114-111731: removing the factory panel did not help; CV and props are outside the build box.
 | spawn box blocked | `#emp_vehicle_blocked` (hull ±150 at attachment `build`, hits a non-world entity that is not a player) |
 | factory cooldown 1 s (`CVehicleFactory::CanBuild` 0x6aa2c0) | `#emp_vehicle_recharging` |
 | anti-griefing | `#emp_vehicle_antigrief_triggered` |

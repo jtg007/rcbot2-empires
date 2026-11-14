@@ -459,7 +459,7 @@ void RCBotPluginMeta::Hook_MessageEnd()
 		if (std::strcmp(name, "VGUIMenu") != 0 && s_logged < 400)
 		{
 			++s_logged;
-			Msg("[RCBOT2] textmsg userid=%d type=%s bytes=%d msg=%s\n",
+			RCBOT_DIAG("[RCBOT2] textmsg userid=%d type=%s bytes=%d msg=%s\n",
 				edict != nullptr ? engine->GetPlayerUserId(edict) : -1, name, bytes, text);
 		}
 	}
