@@ -58,18 +58,37 @@ constexpr float kCommanderZoneMargin = 1500.0f;
 // Farther than rcbot_empires_commander_drive_from: drive the CV first, stop this far
 // before the building (at most half the way).
 constexpr float kCommanderDriveStop = 700.0f;
+constexpr float kCommanderWalkRange = 2500.0f; // after a stuck drive, walk only this far
 // Pull the drive goal back towards the CV until it is clear of buildings: the goal used to
 // lie in the BE barracks footprint (run 093847), the vehicle route skips detours around a
 // building near its end, so the CV drove onto the barracks and the commander got out into
 // a niche it could not leave for ~10 minutes.
-Vector CommanderDriveGoal(const Vector& at, const Vector& back, float cvDistance)
+bool CommanderDriveGoal(const Vector& at, const Vector& back, float cvDistance, Vector& result)
 {
-	float stop = std::min(kCommanderDriveStop, cvDistance * 0.5f);
-	while (stop < cvDistance && RCBotNavMesh::PointNearBuilding(at + back * stop, 150.0f))
-		stop += 64.0f;
-	return at + back * std::min(stop, cvDistance);
+	// Leave room for the vehicle's arrival radius before the walk-range limit.
+	const float maxStop = std::min(cvDistance, kCommanderWalkRange - 400.0f);
+	const float firstStop = std::min(kCommanderDriveStop, cvDistance * 0.5f);
+	const float angles[] = {0.0f, 0.5235988f, -0.5235988f, 1.0471976f, -1.0471976f,
+		1.5707963f, -1.5707963f, 2.0943951f, -2.0943951f, 2.6179939f, -2.6179939f, 3.1415927f};
+	for (float angle : angles)
+	{
+		const float c = std::cos(angle), s = std::sin(angle);
+		const Vector direction(back.x * c - back.y * s, back.x * s + back.y * c, 0.0f);
+		for (float stop = firstStop; stop <= maxStop; stop += 64.0f)
+		{
+			const Vector goal = at + direction * stop;
+			if (!RCBotNavMesh::PointNearBuilding(goal, 150.0f))
+			{
+				RCBOT_DIAG("[RCBOT2] commander-drive-goal cv_distance=%.0f stop=%.0f angle=%.2f goal=(%.0f %.0f %.0f)\n",
+					cvDistance, stop, angle, goal.x, goal.y, goal.z);
+				result = goal;
+				return true;
+			}
+		}
+	}
+	RCBOT_DIAG("[RCBOT2] commander-drive-goal none cv_distance=%.0f\n", cvDistance);
+	return false;
 }
-constexpr float kCommanderWalkRange = 2500.0f; // after a stuck drive, walk only this far
 constexpr float kCommanderDriveSeconds = 90.0f;
 constexpr float kCommanderHuntSeconds = 120.0f;
 constexpr float kCommanderHuntReach = 3000.0f; // the vehicle brain picks infantry up to 3000 away
@@ -513,6 +532,52 @@ bool CBotEmpires::isEmpiresEngineerClass() const
 	return readEmpiresClass(m_pEdict, classId, desired, desiredKnown, propertyName) && classId == EMP_CLASS_ENGINEER;
 }
 
+// The bot that should take the empty commander seat next: the team's first Engineer
+// (lowest userid) when rcbot_empires_commander_engineer is on, else the lowest-slot living
+// non-Engineer. nullptr while somebody of the team holds, approaches or is out of the seat.
+CBotEmpires* CBotEmpires::commanderSeatCandidate(int team)
+{
+	CBotEmpires* chosen = nullptr;
+	CBotEmpires* engineer = nullptr;
+	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+	{
+		CBot* bot = CBots::getBot(slot);
+		if (bot == nullptr || !bot->inUse() || bot->getEdict() == nullptr || !bot->isAlive() ||
+			CClassInterface::getTeam(bot->getEdict()) != team)
+			continue;
+		CBotEmpires* candidate = static_cast<CBotEmpires*>(bot);
+		if (candidate->m_iCommanderEntryStage != 0 || candidate->m_iCommanderBuildStage != 0)
+			return nullptr;
+		if (chosen == nullptr && !candidate->isEmpiresEngineerClass())
+			chosen = candidate;
+		if (candidate->isEmpiresEngineerClass() && (engineer == nullptr ||
+			engine->GetPlayerUserId(candidate->getEdict()) < engine->GetPlayerUserId(engineer->getEdict())))
+			engineer = candidate;
+	}
+	if (rcbot_empires_commander_engineer.GetBool() && engineer != nullptr)
+		chosen = engineer;
+	return chosen;
+}
+
+// Run 121241 (production values): both seat candidates spent 20 min on refinery turrets
+// (15 failed) and NF never got a commander (4 seat attempts lost to turret restarts).
+bool CBotEmpires::commanderDutyBlocksSideTasks()
+{
+	// Stage 5 is the commander's own turret trip (out of the seat): the turret job must run.
+	if (m_iCommanderBuildStage == 5 && m_bCommanderBuildTurret && m_iCommanderEntryStage == 0)
+		return false;
+	if (m_iCommanderEntryStage != 0 || m_iCommanderBuildStage != 0)
+		return true;
+	if (!rcbot_empires_auto_commander.GetBool() || gpGlobals == nullptr || engine == nullptr ||
+		isControlledTestOnly())
+		return false;
+	const int team = getTeam();
+	if ((team != 2 && team != 3) || engine->Time() < s_humanCommanderUntil[team] ||
+		m_commanderEconomy.entryAttempts >= 4)
+		return false;
+	return commanderSeatCandidate(team) == this;
+}
+
 void CBotEmpires::tickCommanderEconomy()
 {
 	if (!rcbot_empires_auto_commander.GetBool() || engine == nullptr || gpGlobals == nullptr ||
@@ -747,26 +812,7 @@ void CBotEmpires::tickCommanderEconomy()
 			return;
 		if (state.entryAttempts >= 4 || now < state.nextEntryTry)
 			return;
-		CBotEmpires* chosen = nullptr;
-		CBotEmpires* engineer = nullptr;
-		for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
-		{
-			CBot* bot = CBots::getBot(slot);
-			if (bot == nullptr || !bot->inUse() || bot->getEdict() == nullptr || !bot->isAlive() ||
-				CClassInterface::getTeam(bot->getEdict()) != team)
-				continue;
-			CBotEmpires* candidate = static_cast<CBotEmpires*>(bot);
-			if (candidate->m_iCommanderEntryStage != 0 || candidate->m_iCommanderBuildStage != 0)
-				return; // somebody of the team already holds, approaches or is out of the seat
-			if (chosen == nullptr && !candidate->isEmpiresEngineerClass())
-				chosen = candidate;
-			if (candidate->isEmpiresEngineerClass() && (engineer == nullptr ||
-				engine->GetPlayerUserId(candidate->getEdict()) < engine->GetPlayerUserId(engineer->getEdict())))
-				engineer = candidate;
-		}
-		if (rcbot_empires_commander_engineer.GetBool() && engineer != nullptr)
-			chosen = engineer;
-		if (chosen != this)
+		if (commanderSeatCandidate(team) != this)
 			return;
 		// A started build, turret or revive finishes first.
 		if (m_iBuildAssignStage != 0 || m_iTurretRefinery != 0 || m_iReviveTarget != 0)
@@ -955,23 +1001,36 @@ void CBotEmpires::tickCommanderEconomy()
 			const float homeDistance = (at - home).Length();
 			if (helper < 0 && !enemyNear && homeDistance < zone)
 			{
-				++tries->tries;
-				tries->next = now + 10.0f;
-				const bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
-				m_iCommanderBuildStage = drive ? 3 : 1;
-				m_hCommanderBuildTarget = building;
-				m_bCommanderBuildTurret = false;
-				m_bCommanderHunt = false;
-				m_fCommanderBuildDeadline = now + 10.0f;
+				bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
 				Vector back = vehicleOrigin - at;
 				back.z = 0.0f;
 				back = back.Length() > 1.0f ? back / back.Length() : Vector(1, 0, 0);
-				m_vCommanderBuildDriveGoal = CommanderDriveGoal(at, back, cvDistance);
-				RCBOT_DIAG("[RCBOT2] commander-build stage=%s userid=%d building=%d class=%s health=%d/%d cv_distance=%.0f "
-					"home_distance=%.0f zone=%.0f try=%d\n", drive ? "drive" : "exit",
-					engine->GetPlayerUserId(m_pEdict), info.entity, building->GetClassName(), info.health,
-					info.maxHealth, cvDistance, homeDistance, zone, tries->tries);
-				return;
+				Vector goal;
+				const bool goalFound = !drive || CommanderDriveGoal(at, back, cvDistance, goal);
+				if (!goalFound && cvDistance <= kCommanderWalkRange)
+					drive = false;
+				if (!goalFound && drive && freeEngineers.empty())
+				{
+					tries->next = now + 10.0f;
+					continue;
+				}
+				if (goalFound || !drive)
+				{
+					++tries->tries;
+					tries->next = now + 10.0f;
+					m_iCommanderBuildStage = drive ? 3 : 1;
+					m_hCommanderBuildTarget = building;
+					m_bCommanderBuildTurret = false;
+					m_bCommanderHunt = false;
+					m_fCommanderBuildDeadline = now + 10.0f;
+					if (drive)
+						m_vCommanderBuildDriveGoal = goal;
+					RCBOT_DIAG("[RCBOT2] commander-build stage=%s userid=%d building=%d class=%s health=%d/%d cv_distance=%.0f "
+						"home_distance=%.0f zone=%.0f try=%d\n", drive ? "drive" : "exit",
+						engine->GetPlayerUserId(m_pEdict), info.entity, building->GetClassName(), info.health,
+						info.maxHealth, cvDistance, homeDistance, zone, tries->tries);
+					return;
+				}
 			}
 			if (freeEngineers.empty())
 			{
@@ -1045,19 +1104,27 @@ void CBotEmpires::tickCommanderEconomy()
 			}
 			if (tries->tries >= kMaxAssignTries || now < tries->next)
 				continue;
+			const float cvDistance = (at - vehicleOrigin).Length();
+			bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
+			Vector back = vehicleOrigin - at;
+			back.z = 0.0f;
+			back = back.Length() > 1.0f ? back / back.Length() : Vector(1, 0, 0);
+			Vector goal;
+			if (drive && !CommanderDriveGoal(at, back, cvDistance, goal))
+			{
+				if (cvDistance > kCommanderWalkRange)
+					continue;
+				drive = false;
+			}
 			++tries->tries;
 			tries->next = now + 30.0f;
-			const float cvDistance = (at - vehicleOrigin).Length();
-			const bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
 			m_iCommanderBuildStage = drive ? 3 : 1;
 			m_hCommanderBuildTarget = refinery;
 			m_bCommanderBuildTurret = true;
 			m_bCommanderHunt = false;
 			m_fCommanderBuildDeadline = now + 10.0f;
-			Vector back = vehicleOrigin - at;
-			back.z = 0.0f;
-			back = back.Length() > 1.0f ? back / back.Length() : Vector(1, 0, 0);
-			m_vCommanderBuildDriveGoal = CommanderDriveGoal(at, back, cvDistance);
+			if (drive)
+				m_vCommanderBuildDriveGoal = goal;
 			RCBOT_DIAG("[RCBOT2] commander-build stage=%s userid=%d refinery=%d turret=1 cv_distance=%.0f home_distance=%.0f "
 				"zone=%.0f try=%d\n", drive ? "drive" : "exit", engine->GetPlayerUserId(m_pEdict), info.entity,
 				cvDistance, (at - home).Length(), zone, tries->tries);

@@ -517,6 +517,16 @@ struct EmpiresVehicleBrain
 	float aimLastTime = 0.0f;
 	Vector aimVel = Vector(0, 0, 0);
 	float nextAimLog = 0.0f;
+	// Turret loadout of the active fire group, read from the turret's send props (see
+	// VehicleWeaponButtons in bot_empires_vehicle.cpp). Masks of IN_ATTACK / IN_ATTACK2.
+	float weaponReadAt = -1.0f;
+	bool weaponsKnown = false;
+	int weaponMgPure = 0;     // buttons firing only machine guns that have rounds loaded
+	int weaponMgMixed = 0;    // buttons with a loaded machine gun that also fire another weapon
+	int weaponHeavyInf = 0;   // buttons with a loaded cannon or grenade launcher
+	int weaponArmour = 0;     // buttons with a loaded weapon that hurts armour
+	bool weaponMgLeft = false; // a machine gun in the group still has magazine or reserve rounds
+	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;
 	int refitStep = 0;
@@ -673,6 +683,9 @@ public:
 	float m_fCommanderHuntZone = 0.0f;
 	// Automatic Commander (bot_empires_commander_economy.cpp, cvar rcbot_empires_auto_commander).
 	void tickCommanderEconomy();
+	static CBotEmpires* commanderSeatCandidate(int team);
+	// Seat candidate, approaching, seated or out building: no refinery turrets.
+	bool commanderDutyBlocksSideTasks();
 	// Test-only: act as if a human of the team wanted the Commander seat.
 	static void requestCommanderYieldTest(int team);
 	bool isEmpiresEngineerClass() const;

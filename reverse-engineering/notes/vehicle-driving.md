@@ -219,3 +219,88 @@ Payment comes from wages if they suffice (0x6545bd), otherwise from team resourc
 - Re-customizing at the repair station (in game: on the pad press V → Customize → Buy, then the armor rebuilds while staying on the pad): same command `emp_vehicle_build` (`Command_emp_vehicle_build` 0x652d70). If the player drives their own `CEmpTank` (vfunc +0x3a0 == player), it sets the re-customize flag (0x653432) and takes its own branch at 0x654750: trace from the vehicle, the hit must be a built station (+0x492), whose upgrade flag (+0x5c0) is taken over. Command sequence as for buying (chassis/weapon/armor/armor_levels/engine/build), without `emp_vehicle_factory`. Untested.
 - Health fields: `m_iHealth` (+0xf8) = hull, repaired by `DoRepairs` and the kit (`GetHealth`/`GetMaxHealth` vfunc 0x1e8/0x1e0; when full `DoRepairs` calls `ClearRequest`). Armor per side is server-side only: `float[4]` +0xfe4, `int[4]` +0x1004 (order front, rear, left, right; left = local −X, right = +X, front = +Y, confirmed in a run: an engineer on +X heals index 3). `m_iMaxArmorHealth` (+0x1024) = 70 **per inch** (2 inches → 140). The kit heals the side that is hit (`CEmpTank::GetSide` 0x3e61c0 by angle limits from the chassis, then `HealArmorSide`), range 100 → aim at the nearest hull point, not the centre of a face. Only `m_flTotalHealth`/`m_flMaxTotalHealth`, `m_iArmor`, `m_iMaxArmorHealth` are networked.
 - Max armor (inches per side, scripts): NF Light Tank 2, BE AFV 3, jeeps 1, NF Medium 5, BE Medium 4, heavy 6.
+
+## Rainbowroad base expansion: offline map inspection (2026-11-14)
+
+- BSP entities: NF starting barracks `(13680,-1136,256)`, CV `(12953,0,339.51)`,
+  refinery `(14080,1408,256)`; BE barracks `(-13648,1152,256)`, CV
+  `(-13034,0,288.239)`, refinery `(-14080,-1408,256)`. Barracks locations are
+  references, not individual spawn points.
+- The nav file contains 726 areas. Examples of sloped front areas: NF area 92
+  `x=7100..7650 y=275..700 z=260..382`, area 120 `x=6950..7575 y=-850..-600
+  z=256..444`; BE area 93 `x=-8050..-7500 y=-875..-450 z=257..379`, area 133
+  `x=-7950..-7325 y=425..650 z=259..447`. Approximate areas to inspect on the
+  start side are NF `x=8500..11500`, BE `x=-11500..-8500`; these are hypotheses,
+  not verified building footprints or proof of the first driven ramp.
+
+## Vehicle weapon ammunition (expert static inspection, 2026-11-14)
+
+- `m_hTurret` leads to `DT_EmpTankTurret`; its `tankturretdriverdata` contains
+  eight-element `m_iWeapon`, `m_bWeaponGroup`, `m_bWeaponMode`, `m_iWeaponAmmo`,
+  `m_iWeaponSlot` and `m_iWeaponClips` tables. `SendPropArray3` exposes numbered
+  child properties in data tables, not a `DPT_Array`. Validate parent and child offsets.
+- `AddWeapon` 0x69a21d–0x69a420 writes the weapon ID and ammo/clip values at the
+  same array index, with chassis slot separately. For the usual bot loadouts find
+  standard MG ID 0 and cannon ID 12 by ID rather than assuming an NF/BE array index.
+- `ReloadWeapon` 0x68c550 uses ammo as rounds in the magazine and clips as reserve
+  magazines; it fills the magazine and decrements reserve unless the weapon's infinite
+  flag is set. State and offsets remain to be checked in actual game runs.
+- Run `20261114-144912-emp_crossroads-6b-25m`: BE userid 6 turret 571, raw active
+  group 0, both weapons in group 0: cannon ID 12, chassis slot 0, mode 0, ammo 40,
+  clips 0; MG ID 0, slot 1, mode 1, ammo 60, clips 4. One fire request; no measured
+  before/after shot or button/group crossover yet.
+- Static inspection: `m_bWeaponMode` is eight bytes, `m_bWeaponGroup` 48 bytes
+  (`group[6*i+g]`) and `m_iGroup` the active group 0..5. A button can fire several
+  weapons in one group. `IN_ATTACK` passes runtime mode 1, `IN_ATTACK2` mode 0;
+  independently verify the relationship to buy commands and UI groups in game.
+- `scripts/vehicle_weapons.txt` (from `scripts_dir.vpk`, 2026-11-14), index = weapon ID:
+  0-11 machine guns (type 0; ammo type 1/2 = armour piercing/explosive for IDs 1, 4, 5,
+  8-11), 12-22 tank cannons (type 1, clip 40 or 30, `Total Ammo Clips` 0 = reloads one
+  round at a time), 23-26 artillery (type 2), 27-39 missile launchers (type 3), 40-42
+  grenade launchers (type 4); array value 255 = empty entry. Standard MG clip 60 x 4
+  and Standard Cannon 40 x 0 match run 144912 (60/4 and 40/0), so the arrays read
+  magazine and reserve magazines as expected.
+- Weapon slots per chassis (`scripts/vehicle_*.txt` `weapon_slot`, in slot index order,
+  T = accepted weapon type, S = slot size): NF light tank T1/S1, T0/S1, T3/S1; BE AFV
+  T0/S1, T1/S1, T3/S1; NF/BE medium T1/S2, T0/S2, T3/S2; NF heavy T1/S3, T0/S3, T3/S3,
+  T3/S3; BE heavy T1/S3, T1/S3, T0/S3, T3/S3; APCs T0/S3, T4/S2; artillery T2/S2; jeeps
+  and commander vehicles none. Weapon `Size` (vehicle_weapons.txt): size 1 only for
+  Standard MG 0, Chain Gun 6, Standard Cannon 12, Standard Missile Launcher 27 and
+  Grenade Launcher 40; researched weapons are mostly size 2-3. A weapon must match the slot
+  type and fit its size (build otherwise rejects with `Warning: Weapon ...`), so the bot's
+  light tank / AFV can only take size-1 weapons; slot 2 is the missile slot on both.
+  Weight: light tank max 260, AFV max 320; cannon 50, MG 30, missile launcher 40 (armour and
+  engine weights not yet added up; whether cannon+MG+missile fits is unverified in game).
+
+## Wages and team pool (expert static inspection, 2026-11-14, untested)
+
+- `CEmpPlayer::m_flWages` float at player +0x12c8 (NetworkVar Set 0x3d1670; the name string
+  exists, whether it is a SendProp is unverified). Kept across the round via
+  Store/RetrievePlayerRoundStats.
+- Income: `CEmpPlayer::IncrementRank` 0x663b46-0x663b7e adds the rank-point entry's value
+  (+0xc) on score events (kills etc.); engineer-kit recycling adds 0.25 x recycled amount
+  (0x3d0f32, constant at 0x950328). No time-based payout found; cvar `emp_sv_wages`
+  (0xc36f40) has no reference besides its constructor (assumed unused). User: wages rise
+  with fighting / squad points.
+- Purchase payment is automatic: check 0x65448d `(int)team + wages >= cost`. If wages >= cost,
+  wages -= cost (0x6545bd-0x6545f5), `builtfromwages=1`, team pool untouched. Otherwise
+  (0x65595f) rest = cost - wages is taken from ledger +0x30 (0x655a16, also logged in the
+  ledger float list +0x44, count +0x50) and wages set to 0 (0x655a28), `builtfromwages=0`.
+  No game-side reservation: anyone can drain the team pool.
+- Research cost is drained over time (`CEmpTeam::ResearchStartDrain` 0x6818d0,
+  `CEmpTeam::Think` 0x680c40); research pauses when money runs out.
+- Engineer kit build path (0x3cf110) has no team-ledger access (assumed free); commander
+  walls use the ledger (`CEmpGameRules::CompleteWalls` 0x397fc0).
+- Wage sources (expert, static): only `CEmpPlayer::IncrementRank` 0x663a00 raises wages, by the
+  "wages" value of the rank point from `scripts/rankpoints.txt` (`ParseRankPoints` 0x3a7ca0,
+  in scripts_000.vpk); XP at player +0x12c0. Values: kill 5, vehicle kill 10, building destroyed
+  5, 200 building damage 5, sabotage 5, revive 5, heal 5 / 100 HP, repair 3 / 100 HP, recycle
+  5 / 100, flag capture 3, defuse 3, spotting 8 targets 5, assists 1 per 2 (critical) or 3,
+  squadbonus 2, squadleaderbonus 2, commanderbonus 0.
+- Squad bonus: `CEmpParams::AddSquadPoints` 0x641c80 (callers IncrementRank and
+  `emp_increase_squadpoints`); every 3rd squad point (counter +0xac8, reset 0x641e48) each team
+  player in that squad (player +0x1508) gets squadbonus / squadleaderbonus (+0x150c), the
+  commander commanderbonus 0: about +2 wages per member per 3 scoring events. Untraced whether
+  every member's score event calls it.
+- Research cost is per second: `"Cost"` x `"Time"` (Structural_Engineering and Vehicle_Factory
+  each 4/s x 60 s = 240).

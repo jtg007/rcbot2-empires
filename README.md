@@ -8,6 +8,7 @@ real-time strategy. Built on [RCBot2][rcbot2-fork], running on a Linux dedicated
 > **Work in progress.** The bots already play whole matches – commander, engineers,
 > infantry and vehicles – but they are not finished and still make mistakes.
 > See [what works](#what-the-bots-can-do) and [known issues](#known-issues).
+> Current development priorities, test limitations and outstanding checks are listed in the public open-work document.
 
 ## The goal
 
@@ -33,20 +34,22 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Walk around buildings | Also buildings placed during the match |
 | ✅ | Get unstuck | Notice when stuck, back off, take another route |
 | 🟡 | Doors and gates | Some doors and buttons work; crossroads base gates and ramps remain a problem |
-| 🟡 | All maps | Tested on 7 maps: streetsoffire, crossroads, as_escort, rainbowroad, palmbay, coast, cyclopean |
+| 🟡 | All maps | Runs exist on 7 maps; three additional installed maps have navmeshes but no recorded run yet |
 
 ### Commander
 
 | | Feature | Notes |
 |:-:|---|---|
 | ✅ | Take the command vehicle | When no human commands |
+| 🟡 | Prioritize the commander candidate | Avoids starting refinery turrets while taking the seat; match testing continues |
 | 🟡 | Hand over to a human | A human who gets in or uses the CV gets the seat; not tested with a real player yet |
 | ✅ | Build the base | Refineries, barracks, vehicle factory, armory, repair station in a fixed order |
 | ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings |
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
-| ✅ | Drive the CV | To distant buildings, and over enemy infantry in the base |
+| 🟡 | Drive the CV | To distant buildings and enemy infantry; can get stuck and retry around the base |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
 | 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; further research items are planned |
+| ⬜ | Expand the base forward | Additional forward buildings and their vehicle access are planned |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
 | ⬜ | Give orders to bots | Attack location, attack target, guard |
 
@@ -67,9 +70,10 @@ Bots that play Empires the way a team does, not generic shooter bots:
 |:-:|---|---|
 | ✅ | Classes | Scout, Rifleman, Grenadier, Engineer with fitting loadouts |
 | ✅ | Fight | Aim, shoot, pick targets |
+| 🟡 | Resupply | Engineer resupply exists; ammo requests and coverage for other classes remain open |
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
-| ✅ | Follow move orders | From a human commander |
+| ✅ | Follow move orders | From a human commander; completion distance near mesh edges needs further testing |
 | 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
 | 🟡 | Follow guard orders | Engineers repair the ordered building; not tested with a human commander yet |
 | 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
@@ -82,7 +86,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 |:-:|---|---|
 | ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
 | ✅ | Drive | On the navmesh, three-point turns, keep away from edges |
-| ✅ | Fight | Cannon against vehicles, MG against infantry, lead moving targets, circle the enemy |
+| 🟡 | Fight | Leads targets and circles enemies; chooses MG or cannon by target and remaining ammo within the active weapon group; group switching is not yet implemented |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
 | 🟡 | Re-customize on the repair pad | Seen in 22-bot matches after a purchase at the factory; not yet confirmed on a server without `emp_sv_debug_build_vehicles 1` |
@@ -116,8 +120,11 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, minimum 2; Bill Nye excluded) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |
-| `rcbot_empires_debug_log` | 0 | 1 = print the bots' diagnostic `[RCBOT2]` lines (hundreds per minute in a full match) |
+| `rcbot_empires_debug_log` | 0 | 1 = print detailed bot diagnostics; startup and registry messages remain visible |
 | `rcbot_empires_force_offsets` | 0 | Checks `server_srv.so`; on an unknown build, fixed-offset reads are disabled and affected features use fallbacks. 1 = use the offsets anyway |
+
+Detailed diagnostics default to off to keep ordinary server logs readable. The development
+test harness enables them automatically; set `rcbot_empires_debug_log 1` for manual diagnosis.
 
 ## Build
 

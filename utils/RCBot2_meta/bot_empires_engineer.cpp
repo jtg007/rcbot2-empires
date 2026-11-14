@@ -2108,7 +2108,19 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 	}
 
 	if (now >= m_flEmpiresEngineerBuildActionDeadline)
+	{
+		int built = -1, allotted = -1, item = -1, commander = -1, clip = -1;
+		const bool builtKnown = readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerTurretsBuilt", built);
+		const bool allottedKnown = readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerTurretsAllotted", allotted);
+		const bool itemKnown = readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerBuildItem", item);
+		const bool commanderKnown = readEmpiresEntityIntProperty(m_pEdict, "m_bCommander", commander);
+		const bool clipKnown = readEmpiresEntityIntProperty(pCurrentWeapon, "m_iClip1", clip);
+		RCBOT_DIAG("[RCBOT2] turret-build-failure userid=%d built=%d/%d allotted=%d/%d item=%d/%d commander=%d/%d clip=%d/%d\n",
+			engine->GetPlayerUserId(m_pEdict), builtKnown ? 1 : 0, built,
+			allottedKnown ? 1 : 0, allotted, itemKnown ? 1 : 0, item,
+			commanderKnown ? 1 : 0, commander, clipKnown ? 1 : 0, clip);
 		failEmpiresEngineerBuildAction("no-new-mg-turret-observed");
+	}
 }
 
 void CBotEmpires::failEmpiresEngineerRepairAction(const char* reason)

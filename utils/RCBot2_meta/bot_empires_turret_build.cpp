@@ -63,7 +63,8 @@ bool GroundBelow(const Vector& p, Vector& ground)
 bool CBotEmpires::handleEmpiresRefineryTurret()
 {
 	if (gpGlobals == nullptr || engine == nullptr || !rcbot_empires_engineer_turrets.GetBool() ||
-		!isEmpiresEngineerClass() || !m_bEmpiresRepairRole || m_iReviveTarget != 0)
+		!isEmpiresEngineerClass() || !m_bEmpiresRepairRole || m_iReviveTarget != 0 ||
+		(m_iTurretRefinery == 0 && m_iTurretBuilding == 0 && commanderDutyBlocksSideTasks()))
 	{
 		m_iTurretRefinery = 0;
 		m_iTurretBuilding = 0;

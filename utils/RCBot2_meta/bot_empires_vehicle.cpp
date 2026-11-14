@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -26,6 +27,54 @@ extern IPlayerInfoManager* playerinfomanager;
 
 namespace
 {
+// SendPropArray3 arrays are datatables whose numbered children have relative offsets.
+template <typename T, std::size_t N>
+bool ReadTurretArray(edict_t* turret, const char* name, T (&values)[N])
+{
+	if (turret == nullptr || turret->IsFree() || turret->GetUnknown() == nullptr)
+		return false;
+	IServerUnknown* unknown = turret->GetUnknown();
+	IServerNetworkable* networkable = unknown->GetNetworkable();
+	ServerClass* cls = networkable != nullptr ? networkable->GetServerClass() : nullptr;
+	CBaseEntity* entity = unknown->GetBaseEntity();
+	if (cls == nullptr || cls->m_pTable == nullptr || entity == nullptr)
+		return false;
+	SendProp* driver = UTIL_FindSendProp(cls->m_pTable, "tankturretdriverdata");
+	unsigned driverOffset = 0;
+	if (driver == nullptr || driver->GetType() != DPT_DataTable || driver->GetDataTable() == nullptr ||
+		!UTIL_FindSendPropInfo(cls, "tankturretdriverdata", &driverOffset))
+		return false;
+	SendProp* array = nullptr;
+	for (int i = 0; i < driver->GetDataTable()->GetNumProps(); ++i)
+	{
+		SendProp* candidate = driver->GetDataTable()->GetProp(i);
+		if (candidate != nullptr && candidate->GetName() != nullptr && std::strcmp(candidate->GetName(), name) == 0)
+		{
+			array = candidate;
+			break;
+		}
+	}
+	if (array == nullptr || array->GetType() != DPT_DataTable || array->GetDataTable() == nullptr ||
+		array->GetDataTable()->GetNumProps() != static_cast<int>(N) || array->GetOffset() < 0)
+		return false;
+	const unsigned offset = driverOffset + static_cast<unsigned>(array->GetOffset());
+	for (std::size_t i = 0; i < N; ++i)
+	{
+		SendProp* child = array->GetDataTable()->GetProp(i);
+		char expected[4];
+		std::snprintf(expected, sizeof(expected), "%03u", static_cast<unsigned>(i));
+		if (child == nullptr || child->GetName() == nullptr || std::strcmp(child->GetName(), expected) != 0 ||
+			child->GetType() != DPT_Int || child->GetOffset() != static_cast<int>(i * sizeof(T)))
+			return false;
+		T value;
+		std::memcpy(&value, reinterpret_cast<const char*>(entity) + offset + child->GetOffset(), sizeof(value));
+		if (sizeof(T) == 1 && value > 1)
+			return false;
+		values[i] = value;
+	}
+	return true;
+}
+
 // Float send prop of the entity's own server class (readEmpiresFloatProperty
 // looks only in CEmpPlayer, so vehicle health and heat never read).
 float* EntityFloatProp(const edict_t* e, const char* name)
@@ -473,6 +522,64 @@ int EmpiresVehicleReadInt(const CBotEmpires* bot, const edict_t* e, const char* 
 	if (!bot->readEmpiresEntityIntProperty(e, prop, value))
 		return fallback;
 	return value;
+}
+
+// Which fire button reaches which loaded weapon in the turret's active group. Weapon IDs are
+// the order in scripts/vehicle_weapons.txt: 0-11 machine guns (type 0; IDs 1, 4, 5, 8-11 are
+// armour piercing or explosive), 12-22 cannons, 23-26 artillery, 27-39 missiles, 40-42 grenade
+// launchers; 255 = empty entry. A button fires every weapon of the active group with its mode:
+// IN_ATTACK mode 1, IN_ATTACK2 mode 0 (static RE; run 144912: bot-bought MG mode 1, cannon mode 0,
+// matching the user's observation that IN_ATTACK fires the MG). Artillery is never chosen.
+static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresVehicleBrain& v)
+{
+	v.weaponsKnown = false;
+	v.weaponMgPure = v.weaponMgMixed = v.weaponHeavyInf = v.weaponArmour = 0;
+	v.weaponMgLeft = false;
+	v.weaponSummary[0] = '\0';
+	std::int32_t weapons[8], ammo[8], clips[8];
+	std::uint8_t modes[8], groups[48];
+	if (turret == nullptr || !ReadTurretArray(turret, "m_iWeapon", weapons) ||
+		!ReadTurretArray(turret, "m_iWeaponAmmo", ammo) || !ReadTurretArray(turret, "m_iWeaponClips", clips) ||
+		!ReadTurretArray(turret, "m_bWeaponMode", modes) || !ReadTurretArray(turret, "m_bWeaponGroup", groups))
+		return;
+	const int group = EmpiresVehicleReadInt(bot, turret, "m_iGroup", -1);
+	if (group < 0 || group > 5)
+		return;
+	int other = 0; // buttons that also fire something other than a machine gun
+	int mgLoaded = 0;
+	std::size_t used = 0;
+	for (int i = 0; i < 8; ++i)
+	{
+		const int id = weapons[i];
+		if (id < 0 || id > 42 || !groups[i * 6 + group])
+			continue;
+		const int button = modes[i] ? IN_ATTACK : IN_ATTACK2;
+		const bool loaded = ammo[i] > 0;
+		const bool mg = id <= 11;
+		if (mg)
+		{
+			if (loaded)
+				mgLoaded |= button;
+			if (ammo[i] > 0 || clips[i] > 0)
+				v.weaponMgLeft = true;
+		}
+		else if (ammo[i] > 0 || clips[i] > 0)
+			other |= button; // an empty missile pod must not block the MG on its button
+		if (loaded && ((id >= 12 && id <= 22) || id >= 40))
+			v.weaponHeavyInf |= button;
+		if (loaded && ((id >= 12 && id <= 22) || (id >= 27 && id <= 39) || id == 1 || id == 4 || id == 5 || (id >= 8 && id <= 11)))
+			v.weaponArmour |= button;
+		if (used < sizeof(v.weaponSummary))
+		{
+			const int n = std::snprintf(v.weaponSummary + used, sizeof(v.weaponSummary) - used, "%s%d:%s:%d/%d",
+				used ? "," : "", id, button == IN_ATTACK ? "a1" : "a2", ammo[i], clips[i]);
+			if (n > 0)
+				used += static_cast<std::size_t>(n);
+		}
+	}
+	v.weaponMgPure = mgLoaded & ~other;
+	v.weaponMgMixed = mgLoaded & other;
+	v.weaponsKnown = true;
 }
 
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player)
@@ -3075,12 +3182,51 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.fightSight = now;
 			if (lineClear && now - v.aimSince > 1.2f && heat < 80.0f)
 			{
-				// Observed by the user (rainbowroad, build 5fd6f17): with only IN_ATTACK against
-				// vehicles the tanks fired the MG, no damage. So IN_ATTACK fires the MG (bought
-				// with mode 0) and IN_ATTACK2 the cannon (mode 1) - the reverse of the RE note.
+				// Fallback when the turret arrays cannot be read: the bot's own loadout has the MG on
+				// IN_ATTACK and the cannon on IN_ATTACK2 (run 150322: MG ammo drops under IN_ATTACK,
+				// cannon 40 -> 36 under IN_ATTACK2).
 				const int kMachineGun = IN_ATTACK;
 				const int kCannon = IN_ATTACK2;
-				if (infantry)
+				if (now - v.weaponReadAt >= 0.25f || v.weaponReadAt > now)
+				{
+					v.weaponReadAt = now;
+					int turretIndex = -1;
+					edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
+						turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+					ReadVehicleWeapons(this, turret, v);
+				}
+				const char* why = "fallback";
+				if (v.weaponsKnown)
+				{
+					// User 14.11.: MG against infantry, the cannon there only once every machine gun
+					// of the group is out of magazine and reserve; cannon/missiles against vehicles
+					// and buildings. Buttons that would also fire a cannon are not used on infantry.
+					if (infantry)
+					{
+						if (distance < 3000.0f && v.weaponMgPure != 0)
+						{
+							buttons |= v.weaponMgPure;
+							why = "mg";
+						}
+						else if (v.weaponMgMixed != 0)
+							why = "mg-mixed"; // user: never fire a shared MG/cannon button at infantry
+						else if (distance < 3000.0f && !v.weaponMgLeft && v.weaponHeavyInf != 0)
+						{
+							buttons |= v.weaponHeavyInf;
+							why = "mg-empty";
+						}
+						else
+							why = v.weaponMgLeft ? "mg-reloading" : "no-weapon";
+					}
+					else if (distance < 4000.0f && v.weaponArmour != 0)
+					{
+						buttons |= v.weaponArmour;
+						why = "armour";
+					}
+					else
+						why = "no-armour-weapon";
+				}
+				else if (infantry)
 				{
 					if (distance < 3000.0f)
 						buttons |= kMachineGun;
@@ -3089,13 +3235,13 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				else if (distance < 4000.0f)
 					buttons |= kCannon;
-				if (now >= v.nextAimLog && (buttons & (IN_ATTACK | IN_ATTACK2)) != 0)
+				if (now >= v.nextAimLog)
 				{
 					v.nextAimLog = now + 5.0f;
-					RCBOT_DIAG("[RCBOT2] vehicle fire userid=%d target=%d infantry=%d dist=%.0f weapons=%s lead=%.0f\n",
+					RCBOT_DIAG("[RCBOT2] vehicle fire userid=%d target=%d infantry=%d dist=%.0f buttons=%s%s why=%s lead=%.0f weapons=%s\n",
 						userId, targetIndex, infantry ? 1 : 0, distance,
-						(buttons & kMachineGun) ? ((buttons & kCannon) ? "mg+cannon" : "mg") : "cannon",
-						(aim - centre).Length());
+						(buttons & IN_ATTACK) ? "a1" : "", (buttons & IN_ATTACK2) ? "a2" : "", why,
+						(aim - centre).Length(), v.weaponsKnown ? v.weaponSummary : "unknown");
 				}
 			}
 		}

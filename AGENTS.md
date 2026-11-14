@@ -16,7 +16,24 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
   starting a new run.
 - Open work, in order: [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md). Keep it updated
   (tick items, add the run folder and the measured numbers).
+- Mark historical plans clearly and link to the current work list.
+- Check available space before recording long test sessions.
+- Check map geometry and building access before adding expansion placement rules.
+- Distinguish an existing run folder from a verified successful map test.
+- Verify ammunition sources and depletion behavior in game before claiming resupply works.
+- Distinguish fire requests in logs from actual shots and damage.
+- Read each vehicle's weapon slots and primary/secondary assignments when testing fire behavior.
+- Verify weapon-group switching and mixed loadouts in game.
+- Record the raw active weapon group, slot, mode, magazine and reserve before changing fire selection.
+- Vehicle fire logs (`vehicle fire … buttons= why= weapons=id:button:magazine/reserve`) show the chosen
+  button and ammo; compare consecutive lines for shots. Weapons must fit each chassis slot's type and size.
+- Compare diagnostic logging with the same short run when changing its default.
 - Public text and code comments in English.
+- Keep the README and public open-work notes in sync with changes to bot capabilities.
+- Record when a successful run did not reproduce the exact original failure.
+- Test harnesses should wait for the success condition they actually verify.
+- Record completion distance when measuring movement orders.
+- Retain recovery and failure counts even when a full-match outcome succeeds.
 
 ## Setup
 
@@ -50,7 +67,8 @@ Environment variables for `dev.sh`:
 - `DEV_CMDS="wait 10;cmd;waitfor 120 regex;cmd"`, `DEV_PRE="cmd;cmd"` (before bots join).
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
 
-The harness turns on the bots' diagnostic lines (`rcbot_empires_debug_log 1`).
+Detailed diagnostics default to off to keep normal server logs readable. The harness
+turns them on (`rcbot_empires_debug_log 1`); use that cvar for manual diagnosis too.
 A run writes thousands of log lines: always filter, never read a whole log.
 
 **Test server economy:** a typical isolated test config uses resource ×10, research

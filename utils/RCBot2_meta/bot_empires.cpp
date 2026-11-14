@@ -7794,25 +7794,23 @@ void CBotEmpires::handleCommanderVehicleEntry()
 		// (pad test 115726: stuck in stage 2 at 204.8 until the deadline).
 		const bool useHits = distance <= 400.0f && (distance <= 200.0f || !m_bCommanderEntryFarUseTried) &&
 			TraceCommanderEntryUse(m_pEdict, vehicle, getEyePosition(), hit);
-		// A stuck route ends the schedule; keep trying until the deadline.
-		if (distance > 200.0f && !useHits && m_pSchedules->isEmpty() &&
-			gpGlobals->curtime >= m_fCommanderEntryNextReplan)
-		{
-			m_fCommanderEntryNextReplan = gpGlobals->curtime + 2.0f;
-			m_pSchedules->addFront(new CBotGotoOriginSched(m_vCommanderEntrySpot));
-			RCBOT_DIAG("[RCBOT2] commander-entry stage=replan distance=%.1f use_start_solid=%d use_frac=%.2f use_hit=%s\n",
-				distance, hit.startsolid ? 1 : 0, hit.fraction,
-				hit.m_pEnt != nullptr ? "entity" : "none");
-		}
-		if (distance > 200.0f && !useHits)
-			return;
 		if (!useHits)
 		{
 			// The route task stops up to 64 short of the spot, where the Use ray
 			// may miss the hull; walk the rest directly.
 			const Vector toSpot = m_vCommanderEntrySpot - getOrigin();
-			if (m_pSchedules->isEmpty() && toSpot.Length2D() > 8.0f && std::fabs(toSpot.z) <= 48.0f)
-				setMoveTo(m_vCommanderEntrySpot);
+			if (m_pSchedules->isEmpty())
+			{
+				if (toSpot.Length2D() > 8.0f && (distance <= 200.0f || toSpot.Length2D() <= 64.0f) &&
+					std::fabs(toSpot.z) <= 48.0f)
+					setMoveTo(m_vCommanderEntrySpot);
+				else if (distance > 200.0f && gpGlobals->curtime >= m_fCommanderEntryNextReplan)
+				{
+					m_fCommanderEntryNextReplan = gpGlobals->curtime + 2.0f;
+					m_pSchedules->addFront(new CBotGotoOriginSched(m_vCommanderEntrySpot));
+					RCBOT_DIAG("[RCBOT2] commander-entry stage=replan distance=%.1f\n", distance);
+				}
+			}
 			return;
 		}
 		cancelNavigationAttempt("commander-entry-use");
