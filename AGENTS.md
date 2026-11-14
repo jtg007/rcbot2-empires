@@ -51,10 +51,11 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 ```sh
 scripts/dev_build.sh                       # incremental build (~5 s), prints the .so path
 scripts/dev.sh <map> <bots> <minutes>      # build, deploy, run, summary
-scripts/dev_check.sh                       # regression checks, ~3-4 min, PASS/FAIL per test
+scripts/dev_check.sh                       # regression checks in parallel, ~1 min, PASS/FAIL per test
 scripts/run_*_tests.sh                     # unit tests of single headers
 ```
 
+Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
 Production economy quickly: `scripts/dev_econ.sh [map] [game-minutes]` (6 bots, fast-forward 4,
 ends when a bot drives a vehicle it bought, ~5 min). While iterating run only the matching
 single test; run `scripts/dev_check.sh` and one full match (10 bots, timescale 1) before a commit.
@@ -66,6 +67,13 @@ Environment variables for `dev.sh`:
   1 Rifleman, 2 Grenadier, 3 Engineer).
 - `DEV_CMDS="wait 10;cmd;waitfor 120 regex;cmd"`, `DEV_PRE="cmd;cmd"` (before bots join).
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
+- `DEV_PORT=49926`: own server port so several runs can go at once (default 49925).
+  `DEV_SKIP_BUILD=1`: reuse the last build. The plugin is replaced atomically, so running servers survive.
+
+A shared library links even with missing symbols; the run then only says "RCBot2 not loaded"
+(`undefined symbol` in `server.log`). Seen causes: a function defined in an anonymous namespace
+but declared globally elsewhere, and `edict->StateChanged()` (needs engine-only symbols; set
+`m_fStateFlags` instead). Check with `nm -uC <.so>`.
 
 Detailed diagnostics default to off to keep normal server logs readable. The harness
 turns them on (`rcbot_empires_debug_log 1`); use that cvar for manual diagnosis too.

@@ -274,6 +274,20 @@ Payment comes from wages if they suffice (0x6545bd), otherwise from team resourc
 
 ## Wages and team pool (expert static inspection, 2026-11-14, untested)
 
+Measured 2026-11-14 (plugin `vehicle econ` lines): reading +0x12c8 gives plausible wages (15, 20
+after kills); a BE purchase took wages 15 -> 0 and the pool -207 (price 222), so wages are spent
+first as described. Light tank cannon+MG, armour 2/2/2/2, engine 13: 192-245 from the pool
+(includes a few seconds of income). The game event `vehicle_purchase` never reached the
+plugin's FireEvent hook (also with `rcbot_loglevel 3`); cause unknown.
+
+Chat (expert static, 2026-11-14; measured with a bot's say): `say`/`say_team` are game-DLL
+ConCommands (`say_command` 0x00c2e200, `Host_Say` 0x5e5d40) and never reach the plugin's
+`Hook_ClientCommand`. `Host_Say` fires `player_say` (0x5e610f, keys `userid`, `text`), which the
+plugin's event list receives. No game command transfers wages; there is only `m_flWages`.
+Writing it from the plugin: `edict_t::StateChanged()` / `StateChanged(offset)` need engine-only
+symbols (`GetChangeAccessor`, `g_pSharedChangeInfo`) and stop the plugin from loading; set
+`m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED` instead.
+
 - `CEmpPlayer::m_flWages` float at player +0x12c8 (NetworkVar Set 0x3d1670; the name string
   exists, whether it is a SendProp is unverified). Kept across the round via
   Store/RetrievePlayerRoundStats.

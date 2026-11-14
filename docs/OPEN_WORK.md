@@ -13,9 +13,11 @@ Check free space before long recordings and remove only recordings you created.
 3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
 4. Mixed weapon loadouts: refit on a repair pad with per-chassis slot indices.
 5. Ammunition: vehicle resupply (pad, engineer crates), then infantry resupply for every class.
-6. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
+6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
+   range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
+7. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
    after research, fire-group switching with missiles, base expansion, squad passengers).
-7. Sporadic navigation/robustness cases only when they recur; items needing a human player; maps,
+8. Sporadic navigation/robustness cases only when they recur; items needing a human player; maps,
    game modes and long runs; cleanup.
 
 ## 1. Being measured
@@ -98,6 +100,21 @@ Check free space before long recordings and remove only recordings you created.
   let bots buy from the team pool only above that reserve, preferring the buyer with the most
   wages. Measure time to factory/first vehicle, saving stalls, research pauses and idle money
   with production values.
+  Built (not yet committed): the commander publishes a reserve (next building, plus 240 while the
+  factory research is missing) and keeps it while waiting for engineers; vehicle purchases and pad
+  refits that the buyer's wages do not cover only happen if the pool keeps that reserve
+  (`vehicle skip reason=team-reserve`, `vehicle refit-skip`). Wages are read from the player and
+  the price is learned from the pool/wage difference (the game's `vehicle_purchase` event does not
+  reach the plugin's hook). Measured: price 192–245 for a light tank, wages are spent first
+  (15 → 0, pool −207); on crossroads early game the pool stays at ~3900–4900, so the reserve never
+  blocked there; with the pool forced to 100 the bot waited and bought after money arrived. Open:
+  prefer the buyer with the most wages, refit price, a late or poor match.
+  Wages on request (built): when a human writes something containing "wage" in chat, every bot of
+  his team hands over its wages, through the server's give plugin if `sm_give` exists (`!give
+  #<userid>`), otherwise directly. Detected through the game event `player_say` (`say` is a
+  game-DLL command and never reaches the plugin's client-command hook). Tested with
+  `rcbotd empires_test_wages <userid> <wages>` (a bot really says "wages"); the `!give` path and
+  the human's HUD are untested.
 - Engineer: turret upgrade, seismic grenades against turrets (measure throw range first),
   walls, cameras.
 - Team: defend own refineries, react to base attacks, squad roles; squad passengers in

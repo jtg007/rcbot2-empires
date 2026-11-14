@@ -214,6 +214,20 @@ public:
 	void execute ( IBotEventInterface *pEvent ) override;
 };
 
+// Empires: chat asking for wages (say/say_team are game-DLL ConCommands and never reach
+// Hook_ClientCommand; Host_Say 0x5e5d40 fires player_say with userid and text, 0x5e610f).
+class CPlayerSayEvent : public CBotEvent
+{
+public:
+	CPlayerSayEvent()
+	{
+		setType("player_say");
+		setMod(MOD_ANY);
+	}
+
+	void execute ( IBotEventInterface *pEvent ) override;
+};
+
 class CBombDroppedEvent : public CBotEvent
 {
 public:

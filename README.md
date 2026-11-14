@@ -160,9 +160,14 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   the script replaces its binary. Use `DEV_UNTIL` to end a targeted run on a result.
   Each run folder gets a `build-info.txt` with the git SHA and whether the tree was dirty.
 - `scripts/dev_check.sh` runs the commander chain, long-move, repair-pad, turret-build and
-  revive checks (about 3–4 minutes). The long-move check fails if the bot only arrives after retries.
+  revive checks in parallel, one server per test on its own port (about 1 minute;
+  `DEV_CHECK_SERIAL=1` runs them one after another). The long-move check fails if the bot only arrives after retries.
 - `scripts/dev_econ.sh [map] [game-minutes]` plays with production economy values (no debug
   vehicle purchase) and ends when a bot drives a vehicle it bought.
+- Bots hand their wages to a teammate who writes "wages" in chat (`!give #<userid>` when the
+  server has a give plugin, otherwise directly).
+- `scripts/dev_buy.sh [map] [timescale]` is the short version (~30 s): instant factory, extra
+  money, ends at the first real purchase; for purchase diagnostics, not for economy timing.
 - `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).

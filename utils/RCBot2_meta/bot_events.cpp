@@ -498,6 +498,14 @@ void CWeaponFireEvent :: execute ( IBotEventInterface *pEvent )
 		pEvent->getInt("weaponid", -1));
 }
 
+void EmpiresHandleWagesChatEvent(edict_t* speaker, const char* text); // bot_empires_vehicle.cpp
+
+void CPlayerSayEvent :: execute ( IBotEventInterface *pEvent )
+{
+	if (m_pActivator != nullptr)
+		EmpiresHandleWagesChatEvent(m_pActivator, pEvent->getString("text", nullptr));
+}
+
 void CPlayerSpawnEvent :: execute ( IBotEventInterface *pEvent )
 {
 	if ( CBot *pBot = CBots::getBotPointer(m_pActivator); pBot != nullptr && !pBot->isControlledTestOnly() )
@@ -1280,6 +1288,7 @@ void CBotEvents :: setupEvents ()
 	addEvent(new CBulletImpactEvent());
 	addEvent(new CFlagEvent());
 	addEvent(new CPlayerSpawnEvent());
+	addEvent(new CPlayerSayEvent());
 	////////////// tf2
 	addEvent(new CTF2BuiltObjectEvent());
 	addEvent(new CTF2ChangeClass());

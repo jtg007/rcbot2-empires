@@ -15,7 +15,7 @@ CLEAN="${RCBOT_DEPS_DIR:-$(dirname "$ROOT")/rcbot2-clean}"
 # Local settings (not in git): scripts/dev.local can set EMPIRES_TEST_SERVER etc.
 [[ -f "$ROOT/scripts/dev.local" ]] && source "$ROOT/scripts/dev.local"
 SERVER_ROOT="${EMPIRES_TEST_SERVER:?set EMPIRES_TEST_SERVER (or put it in scripts/dev.local) to an isolated Empires dedicated server}"
-SERVER_PORT=49925
+SERVER_PORT="${DEV_PORT:-49925}"  # parallel runs need distinct ports (dev_check.sh)
 PLUGIN="$SERVER_ROOT/empires/addons/rcbot2/bin/rcbot.2.sdk2013.so"
 
 [[ -f "$SERVER_ROOT/empires/maps/$MAP.bsp" ]] || { echo "Map not found: $MAP" >&2; exit 2; }
@@ -32,22 +32,32 @@ except OSError as e:
   exit 1
 fi
 
-echo "== Build"
-BUILD_LOG="$(mktemp)"
-if ! BUILT="$("$ROOT/scripts/dev_build.sh" 2>"$BUILD_LOG")"; then
-  grep -B2 -A12 -m5 "error" "$BUILD_LOG" || tail -40 "$BUILD_LOG"
-  echo "Build failed, log: $BUILD_LOG" >&2
-  exit 1
+if [[ "${DEV_SKIP_BUILD:-0}" == 1 ]]; then
+  # dev_check.sh builds once, then starts several runs in parallel.
+  BUILT="${RCBOT_DEV_MIRROR:-$HOME/.cache/rcbot2-dev-build}/post/package/addons/rcbot2/bin/rcbot.2.sdk2013.so"
+  [[ -f "$BUILT" ]] || { echo "DEV_SKIP_BUILD=1 but no build at $BUILT" >&2; exit 1; }
+else
+  echo "== Build"
+  BUILD_LOG="$(mktemp)"
+  if ! BUILT="$("$ROOT/scripts/dev_build.sh" 2>"$BUILD_LOG")"; then
+    grep -B2 -A12 -m5 "error" "$BUILD_LOG" || tail -40 "$BUILD_LOG"
+    echo "Build failed, log: $BUILD_LOG" >&2
+    exit 1
+  fi
+  rm -f "$BUILD_LOG"
 fi
-rm -f "$BUILD_LOG"
 
 echo "== Deploy"
 [[ -e "$PLUGIN.pre-legacy-dev" ]] || cp -p "$PLUGIN" "$PLUGIN.pre-legacy-dev"
-cp "$BUILT" "$PLUGIN"
+# Replace atomically (new inode): overwriting in place would corrupt the .so
+# mapped by a server that is still running on another port.
+if ! cmp -s "$BUILT" "$PLUGIN"; then
+  cp "$BUILT" "$PLUGIN.tmp.$$" && mv -f "$PLUGIN.tmp.$$" "$PLUGIN"
+fi
 sha256sum "$PLUGIN" | cut -c1-16
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-RUN_DIR="$SERVER_ROOT/dev-runs/$STAMP-$MAP-${BOTS}b-${MINUTES}m"
+RUN_DIR="$SERVER_ROOT/dev-runs/$STAMP-$MAP-${BOTS}b-${MINUTES}m${DEV_PORT:+-p$DEV_PORT}"
 mkdir -p "$RUN_DIR"
 # Record which source state produced this run (SHA, dirty flag, plugin hash).
 {

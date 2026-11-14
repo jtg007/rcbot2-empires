@@ -1843,6 +1843,19 @@ CBotCommandInline EmpiresVehicleScaleHpCommand("empires_vehicle_scalehp", CMD_AC
 		return COMMAND_ACCESSED;
 	});
 
+int EmpiresTestWagesChat(int speakerUserId, float wages); // bot_empires_vehicle.cpp
+
+CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		const int userId = args[0] != nullptr && *args[0] != '\0' ? std::atoi(args[0]) : 2;
+		const float wages = args[1] != nullptr && *args[1] != '\0' ? static_cast<float>(std::atof(args[1])) : 50.0f;
+		const int set = EmpiresTestWagesChat(userId, wages);
+		CBotGlobals::botMessage(pEntity, 0, "empires_test_wages speaker=%d wages=%.0f bots=%d", userId, wages, set);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_wages <speaker_userid> <wages>" : test-only, sets the teammates' wages and runs the wages chat request)");
+
 CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move", CMD_ACCESS_DEDICATED,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
@@ -3816,6 +3829,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresLocalExplorerCancelCommand,
 	&EmpiresCommanderMoveTestCommand,
 	&EmpiresVehicleScaleHpCommand,
+	&EmpiresTestWagesCommand,
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,

@@ -4,6 +4,7 @@
 // reverse-engineering/notes/buildings.md ("Commander building via `emp_build`").
 #include "bot_empires.h"
 #include "bot_empires_binary.h"
+#include "bot_empires_team_economy.h"
 #include "in_buttons.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
@@ -1139,6 +1140,7 @@ void CBotEmpires::tickCommanderEconomy()
 	// --- Result of the last emp_build. ---
 	if (state.verifyPending)
 	{
+		EmpiresTeamEconomy::KeepReserve(EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
 		if (now < state.verifyAt)
 			return;
 		state.verifyPending = false;
@@ -1172,7 +1174,12 @@ void CBotEmpires::tickCommanderEconomy()
 	}
 
 	if (unfinished >= MaxUnfinished(livingEngineers))
+	{
+		// Waiting for Engineers to finish: the next building is still planned (run p49931: the
+		// reserve expired here and a tank was bought from the radar's money).
+		EmpiresTeamEconomy::KeepReserve(EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
 		return;
+	}
 
 	// --- Refinery sites: enabled resource points the game would accept. ---
 	struct Site { int index; int resIndex; Vector origin; float distance; };
@@ -1311,6 +1318,15 @@ void CBotEmpires::tickCommanderEconomy()
 
 	BuildType type = Refinery;
 	const Decision decision = NextBuild(inventory, resources, type, rcbot_empires_commander_first.GetInt());
+	{
+		// TODO 5.5a: money the Commander needs next; vehicle purchases from the pool leave it.
+		// Research for the factory drains Cost x Time = 240 (RE vehicle-driving.md). Game time,
+		// like the vehicle code that reads it (this function's now is engine->Time()).
+		float reserve = decision == Decision::Build || decision == Decision::Saving ? kCost[type] : 0.0f;
+		if (!researchUnlocked)
+			reserve += 240.0f;
+		EmpiresTeamEconomy::PublishReserve(EmpiresTeamEconomy::Team(team), reserve, gpGlobals->curtime);
+	}
 	const int logKey = int(decision) * 100 + (decision == Decision::Build || decision == Decision::Saving ? int(type) : 0);
 	if (decision == Decision::Build)
 		state.lastLogKey = -1;
@@ -1474,8 +1490,15 @@ bool EmpiresFrontYaw(const Vector& at, int team, float& yaw)
 	return FrontYaw(at, team, yaw, source);
 }
 
+// Team pool for other modules (vehicle purchase diagnostics, TODO 5.5a).
+bool EmpiresTeamResources(int team, float& resources)
+{
+	return ReadTeamResources(team, resources);
+}
+
 void EmpiresCommanderEconomyLevelReset()
 {
+	EmpiresTeamEconomy::Reset();
 	for (int i = 0; i < 4; i++)
 	{
 		s_humanCommanderUntil[i] = 0.0f;

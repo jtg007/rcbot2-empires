@@ -4,6 +4,7 @@
 
 #include "bot_empires.h"
 #include "bot_empires_binary.h"
+#include "bot_empires_team_economy.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_globals.h"
@@ -17,11 +18,14 @@
 #include "iplayerinfo.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>
+
+bool EmpiresTeamResources(int team, float& resources);  // bot_empires_commander_economy.cpp
 
 extern IPlayerInfoManager* playerinfomanager;
 
@@ -206,6 +210,105 @@ const char* ProbeHitName(const trace_t& t)
 	IServerNetworkable* n = reinterpret_cast<IServerUnknown*>(t.m_pEnt)->GetNetworkable();
 	edict_t* e = n != nullptr ? n->GetEdict() : nullptr;
 	return e != nullptr && e->GetClassName() != nullptr ? e->GetClassName() : "?";
+}
+
+// CEmpPlayer::m_flWages, player +0x12c8 (RE vehicle-driving.md "Wages and team pool"). -1 = unknown.
+float EmpiresPlayerWages(edict_t* player)
+{
+	if (!EmpiresBinaryOffsetsTrusted() || player == nullptr || player->GetUnknown() == nullptr)
+		return -1.0f;
+	const char* p = reinterpret_cast<const char*>(player->GetUnknown()->GetBaseEntity());
+	if (p == nullptr)
+		return -1.0f;
+	const float wages = *reinterpret_cast<const float*>(p + 0x12c8);
+	return wages >= 0.0f && wages < 1.0e7f ? wages : -1.0f;
+}
+
+// A human teammate asks for wages in chat ("wages" anywhere in the text, user 14.11.): every
+// bot of his team with wages hands them over. With the servers' give plugin loaded (chat
+// trigger !give <name> = console command sm_give) the bot uses it like a player would;
+// without it the wages are moved directly (player +0x12c8, network state marked changed).
+void HandleWagesChat(edict_t* speaker, const char* text, bool testBotSpeaker)
+{
+	if (speaker == nullptr || text == nullptr || (!testBotSpeaker && CBots::getBotPointer(speaker) != nullptr) ||
+		CBotGlobals::getCurrentMod() == nullptr || CBotGlobals::getCurrentMod()->getBotType() != BOTTYPE_EMPIRES ||
+		!EmpiresBinaryOffsetsTrusted() || helpers == nullptr || playerinfomanager == nullptr)
+		return;
+	bool asked = false;
+	for (const char* c = text; *c != '\0' && !asked; ++c)
+		asked = std::tolower(static_cast<unsigned char>(c[0])) == 'w' && c[1] != '\0' &&
+			std::tolower(static_cast<unsigned char>(c[1])) == 'a' && c[2] != '\0' &&
+			std::tolower(static_cast<unsigned char>(c[2])) == 'g' && c[3] != '\0' &&
+			std::tolower(static_cast<unsigned char>(c[3])) == 'e';
+	if (!asked)
+		return;
+	const int team = CClassInterface::getTeam(speaker);
+	IPlayerInfo* info = playerinfomanager->GetPlayerInfo(speaker);
+	if ((team != 2 && team != 3) || info == nullptr || info->GetName() == nullptr)
+		return;
+	const int speakerId = engine->GetPlayerUserId(speaker);
+	static float s_nextAllowed[RCBOT_MAXPLAYERS + 1] = {};
+	const int speakerIndex = engine->IndexOfEdict(speaker);
+	if (speakerIndex <= 0 || speakerIndex > RCBOT_MAXPLAYERS || (gpGlobals->curtime < s_nextAllowed[speakerIndex] &&
+		s_nextAllowed[speakerIndex] - gpGlobals->curtime <= 10.0f)) // curtime restarts on a new map
+		return;
+	s_nextAllowed[speakerIndex] = gpGlobals->curtime + 10.0f;
+
+	// SourceMod target by #userid: a plain name can match several players (expert 14.11.).
+	char target[32];
+	std::snprintf(target, sizeof(target), "#%d", speakerId);
+	const bool givePlugin = g_pCVar != nullptr && g_pCVar->FindCommandBase("sm_give") != nullptr;
+
+	char* to = reinterpret_cast<char*>(speaker->GetUnknown() != nullptr ? speaker->GetUnknown()->GetBaseEntity() : nullptr);
+	if (to == nullptr)
+		return;
+	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+	{
+		CBot* bot = CBots::getBot(slot);
+		edict_t* e = bot != nullptr && bot->inUse() ? bot->getEdict() : nullptr;
+		if (e == nullptr || e == speaker || CClassInterface::getTeam(e) != team)
+			continue;
+		const float wages = EmpiresPlayerWages(e);
+		if (wages < 1.0f)
+			continue;
+		if (givePlugin)
+		{
+			char command[96];
+			std::snprintf(command, sizeof(command), "say !give %s\n", target);
+			helpers->ClientCommand(e, command);
+		}
+		else
+		{
+			char* from = reinterpret_cast<char*>(e->GetUnknown()->GetBaseEntity());
+			*reinterpret_cast<float*>(to + 0x12c8) += wages;
+			*reinterpret_cast<float*>(from + 0x12c8) = 0.0f;
+			e->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED; // StateChanged() needs engine-only symbols
+			speaker->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED; // StateChanged() needs engine-only symbols
+		}
+		RCBOT_DIAG("[RCBOT2] wages-give requester=%d bot=%d amount=%.0f via=%s target=%s requester_wages=%.0f bot_wages=%.0f\n",
+			speakerId, engine->GetPlayerUserId(e), wages, givePlugin ? "sm_give" : "direct", target,
+			EmpiresPlayerWages(speaker), EmpiresPlayerWages(e));
+	}
+}
+
+// 5.5a step 1: wages and team pool around a purchase; the difference before/after is the
+// price and shows what paid (the game's vehicle_purchase event does not reach our hook).
+void LogEmpiresVehicleEcon(const char* phase, int userId, int team, edict_t* player)
+{
+	float pool = -1.0f;
+	EmpiresTeamResources(team, pool);
+	const float wages = EmpiresPlayerWages(player);
+	EmpiresTeamEconomy::TeamState& state = EmpiresTeamEconomy::Team(team);
+	if (std::strcmp(phase, "before") == 0)
+	{
+		state.pendingUser = userId;
+		state.poolBefore = pool;
+		state.wagesBefore = wages;
+	}
+	else if (state.pendingUser == userId)
+		EmpiresTeamEconomy::LearnVehicleCost(state, pool, wages);
+	RCBOT_DIAG("[RCBOT2] vehicle econ phase=%s userid=%d team=%d wages=%.0f pool=%.0f reserve=%.0f cost=%.0f\n", phase,
+		userId, team, wages, pool, EmpiresTeamEconomy::ActiveReserve(state, gpGlobals->curtime), state.vehicleCost);
 }
 
 void LogEmpiresFactoryProbe(const char* phase, int userId, edict_t* player, int factoryIndex)
@@ -1267,6 +1370,23 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (!(rcbot_empires_vehicle_debug_buy.GetBool() && DebugBuildVehicles()) &&
 			findEmpiresVehicleFactory(team, factory, factoryOrigin, factoryTeam))
 		{
+			// TODO 5.5a: a purchase the buyer's wages do not cover comes from the team pool;
+			// leave the Commander's reserve for its next building/research in it.
+			float pool = -1.0f;
+			EmpiresTeamResources(team, pool);
+			const float wages = EmpiresPlayerWages(m_pEdict);
+			const EmpiresTeamEconomy::TeamState& money = EmpiresTeamEconomy::Team(team);
+			const float reserve = EmpiresTeamEconomy::ActiveReserve(money, gpGlobals->curtime);
+			if (!EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
+			{
+				if (now >= v.nextLog)
+				{
+					v.nextLog = now + 20.0f;
+					RCBOT_DIAG("[RCBOT2] vehicle skip userid=%d reason=team-reserve wages=%.0f pool=%.0f cost=%.0f reserve=%.0f\n",
+						userId, wages, pool, money.vehicleCost, reserve);
+				}
+				return;
+			}
 			v.factory = factory;
 			v.factoryIndex = engine->IndexOfEdict(factory);
 			v.buyInPlace = false;
@@ -1510,6 +1630,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		case 7:
 			// Diagnostic: production purchases never spawned a vehicle (run 103144).
 			LogEmpiresFactoryProbe("buy", userId, m_pEdict, v.factoryIndex);
+			LogEmpiresVehicleEcon("before", userId, getTeam(), m_pEdict);
 			v.factoryProbeAt = now + 1.0f;
 			std::snprintf(command, sizeof(command), "emp_vehicle_build\n");
 			break;
@@ -1541,6 +1662,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.vehicleIndex = inVehicle;
 			v.failures = 0;
 			const Vector at = CBotGlobals::entityOrigin(seated);
+			LogEmpiresVehicleEcon("after", userId, getTeam(), m_pEdict);
 			RCBOT_DIAG("[RCBOT2] vehicle bought userid=%d vehicle=%d chassis=%d pos=(%.0f %.0f %.0f) seated=1\n",
 				userId, inVehicle, EmpiresVehicleReadInt(this, seated, "m_iChassis", -1), at.x, at.y, at.z);
 			v.lastVehicleOrigin = at;
@@ -1604,6 +1726,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		v.vehicleIndex = engine->IndexOfEdict(found);
 		v.failures = 0;
 		const Vector at = CBotGlobals::entityOrigin(found);
+		LogEmpiresVehicleEcon("after", userId, getTeam(), m_pEdict);
 		RCBOT_DIAG("[RCBOT2] vehicle bought userid=%d vehicle=%d chassis=%d pos=(%.0f %.0f %.0f) dist=%.0f\n",
 			userId, v.vehicleIndex, EmpiresVehicleReadInt(this, found, "m_iChassis", -1), at.x, at.y, at.z, bestDistance);
 		setStage(EmpiresVehicleStage::APPROACH, 40.0f);
@@ -2438,7 +2561,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			// The hull may stop short of the highest value seen (run 220710:
 			// 140/150, healed while waiting): a long plateau high up counts too.
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
-			const char* end = (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
+			const char* end = (hullFrac >= 0.95f && (worstArmor >= 0.9f || v.refitSkipped)) || plateau ? "repaired" :
 				now - v.lastHealthRise > 120.0f ? "retreat-timeout" : nullptr;
 			// Never park for good (user): after 20 s without repairs try again
 			// (the stuck edge is blocked for vehicles, the other pad entrance
@@ -2466,6 +2589,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.parkValid = false;
 				v.homeParkValid = false;
 				v.refitDone = false;
+				v.refitSkipped = false;
 				v.refitStep = 0;
 				v.padStation = -1;
 				v.padInside = false;
@@ -2617,6 +2741,28 @@ void CBotEmpires::tickEmpiresVehicle()
 				now >= v.refitNext && helpers != nullptr)
 			{
 				// Same loadout as bought; the rebuild restores the armor fully.
+				// TODO 5.5a: the refit is paid like a purchase (wages first, then pool); when
+				// money is short the Commander's reserve wins and the pad only repairs.
+				// Price of a refit unmeasured: the learned purchase price is the estimate.
+				if (v.refitStep == 0)
+				{
+					float pool = -1.0f;
+					EmpiresTeamResources(team, pool);
+					const float wages = EmpiresPlayerWages(m_pEdict);
+					const EmpiresTeamEconomy::TeamState& money = EmpiresTeamEconomy::Team(team);
+					const float reserve = EmpiresTeamEconomy::ActiveReserve(money, gpGlobals->curtime);
+					if (!EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
+					{
+						v.refitDone = true;
+						v.refitSkipped = true;
+						RCBOT_DIAG("[RCBOT2] vehicle refit-skip userid=%d reason=team-reserve wages=%.0f pool=%.0f cost=%.0f reserve=%.0f\n",
+							userId, wages, pool, money.vehicleCost, reserve);
+					}
+				}
+			}
+			if (!v.refitDone && Dist2D(origin, pad) < 140.0f && std::fabs(forwardSpeed) < 60.0f &&
+				now >= v.refitNext && helpers != nullptr)
+			{
 				const bool nf = team == 2;
 				const bool jeep = chassis == 0 || chassis == 8;
 				char command[96] = "";
@@ -3343,6 +3489,49 @@ bool CBotEmpires::handleEmpiresVehicleRepairRequest()
 			engine->IndexOfEdict(hurt), spot.x, spot.y, spot.z, Dist2D(getOrigin(), at));
 	}
 	return true;
+}
+
+// player_say event entry (bot_events.cpp). A bot speaker counts only for the test command.
+int s_testWagesSpeaker = -1;
+void EmpiresHandleWagesChatEvent(edict_t* speaker, const char* text)
+{
+	const bool test = s_testWagesSpeaker >= 0 && engine->GetPlayerUserId(speaker) == s_testWagesSpeaker;
+	if (test)
+		s_testWagesSpeaker = -1;
+	HandleWagesChat(speaker, text, test);
+}
+
+// Test only (rcbotd empires_test_wages <speaker userid> <wages>): gives every other bot of the
+// speaker's team that much wages, then runs the chat handler as if the speaker wrote "wages".
+int EmpiresTestWagesChat(int speakerUserId, float wages)
+{
+	if (!EmpiresBinaryOffsetsTrusted())
+		return -1;
+	edict_t* speaker = nullptr;
+	for (int i = 1; i <= gpGlobals->maxClients && speaker == nullptr; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e != nullptr && !e->IsFree() && engine->GetPlayerUserId(e) == speakerUserId)
+			speaker = e;
+	}
+	if (speaker == nullptr)
+		return -1;
+	int set = 0;
+	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+	{
+		CBot* bot = CBots::getBot(slot);
+		edict_t* e = bot != nullptr && bot->inUse() ? bot->getEdict() : nullptr;
+		if (e == nullptr || e == speaker || CClassInterface::getTeam(e) != CClassInterface::getTeam(speaker))
+			continue;
+		*reinterpret_cast<float*>(reinterpret_cast<char*>(e->GetUnknown()->GetBaseEntity()) + 0x12c8) = wages;
+		e->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED; // StateChanged() needs engine-only symbols
+		++set;
+	}
+	// Through the real chat: the bot says it, the game fires player_say.
+	s_testWagesSpeaker = speakerUserId;
+	if (helpers != nullptr)
+		helpers->ClientCommand(speaker, "say test wages please\n");
+	return set;
 }
 
 // Test only (rcbotd empires_vehicle_scalehp <factor>): scales the health of

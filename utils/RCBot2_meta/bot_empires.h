@@ -529,6 +529,7 @@ struct EmpiresVehicleBrain
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;
+	bool refitSkipped = false; // team-reserve: no armor refit, hull repair is enough (5.5a)
 	int refitStep = 0;
 	int padStation = -1;
 	int parkCount = 0;

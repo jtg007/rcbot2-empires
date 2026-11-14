@@ -19,7 +19,7 @@ import termios
 import threading
 import time
 
-SERVER_PORT = "49925"
+SERVER_PORT = os.environ.get("DEV_PORT", "49925")  # parallel runs: own port each
 CLASSES = (1, 0, 2, 3)  # rifleman, scout, grenadier, engineer
 TEAMS = ((2, "NF"), (3, "BE"))
 ADD_BOT_GAP_S = 6.0
