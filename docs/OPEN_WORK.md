@@ -5,6 +5,19 @@ same run again, compare. Tick an item only with measured numbers and the run fol
 Historical plans do not supersede this list.
 Check free space before long recordings and remove only recordings you created.
 
+## 0. Priority order (natural game flow first, enablers before what builds on them)
+
+1. Shared team economy (commander reserve, bots buy from wages first); its production-economy runs
+   also measure research pauses.
+2. Bots take empty vehicles only near their own base and after they have stood unused for a while.
+3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
+4. Mixed weapon loadouts: refit on a repair pad with per-chassis slot indices.
+5. Ammunition: vehicle resupply (pad, engineer crates), then infantry resupply for every class.
+6. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
+   after research, fire-group switching with missiles, base expansion, squad passengers).
+7. Sporadic navigation/robustness cases only when they recur; items needing a human player; maps,
+   game modes and long runs; cleanup.
+
 ## 1. Being measured
 
 - [x] **Match with production server values** (`emp_crossroads`, 10 bots, 20 min,
