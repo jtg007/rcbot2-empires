@@ -63,6 +63,18 @@ inline bool PurchaseAllowed(float wages, float pool, float cost, float reserve)
 	return pool - (cost - wages) >= reserve;
 }
 
+// Buyer with the highest wages first (5.5a): a bot whose wages do not cover the price lets a
+// free teammate with clearly more wages buy, so less comes from the pool. Bounded by the
+// caller (maxDefer) so a teammate that never buys cannot block the purchase.
+inline bool DeferToRicherBuyer(float wages, float richestOther, float cost, float deferredFor, float maxDefer)
+{
+	if (wages < 0.0f)
+		wages = 0.0f;
+	if (richestOther < 0.0f || wages >= cost || deferredFor >= maxDefer)
+		return false;
+	return richestOther >= wages + 10.0f;
+}
+
 // Price = what left the pool plus what left the wages. Pool income in between makes it
 // slightly low; implausible values are ignored.
 inline void LearnVehicleCost(TeamState& state, float poolAfter, float wagesAfter)

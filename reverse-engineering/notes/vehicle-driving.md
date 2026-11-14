@@ -217,6 +217,16 @@ Payment comes from wages if they suffice (0x6545bd), otherwise from team resourc
 - Radio call "I need repairs!": client command `emp_menu_command 30 <location text>` (`CEmpPlayer::ClientCommand` 0x66d200, jump table 0x9d8db0, 50 entries; 31 = medic, 32 = engineer). 2 s lock per player (+0x1534). Sets `SetRequest` and the minimap marker.
 - Vehicle health: `m_flTotalHealth` on `emp_vehicle`. Note: `CBotEmpires::readEmpiresFloatProperty` only searches `CEmpPlayer` → always read vehicle values through the vehicle's own ServerClass (`EntityFloatProp` in bot_empires_vehicle.cpp).
 - Re-customizing at the repair station (in game: on the pad press V → Customize → Buy, then the armor rebuilds while staying on the pad): same command `emp_vehicle_build` (`Command_emp_vehicle_build` 0x652d70). If the player drives their own `CEmpTank` (vfunc +0x3a0 == player), it sets the re-customize flag (0x653432) and takes its own branch at 0x654750: trace from the vehicle, the hit must be a built station (+0x492), whose upgrade flag (+0x5c0) is taken over. Command sequence as for buying (chassis/weapon/armor/armor_levels/engine/build), without `emp_vehicle_factory`. Untested.
+  - Price of a re-customize (read 2026-11-14): `diff = newCost - tank.m_iTotalCost(+0x1040)` (0x6550a7-0x6550ad).
+    Check before: `max(diff,0) <= wages + teamRes(-0x390)`, else "Warning: Vehicle recustomization cost ( %i ) exceeds
+    available" (0x9d580c). Then `CEmpTank::RecustomizeVehicle` (0x655af6); only on success `m_iTotalCost = newCost`
+    (0x655b30) and payment immediately in the command, not per Think: wages >= diff -> `wages -= diff` (0x655db9-0x655ddd);
+    else team resources (+0x3b4, +0x30) get `-(diff - wages)` (0x655d2c-0x655d69) and wages = 0 (0x655d6e). Then event
+    `vehicle_recustomize` (userid, cost = new total, vehicleid). Same loadout => diff 0 => armor refill is free
+    (measured run 20261114-214852: wages 0->0, pool +31 income, armor 14/28/35/35 -> 140x4). Cheaper loadout =>
+    negative diff => wages increase (refund). `m_iTotalCost` is only written at 0x6545b8 (buy) and 0x655b30.
+    Game quirk: the >200-from-pool commander-limit check (0x655b58) runs after RecustomizeVehicle, so a blocked
+    refit is not charged.
 - Health fields: `m_iHealth` (+0xf8) = hull, repaired by `DoRepairs` and the kit (`GetHealth`/`GetMaxHealth` vfunc 0x1e8/0x1e0; when full `DoRepairs` calls `ClearRequest`). Armor per side is server-side only: `float[4]` +0xfe4, `int[4]` +0x1004 (order front, rear, left, right; left = local −X, right = +X, front = +Y, confirmed in a run: an engineer on +X heals index 3). `m_iMaxArmorHealth` (+0x1024) = 70 **per inch** (2 inches → 140). The kit heals the side that is hit (`CEmpTank::GetSide` 0x3e61c0 by angle limits from the chassis, then `HealArmorSide`), range 100 → aim at the nearest hull point, not the centre of a face. Only `m_flTotalHealth`/`m_flMaxTotalHealth`, `m_iArmor`, `m_iMaxArmorHealth` are networked.
 - Max armor (inches per side, scripts): NF Light Tank 2, BE AFV 3, jeeps 1, NF Medium 5, BE Medium 4, heavy 6.
 

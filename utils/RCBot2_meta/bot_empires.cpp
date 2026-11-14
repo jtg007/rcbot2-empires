@@ -7026,6 +7026,30 @@ bool CBotEmpires::readEmpiresEntityHandleProperty(const edict_t* pEdict,
 		return true;
 	}
 
+	// Empires networks handle arrays as SendPropArray3: a DataTable named after the array with
+	// one DPT_Int child "000", "001", ... per element (as m_iWeapon in ReadTurretArray). Without
+	// this case every m_hPassengers read failed (run 20261114-2126: passenger_ok=0 on every
+	// vehicle), so empty vehicles were never taken over.
+	if (pProp->GetType() == DPT_DataTable && pProp->GetDataTable() != nullptr)
+	{
+		SendTable* table = pProp->GetDataTable();
+		if (element >= table->GetNumProps())
+			return false;
+		SendProp* child = table->GetProp(element);
+		char expected[16];
+		std::snprintf(expected, sizeof(expected), "%03d", element);
+		if (child == nullptr || child->GetName() == nullptr || std::strcmp(child->GetName(), expected) != 0 ||
+			child->GetType() != DPT_Int || child->GetOffset() < 0)
+			return false;
+		CBaseEntity* pBase = pUnknown != nullptr ? pUnknown->GetBaseEntity() : nullptr;
+		if (pBase == nullptr)
+			return false;
+		const CBaseHandle* pHandle = reinterpret_cast<const CBaseHandle*>(
+			reinterpret_cast<const char*>(pBase) + offset + static_cast<unsigned>(child->GetOffset()));
+		entityIndex = CheckedHandleIndex(pHandle);
+		return true;
+	}
+
 	if (pProp->GetType() != DPT_Array ||
 		pProp->GetArrayProp() == nullptr ||
 		pProp->GetArrayProp()->GetType() != DPT_Int ||

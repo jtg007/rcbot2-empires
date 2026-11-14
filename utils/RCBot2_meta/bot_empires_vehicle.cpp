@@ -1324,7 +1324,22 @@ void CBotEmpires::tickEmpiresVehicle()
 				return;
 		}
 
-		// An empty own vehicle close by is used before buying a new one.
+		// An empty own vehicle close by is used before buying a new one, but only one parked at
+		// the own base (CV or building within kBaseRadius) that stood without a driver for
+		// kEmptyFor (TODO 3.10e, user: bots took vehicles left anywhere a moment ago).
+		constexpr float kBaseRadius = 1500.0f;
+		constexpr float kEmptyFor = 30.0f;
+		std::vector<Vector> basePoints;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && !billNye; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+				continue;
+			const bool building = std::strncmp(e->GetClassName(), "emp_building_", 13) == 0;
+			if ((building || (IsClass(e, "emp_vehicle") && IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)))) &&
+				EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) == team)
+				basePoints.push_back(CBotGlobals::entityOrigin(e));
+		}
 		edict_t* best = nullptr;
 		float bestDistance = billNye ? 0.0f : 2500.0f;
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && !billNye; ++i)
@@ -1334,8 +1349,35 @@ void CBotEmpires::tickEmpiresVehicle()
 				IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)) || !EmpiresVehicleAlive(this, e))
 				continue;
 			int driver = -1;
-			if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver >= 0)
+			if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver))
 				continue;
+			// Empty since: per entity index and serial. A driver or a move since the last look
+			// (driven away and parked again while nobody checked) restarts it.
+			static float s_emptySince[MAX_EDICTS];
+			static Vector s_emptyAt[MAX_EDICTS];
+			static int s_emptySerial[MAX_EDICTS];
+			const int serial = e->m_NetworkSerialNumber;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			if (driver >= 0 || s_emptySerial[i] != serial || (s_emptyAt[i] - at).Length() > 100.0f || s_emptySince[i] > now ||
+				s_emptySince[i] <= 0.0f)
+			{
+				s_emptySerial[i] = serial;
+				s_emptySince[i] = now;
+			}
+			s_emptyAt[i] = at;
+			float baseDistance = 1.0e9f;
+			for (const Vector& p : basePoints)
+				baseDistance = std::min(baseDistance, (p - at).Length2D());
+			if (driver >= 0 || now - s_emptySince[i] < kEmptyFor || baseDistance >= kBaseRadius)
+			{
+				if (now >= v.nextEmptyLog)
+				{
+					v.nextEmptyLog = now + 10.0f;
+					RCBOT_DIAG("[RCBOT2] vehicle empty-skip userid=%d vehicle=%d driver=%d empty_for=%.0f base_dist=%.0f dist=%.0f\n", userId,
+						i, driver, now - s_emptySince[i], baseDistance, distanceFrom(at));
+				}
+				continue;
+			}
 			// Another bot may already be walking to it.
 			bool claimed = false;
 			for (int slot = 0; slot < RCBOT_MAXPLAYERS && !claimed; ++slot)
@@ -1355,6 +1397,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 		}
 
+		if (now >= v.nextEmptyLog)
+			v.nextEmptyLog = now + 10.0f;
 		v.billNye = billNye;
 		if (best != nullptr)
 		{
@@ -1387,6 +1431,43 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				return;
 			}
+			// Buyer with the highest wages first: a free, alive teammate (no stage, not in a
+			// vehicle, not an engineer, not cooling down) with more wages buys instead.
+			float richest = -1.0f;
+			int richestUser = -1;
+			for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+			{
+				CBot* bot = CBots::getBot(slot);
+				if (bot == nullptr || bot == this || !bot->inUse() || bot->getEdict() == nullptr || !bot->isAlive() ||
+					CClassInterface::getTeam(bot->getEdict()) != team)
+					continue;
+				CBotEmpires* other = static_cast<CBotEmpires*>(bot);
+				// Only bots that reached this decision themselves in the last seconds (run
+				// 20261114: the richer bot sat in a commander stage and never bought).
+				if (other->m_vehicle.stage != EmpiresVehicleStage::NONE || now < other->m_vehicle.cooldownUntil ||
+					other->m_vehicle.nextDecision < now - 1.0f || other->commanderDutyBlocksSideTasks() ||
+					other->isEmpiresEngineerClass() || EmpiresVehiclePlayerVehicle(other, other->getEdict()) >= 0)
+					continue;
+				const float w = EmpiresPlayerWages(other->getEdict());
+				if (w > richest)
+				{
+					richest = w;
+					richestUser = engine->GetPlayerUserId(other->getEdict());
+				}
+			}
+			if (v.deferredSince <= 0.0f || now - v.deferredSince > 60.0f) // stale wait from an earlier try
+				v.deferredSince = now;
+			if (EmpiresTeamEconomy::DeferToRicherBuyer(wages, richest, money.vehicleCost, now - v.deferredSince, 30.0f))
+			{
+				if (now >= v.nextLog)
+				{
+					v.nextLog = now + 20.0f;
+					RCBOT_DIAG("[RCBOT2] vehicle skip userid=%d reason=richer-buyer wages=%.0f other=%d other_wages=%.0f\n",
+						userId, wages, richestUser, richest);
+				}
+				return;
+			}
+			v.deferredSince = 0.0f;
 			v.factory = factory;
 			v.factoryIndex = engine->IndexOfEdict(factory);
 			v.buyInPlace = false;
@@ -2561,7 +2642,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			// The hull may stop short of the highest value seen (run 220710:
 			// 140/150, healed while waiting): a long plateau high up counts too.
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
-			const char* end = (hullFrac >= 0.95f && (worstArmor >= 0.9f || v.refitSkipped)) || plateau ? "repaired" :
+			const char* end = (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
 				now - v.lastHealthRise > 120.0f ? "retreat-timeout" : nullptr;
 			// Never park for good (user): after 20 s without repairs try again
 			// (the stuck edge is blocked for vehicles, the other pad entrance
@@ -2589,7 +2670,6 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.parkValid = false;
 				v.homeParkValid = false;
 				v.refitDone = false;
-				v.refitSkipped = false;
 				v.refitStep = 0;
 				v.padStation = -1;
 				v.padInside = false;
@@ -2740,32 +2820,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (!v.refitDone && Dist2D(origin, pad) < 140.0f && std::fabs(forwardSpeed) < 60.0f &&
 				now >= v.refitNext && helpers != nullptr)
 			{
-				// Same loadout as bought; the rebuild restores the armor fully.
-				// TODO 5.5a: the refit is paid like a purchase (wages first, then pool); when
-				// money is short the Commander's reserve wins and the pad only repairs.
-				// Price of a refit unmeasured: the learned purchase price is the estimate.
-				if (v.refitStep == 0)
-				{
-					float pool = -1.0f;
-					EmpiresTeamResources(team, pool);
-					const float wages = EmpiresPlayerWages(m_pEdict);
-					const EmpiresTeamEconomy::TeamState& money = EmpiresTeamEconomy::Team(team);
-					const float reserve = EmpiresTeamEconomy::ActiveReserve(money, gpGlobals->curtime);
-					if (!EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
-					{
-						v.refitDone = true;
-						v.refitSkipped = true;
-						RCBOT_DIAG("[RCBOT2] vehicle refit-skip userid=%d reason=team-reserve wages=%.0f pool=%.0f cost=%.0f reserve=%.0f\n",
-							userId, wages, pool, money.vehicleCost, reserve);
-					}
-				}
-			}
-			if (!v.refitDone && Dist2D(origin, pad) < 140.0f && std::fabs(forwardSpeed) < 60.0f &&
-				now >= v.refitNext && helpers != nullptr)
-			{
 				const bool nf = team == 2;
 				const bool jeep = chassis == 0 || chassis == 8;
 				char command[96] = "";
+				// Same loadout as bought: the game charges only the difference to the vehicle's
+				// total cost (0x6550a7), so this refit is free and needs no reserve check
+				// (run 214852: pool unchanged, armor 14 -> 140; RE vehicle-driving.md).
 				switch (v.refitStep)
 				{
 				case 0: std::snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", chassis); break;

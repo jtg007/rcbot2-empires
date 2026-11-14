@@ -56,6 +56,12 @@ int main()
 	LearnVehicleCost(state, 1010.0f, 0.0f);
 	Check(state.vehicleCost == 250.0f, "ignore implausible");
 
+	Check(DeferToRicherBuyer(0.0f, 50.0f, 222.0f, 0.0f, 30.0f), "defer to richer");
+	Check(!DeferToRicherBuyer(230.0f, 500.0f, 222.0f, 0.0f, 30.0f), "own wages cover");
+	Check(!DeferToRicherBuyer(20.0f, 25.0f, 222.0f, 0.0f, 30.0f), "small gap");
+	Check(!DeferToRicherBuyer(0.0f, 50.0f, 222.0f, 30.0f, 30.0f), "defer bounded");
+	Check(!DeferToRicherBuyer(0.0f, -1.0f, 222.0f, 0.0f, 30.0f), "nobody else");
+
 	Team(2).reserve = 7.0f;
 	Reset();
 	Check(Team(2).reserve == 0.0f && &Team(99) == &Team(0), "reset and range");

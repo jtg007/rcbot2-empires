@@ -441,6 +441,8 @@ struct EmpiresVehicleBrain
 	float nextAction = 0.0f;
 	float stageUntil = 0.0f;
 	float cooldownUntil = 0.0f;
+	float nextEmptyLog = 0.0f;
+	float deferredSince = 0.0f; // richer-buyer wait start (5.5a), bounded to 30 s
 	float nextDecision = 0.0f;
 	int failures = 0;
 	int useTries = 0;
@@ -529,7 +531,6 @@ struct EmpiresVehicleBrain
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;
-	bool refitSkipped = false; // team-reserve: no armor refit, hull repair is enough (5.5a)
 	int refitStep = 0;
 	int padStation = -1;
 	int parkCount = 0;
@@ -712,6 +713,7 @@ public:
 		int lastLogKey = -1;
 		float escortUntil = 0.0f; // an Engineer walks toward a resource point out of reach
 		float nextResearch = 0.0f;
+		float nextResearchLog = 0.0f;
 		int lastResearchActive = -1;
 		bool lastResearchPaused = false;
 	} m_commanderEconomy;

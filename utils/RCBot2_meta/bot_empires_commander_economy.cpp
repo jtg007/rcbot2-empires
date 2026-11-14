@@ -1137,6 +1137,58 @@ void CBotEmpires::tickCommanderEconomy()
 	if (!ReadTeamResources(team, resources))
 		return;
 
+	// --- Research (TODO 5.1): the game only lets a team build a vehicle factory after the
+	// research building (radar) stands and Structural_Engineering + Vehicle_Factory are researched.
+	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
+	// Before the build waits below: an unfinished building or a pending emp_build check must not
+	// stop research (run 20261114-2040: one start, then never reached again).
+	bool researchUnlocked = true;
+	{
+		ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
+		TeamResearch research;
+		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
+			ReadTeamResearch(team, research))
+		{
+			researchUnlocked = research.done[kResearchVehicleFactory];
+			const int next = research.done[kResearchStructural] ? kResearchVehicleFactory : kResearchStructural;
+			if (!researchUnlocked && research.building && (research.active == 0 || research.paused) && now >= state.nextResearch)
+			{
+				EmpiresNativePlacement::ContextIdentity researchContext;
+				bool researchCommander = false;
+				if (EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(m_pEdict), researchContext) &&
+					EmpiresNativePlacement::ReadCommanderMode(researchContext, researchCommander) && researchCommander)
+				{
+					// A research paused for lack of money is never resumed by the game itself
+					// (ResearchResume 0x682d16 only after the radar returns, or by this command).
+					if (research.active != 0 && research.paused)
+					{
+						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
+						RCBOT_DIAG("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
+					}
+					else
+					{
+						char researchCommand[48];
+						std::snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
+						helpers->ClientCommand(m_pEdict, researchCommand);
+						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
+					}
+					state.nextResearch = now + 10.0f;
+				}
+			}
+			if (research.active != state.lastResearchActive || research.paused != state.lastResearchPaused ||
+				now >= state.nextResearchLog)
+			{
+				state.nextResearchLog = now + 30.0f;
+				state.lastResearchActive = research.active;
+				state.lastResearchPaused = research.paused;
+				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
+					research.active, research.remaining, int(research.paused), int(research.building),
+					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]));
+			}
+		}
+	}
+
+
 	// --- Result of the last emp_build. ---
 	if (state.verifyPending)
 	{
@@ -1267,52 +1319,6 @@ void CBotEmpires::tickCommanderEconomy()
 	if (refinerySites.empty())
 		inventory.siteAvailable[Refinery] = false;
 
-	// --- Research (TODO 5.1): the game only lets a team build a vehicle factory after the
-	// research building (radar) stands and Structural_Engineering + Vehicle_Factory are researched.
-	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
-	bool researchUnlocked = true;
-	{
-		ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
-		TeamResearch research;
-		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
-			ReadTeamResearch(team, research))
-		{
-			researchUnlocked = research.done[kResearchVehicleFactory];
-			const int next = research.done[kResearchStructural] ? kResearchVehicleFactory : kResearchStructural;
-			if (!researchUnlocked && research.building && (research.active == 0 || research.paused) && now >= state.nextResearch)
-			{
-				EmpiresNativePlacement::ContextIdentity researchContext;
-				bool researchCommander = false;
-				if (EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(m_pEdict), researchContext) &&
-					EmpiresNativePlacement::ReadCommanderMode(researchContext, researchCommander) && researchCommander)
-				{
-					// A research paused for lack of money is never resumed by the game itself
-					// (ResearchResume 0x682d16 only after the radar returns, or by this command).
-					if (research.active != 0 && research.paused)
-					{
-						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
-						RCBOT_DIAG("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
-					}
-					else
-					{
-						char researchCommand[48];
-						std::snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
-						helpers->ClientCommand(m_pEdict, researchCommand);
-						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
-					}
-					state.nextResearch = now + 10.0f;
-				}
-			}
-			if (research.active != state.lastResearchActive || research.paused != state.lastResearchPaused)
-			{
-				state.lastResearchActive = research.active;
-				state.lastResearchPaused = research.paused;
-				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
-					research.active, research.remaining, int(research.paused), int(research.building),
-					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]));
-			}
-		}
-	}
 	if (!researchUnlocked)
 		inventory.siteAvailable[VehicleFactory] = false;
 

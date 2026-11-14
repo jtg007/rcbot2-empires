@@ -8,8 +8,11 @@ Check free space before long recordings and remove only recordings you created.
 ## 0. Priority order (natural game flow first, enablers before what builds on them)
 
 1. Shared team economy (commander reserve, bots buy from wages first); its production-economy runs
-   also measure research pauses.
-2. Bots take empty vehicles only near their own base and after they have stood unused for a while.
+   also measure research pauses. Research pause/resume is measured (see below).
+2. Done (measured): bots take an empty own vehicle only within 1500 of their CV or a building and after
+   30 s without a driver and without moving (`vehicle empty-skip` logs the rest). Found on the way: every
+   `m_hPassengers` read failed (Empires sends handle arrays as a DataTable "000", "001", ...), so empty
+   vehicles were never taken over before; fixed in the handle reader.
 3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
 4. Mixed weapon loadouts: refit on a repair pad with per-chassis slot indices.
 5. Ammunition: vehicle resupply (pad, engineer crates), then infantry resupply for every class.
@@ -88,6 +91,12 @@ Check free space before long recordings and remove only recordings you created.
 
 ## 4. Missing features
 
+- Commander research pause/resume (measured): the research tick used to sit behind the "wait for
+  unfinished buildings" and "check last emp_build" early returns, so it ran only once in a while
+  (one start, then never again for minutes). It now runs before them. With the pool emptied during
+  Structural Engineering the bot saw the pause (remaining time frozen), sent
+  `emp_comm_research_resume` once money returned, finished item 60 and started 61. Open: real
+  research duration without a speed-up, a destroyed radar.
 - Commander: more research (turret levels, chassis, armour) and better vehicle parts;
   give orders to bots; rebuild lost buildings, choose resource points by value.
 - Shared team economy: commander and bots should share one view of team resources, income
@@ -100,15 +109,21 @@ Check free space before long recordings and remove only recordings you created.
   let bots buy from the team pool only above that reserve, preferring the buyer with the most
   wages. Measure time to factory/first vehicle, saving stalls, research pauses and idle money
   with production values.
-  Built (not yet committed): the commander publishes a reserve (next building, plus 240 while the
-  factory research is missing) and keeps it while waiting for engineers; vehicle purchases and pad
-  refits that the buyer's wages do not cover only happen if the pool keeps that reserve
-  (`vehicle skip reason=team-reserve`, `vehicle refit-skip`). Wages are read from the player and
+  Built: the commander publishes a reserve (next building, plus 240 while the
+  factory research is missing) and keeps it while waiting for engineers; vehicle purchases that
+  the buyer's wages do not cover only happen if the pool keeps that reserve
+  (`vehicle skip reason=team-reserve`). A pad refit with the same loadout is free (the game
+  charges only the difference to the vehicle's total cost; measured: pool unchanged, armor
+  refilled), so it needs no reserve check. Wages are read from the player and
   the price is learned from the pool/wage difference (the game's `vehicle_purchase` event does not
   reach the plugin's hook). Measured: price 192–245 for a light tank, wages are spent first
   (15 → 0, pool −207); on crossroads early game the pool stays at ~3900–4900, so the reserve never
-  blocked there; with the pool forced to 100 the bot waited and bought after money arrived. Open:
-  prefer the buyer with the most wages, refit price, a late or poor match.
+  blocked there; with the pool forced to 100 the bot waited and bought after money arrived.
+  Buyer with the most wages first (built): a bot whose wages do not cover the price waits up to
+  30 s (`vehicle skip reason=richer-buyer`) while a free teammate with at least 10 more wages that
+  reached the purchase decision itself buys; measured in short buy runs (rich bot buys from wages
+  120 → 0; a richer bot stuck in a commander stage no longer blocks the purchase). Open: refit
+  price, a late or poor match.
   Wages on request (built): when a human writes something containing "wage" in chat, every bot of
   his team hands over its wages, through the server's give plugin if `sm_give` exists (`!give
   #<userid>`), otherwise directly. Detected through the game event `player_say` (`say` is a
