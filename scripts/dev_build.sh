@@ -3,6 +3,7 @@
 # lets AMBuild recompile only what changed. Prints the path of the built .so.
 # build_empires.sh stays the clean, from-scratch build.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/dev_cpu.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CLEAN="${RCBOT_DEPS_DIR:-$(dirname "$ROOT")/rcbot2-clean}"

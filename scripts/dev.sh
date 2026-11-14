@@ -3,6 +3,7 @@
 # Usage: scripts/dev.sh <map> <bot count> <minutes>
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
+source "$(dirname "${BASH_SOURCE[0]}")/dev_cpu.sh"
 
 if [[ $# -ne 3 ]]; then
   echo "Usage: $0 <map> <bot count> <minutes>" >&2

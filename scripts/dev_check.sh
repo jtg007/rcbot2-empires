@@ -5,6 +5,7 @@
 # them one after another like before.
 # Usage: scripts/dev_check.sh [map]   (pad/turret/revive use their own default map)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source scripts/dev_cpu.sh
 MAP="${1:-emp_streetsoffire}"
 TMP="$(mktemp -d)"
 fail=0

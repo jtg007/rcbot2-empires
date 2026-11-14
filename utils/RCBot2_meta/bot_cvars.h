@@ -90,6 +90,7 @@ extern ConVar rcbot_empires_commander_first;
 extern ConVar rcbot_empires_vehicles;
 extern ConVar rcbot_empires_vehicle_drivers;
 extern ConVar rcbot_empires_vehicle_debug_buy;
+extern ConVar rcbot_empires_vehicle_debug_mixed;
 extern ConVar rcbot_empires_debug_log;
 // Diagnostic "[RCBOT2] ..." lines (hundreds per minute in a full match): only with
 // rcbot_empires_debug_log 1. The dev harness turns it on; warnings and console tools use Msg.

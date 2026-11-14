@@ -1687,7 +1687,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		case 2:
 			// Machine gun (weapon 0, mode 0 = IN_ATTACK2) in the other slot.
 			if (!jeep)
-				std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 0\n", nf ? 1 : 0);
+				std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 %d\n", nf ? 1 : 0,
+					rcbot_empires_vehicle_debug_mixed.GetBool() ? 1 : 0);
 			break;
 		case 3:
 			std::snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n");
@@ -2616,6 +2617,37 @@ void CBotEmpires::tickEmpiresVehicle()
 		// One weak side: turn a strong one to the enemy (below). Back only when
 		// every side is nearly through or the hull is low.
 		const bool armorGone = bestSide >= 0 && bestArmor < 0.3f;
+		// 3.10d: an MG sharing its button with the cannon (adopted vehicle, other loadout) cannot be
+		// used on infantry (mg-mixed); refit the own loadout on a pad. Only light tank / AFV: the
+		// refit commands carry their slot order, armor and engine.
+		if (!v.retreating && !v.billNye && !v.commanderCV && (chassis == 2 || chassis == 10) &&
+			now >= v.loadoutCheckAt && (v.loadoutVerify || (now >= v.loadoutRetryAt && now >= v.retreatCooldownUntil)))
+		{
+			v.loadoutCheckAt = now + 3.0f;
+			int turretIndex = -1;
+			edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
+				turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+			ReadVehicleWeapons(this, turret, v);
+			v.weaponReadAt = now;
+			if (v.loadoutVerify)
+			{
+				v.loadoutVerify = false;
+				RCBOT_DIAG("[RCBOT2] vehicle loadout-check userid=%d veh=%d known=%d mixed=%d mg=%d weapons=%s\n", userId,
+					v.vehicleIndex, v.weaponsKnown ? 1 : 0, v.weaponMgMixed, v.weaponMgPure, v.weaponSummary);
+			}
+			else if (v.weaponsKnown && v.weaponMgMixed != 0)
+			{
+				v.retreating = true;
+				v.loadoutRefit = true;
+				v.lastHealth = total;
+				v.lastHealthRise = now;
+				v.nextReplan = 0.0f;
+				v.parkCount = 0;
+				v.padEntryAttempt = 0;
+				RCBOT_DIAG("[RCBOT2] vehicle retreat userid=%d veh=%d reason=loadout weapons=%s pos=(%.0f %.0f %.0f)\n",
+					userId, v.vehicleIndex, v.weaponSummary, origin.x, origin.y, origin.z);
+			}
+		}
 		if (!v.retreating && !v.billNye && !v.commanderCV && (hullFrac < 0.4f || armorGone) &&
 			now >= v.retreatCooldownUntil)
 		{
@@ -2642,7 +2674,9 @@ void CBotEmpires::tickEmpiresVehicle()
 			// The hull may stop short of the highest value seen (run 220710:
 			// 140/150, healed while waiting): a long plateau high up counts too.
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
-			const char* end = (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
+			// A loadout trip ends only after the refit was sent (healthy tanks would end at once).
+			const bool refitPending = v.loadoutRefit && !v.refitDone;
+			const char* end = refitPending ? (now - v.lastHealthRise > 180.0f ? "retreat-timeout" : nullptr) : (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
 				now - v.lastHealthRise > 120.0f ? "retreat-timeout" : nullptr;
 			// Never park for good (user): after 20 s without repairs try again
 			// (the stuck edge is blocked for vehicles, the other pad entrance
@@ -2669,12 +2703,22 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.retreating = false;
 				v.parkValid = false;
 				v.homeParkValid = false;
+				if (v.loadoutRefit)
+				{
+					// Read the loadout again soon; a refused refit (money) is not retried for 2 min.
+					v.loadoutCheckAt = now + 2.0f;
+					v.loadoutRetryAt = now + 120.0f;
+					v.loadoutVerify = true;
+				}
+				const bool wasLoadout = v.loadoutRefit;
+				v.loadoutRefit = false;
 				v.refitDone = false;
 				v.refitStep = 0;
 				v.padStation = -1;
 				v.padInside = false;
 				v.nextReplan = 0.0f;
-				if (std::strcmp(end, "repaired") != 0)
+				// A failed loadout trip is held off by loadoutRetryAt; damage retreats stay allowed.
+				if (std::strcmp(end, "repaired") != 0 && !wasLoadout)
 					v.retreatCooldownUntil = now + 60.0f;
 				if (s_repairRequest[team].vehicle == v.vehicleIndex)
 					s_repairRequest[team] = RepairRequest();
@@ -2863,6 +2907,22 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 		}
+		else if (v.loadoutRefit && (!haveHome || now - v.lastHealthRise > 30.0f))
+		{
+			// No finished own pad for 30 s (a new one may still be building: head home meanwhile,
+			// run 20261114-2216): the loadout cannot be changed, fight on and look again later.
+			v.retreating = false;
+			v.loadoutRefit = false;
+			v.loadoutRetryAt = now + 60.0f;
+			v.nextReplan = 0.0f;
+			// Pad lost mid-refit: start the next refit from step 0 (expert review).
+			v.refitDone = false;
+			v.refitStep = 0;
+			v.padStation = -1;
+			v.padInside = false;
+			v.homeParkValid = false;
+			RCBOT_DIAG("[RCBOT2] vehicle retreat-abort userid=%d veh=%d reason=loadout-no-pad\n", userId, v.vehicleIndex);
+		}
 		else if (haveHome)
 		{
 			// Park in front of the CV, not on it: an engineer's stand spot
@@ -2889,7 +2949,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			Dist2D(origin, driveTo) < arrive + 200.0f;
 		// Engineers only without a finished repair pad (user): with a pad the
 		// tank repairs and refits there; only if it got stuck on the way.
-		if (arrived && (v.parkValid || station == nullptr) &&
+		if (arrived && (v.parkValid || station == nullptr) && !v.loadoutRefit &&
 			now >= v.nextRepairCall)
 		{
 			v.nextRepairCall = now + 25.0f;

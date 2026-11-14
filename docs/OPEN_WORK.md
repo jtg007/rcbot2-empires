@@ -14,7 +14,8 @@ Check free space before long recordings and remove only recordings you created.
    `m_hPassengers` read failed (Empires sends handle arrays as a DataTable "000", "001", ...), so empty
    vehicles were never taken over before; fixed in the handle reader.
 3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
-4. Mixed weapon loadouts: refit on a repair pad with per-chassis slot indices.
+4. Mixed weapon loadouts: done for light tank/AFV (refit on the own pad, `scripts/dev_mixed.sh`); other
+   chassis need their own slot, engine and armour values.
 5. Ammunition: vehicle resupply (pad, engineer crates), then infantry resupply for every class.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
@@ -150,8 +151,11 @@ Check free space before long recordings and remove only recordings you created.
   adding a missile launcher to the bots' loadout, and measured damage. Weapons must match slot
   type and size per chassis (light tank/AFV take only size-1 weapons; slot 2 is the missile slot).
   If the MG shares its button with another weapon (a loadout the bot did not buy), the bot holds
-  fire at infantry (`why=mg-mixed`). Planned: drive to a repair pad and refit to the bot's own
-  loadout, with slot indices per chassis.
+  fire at infantry (`why=mg-mixed`). Built for light tank/AFV: the loadout is read every 3 s; a
+  mixed one sends the tank to the own finished repair pad (`vehicle retreat reason=loadout`), which
+  refits the bot loadout and logs `vehicle loadout-check` (measured: `12:a2,0:a2` before, MG alone
+  on IN_ATTACK after). Without a pad the trip gives up after 30 s and waits 120 s. Test cvar
+  `rcbot_empires_vehicle_debug_mixed 1` buys such a loadout. Other chassis still open.
 - Taking empty vehicles: bots currently take any empty own vehicle within 2500 units of
   themselves. Planned: only vehicles near the own base that have stood without a driver for a while,
   so a player who just stepped out keeps their vehicle.

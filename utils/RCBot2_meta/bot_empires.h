@@ -522,6 +522,10 @@ struct EmpiresVehicleBrain
 	// Turret loadout of the active fire group, read from the turret's send props (see
 	// VehicleWeaponButtons in bot_empires_vehicle.cpp). Masks of IN_ATTACK / IN_ATTACK2.
 	float weaponReadAt = -1.0f;
+	float loadoutCheckAt = 0.0f;   // 3.10d: periodic check for an MG sharing a button
+	float loadoutRetryAt = 0.0f;   // no new loadout trip before this (refit refused or no pad)
+	bool loadoutRefit = false;     // the current retreat is for the loadout, not for damage
+	bool loadoutVerify = false;    // read and log the loadout once after a loadout refit
 	bool weaponsKnown = false;
 	int weaponMgPure = 0;     // buttons firing only machine guns that have rounds loaded
 	int weaponMgMixed = 0;    // buttons with a loaded machine gun that also fire another weapon
