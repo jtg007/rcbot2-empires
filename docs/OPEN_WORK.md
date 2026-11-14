@@ -16,7 +16,11 @@ Check free space before long recordings and remove only recordings you created.
 3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
 4. Mixed weapon loadouts: done for light tank/AFV (refit on the own pad, `scripts/dev_mixed.sh`); other
    chassis need their own slot, engine and armour values.
-5. Ammunition: vehicle resupply (pad, engineer crates), then infantry resupply for every class.
+5. Ammunition: step 1 done for light tank/AFV (empty cannon/missiles -> own pad, the refit refills every
+   weapon; `scripts/dev_ammo.sh`, test command `rcbotd empires_vehicle_setammo <magazine> <reserve>`).
+   Next: nearest source pad or ammo crate (engineer crates and map crates refill vehicles within 1000),
+   the "I need ammo" call (`emp_menu_command 29`) with an engineer placing a crate (build item 7), other
+   chassis, then infantry resupply for every class.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
 7. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts

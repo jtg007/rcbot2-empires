@@ -18,7 +18,7 @@ Static analysis of `server_srv.so`.
 
 ## Walls and Deployables
 
-- Observed build-item values: `0` ammo crate, `1` MG turret, `2` ML turret, `4` camera, `5` radar, `7` walls. Other values remain unresolved.
+- Observed build-item values: `1` MG turret, `2` ML turret, `4` camera, `5` radar, `6` walls, `7` ammo crate (`BuildAmmoCrate` 0x3ce830, placed at once, cooldown `m_flEngineerNextSupply`; corrected 2026-11-14, earlier note had 0 crate / 7 walls). Other values remain unresolved.
 - `GetBuildLocation` performs aim/attachment and geometry traces. Turret and detection allotment checks exist. Numeric range and small-deployable costs remain unresolved.
 - Wall completion uses team/building properties, wall limits, `CanBuildAt`, collision/surface traces, and resource checks. `CEngineerWalls::Destroy` updates wall-count accounting.
 

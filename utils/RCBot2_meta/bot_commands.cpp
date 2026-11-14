@@ -1843,6 +1843,19 @@ CBotCommandInline EmpiresVehicleScaleHpCommand("empires_vehicle_scalehp", CMD_AC
 		return COMMAND_ACCESSED;
 	});
 
+int EmpiresVehicleDebugSetAmmo(int magazine, int reserve); // bot_empires_vehicle.cpp
+
+CBotCommandInline EmpiresVehicleSetAmmoCommand("empires_vehicle_setammo", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		const int magazine = args[0] != nullptr && *args[0] != '\0' ? std::atoi(args[0]) : 0;
+		const int reserve = args[1] != nullptr && *args[1] != '\0' ? std::atoi(args[1]) : 0;
+		const int changed = EmpiresVehicleDebugSetAmmo(magazine, reserve);
+		CBotGlobals::botMessage(pEntity, 0, "empires_vehicle_setammo magazine=%d reserve=%d vehicles=%d", magazine, reserve, changed);
+		return COMMAND_ACCESSED;
+	});
+
 int EmpiresTestWagesChat(int speakerUserId, float wages); // bot_empires_vehicle.cpp
 
 CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDICATED,
@@ -3829,6 +3842,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresLocalExplorerCancelCommand,
 	&EmpiresCommanderMoveTestCommand,
 	&EmpiresVehicleScaleHpCommand,
+	&EmpiresVehicleSetAmmoCommand,
 	&EmpiresTestWagesCommand,
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,

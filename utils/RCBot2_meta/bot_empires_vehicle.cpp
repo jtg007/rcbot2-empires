@@ -33,7 +33,7 @@ namespace
 {
 // SendPropArray3 arrays are datatables whose numbered children have relative offsets.
 template <typename T, std::size_t N>
-bool ReadTurretArray(edict_t* turret, const char* name, T (&values)[N])
+bool ReadTurretArray(edict_t* turret, const char* name, T (&values)[N], bool write = false)
 {
 	if (turret == nullptr || turret->IsFree() || turret->GetUnknown() == nullptr)
 		return false;
@@ -70,8 +70,17 @@ bool ReadTurretArray(edict_t* turret, const char* name, T (&values)[N])
 		if (child == nullptr || child->GetName() == nullptr || std::strcmp(child->GetName(), expected) != 0 ||
 			child->GetType() != DPT_Int || child->GetOffset() != static_cast<int>(i * sizeof(T)))
 			return false;
+	}
+	char* base = reinterpret_cast<char*>(entity) + offset;
+	for (std::size_t i = 0; i < N; ++i)
+	{
+		if (write)
+		{
+			std::memcpy(base + i * sizeof(T), &values[i], sizeof(T)); // test command only
+			continue;
+		}
 		T value;
-		std::memcpy(&value, reinterpret_cast<const char*>(entity) + offset + child->GetOffset(), sizeof(value));
+		std::memcpy(&value, base + i * sizeof(T), sizeof(value));
 		if (sizeof(T) == 1 && value > 1)
 			return false;
 		values[i] = value;
@@ -638,6 +647,7 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 	v.weaponsKnown = false;
 	v.weaponMgPure = v.weaponMgMixed = v.weaponHeavyInf = v.weaponArmour = 0;
 	v.weaponMgLeft = false;
+	v.weaponHeavyPresent = v.weaponHeavyLeft = false;
 	v.weaponSummary[0] = '\0';
 	std::int32_t weapons[8], ammo[8], clips[8];
 	std::uint8_t modes[8], groups[48];
@@ -670,6 +680,12 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 			other |= button; // an empty missile pod must not block the MG on its button
 		if (loaded && ((id >= 12 && id <= 22) || id >= 40))
 			v.weaponHeavyInf |= button;
+		if ((id >= 12 && id <= 22) || (id >= 27 && id <= 39))
+		{
+			v.weaponHeavyPresent = true;
+			if (ammo[i] > 0 || clips[i] > 0)
+				v.weaponHeavyLeft = true;
+		}
 		if (loaded && ((id >= 12 && id <= 22) || (id >= 27 && id <= 39) || id == 1 || id == 4 || id == 5 || (id >= 8 && id <= 11)))
 			v.weaponArmour |= button;
 		if (used < sizeof(v.weaponSummary))
@@ -2632,11 +2648,15 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (v.loadoutVerify)
 			{
 				v.loadoutVerify = false;
-				RCBOT_DIAG("[RCBOT2] vehicle loadout-check userid=%d veh=%d known=%d mixed=%d mg=%d weapons=%s\n", userId,
-					v.vehicleIndex, v.weaponsKnown ? 1 : 0, v.weaponMgMixed, v.weaponMgPure, v.weaponSummary);
+				RCBOT_DIAG("[RCBOT2] vehicle loadout-check userid=%d veh=%d known=%d mixed=%d mg=%d heavy-left=%d weapons=%s\n",
+					userId, v.vehicleIndex, v.weaponsKnown ? 1 : 0, v.weaponMgMixed, v.weaponMgPure,
+					v.weaponHeavyLeft ? 1 : 0, v.weaponSummary);
 			}
-			else if (v.weaponsKnown && v.weaponMgMixed != 0)
+			else if (v.weaponsKnown && (v.weaponMgMixed != 0 || (v.weaponHeavyPresent && !v.weaponHeavyLeft)))
 			{
+				// 3.10b step 1: cannon/missiles out of magazine and reserve: the refit on the pad
+				// refills every weapon (AddWeapon 0x69a090 sets magazine and reserve to max, RE).
+				v.ammoTrip = v.weaponMgMixed == 0;
 				v.retreating = true;
 				v.loadoutRefit = true;
 				v.lastHealth = total;
@@ -2644,8 +2664,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.nextReplan = 0.0f;
 				v.parkCount = 0;
 				v.padEntryAttempt = 0;
-				RCBOT_DIAG("[RCBOT2] vehicle retreat userid=%d veh=%d reason=loadout weapons=%s pos=(%.0f %.0f %.0f)\n",
-					userId, v.vehicleIndex, v.weaponSummary, origin.x, origin.y, origin.z);
+				RCBOT_DIAG("[RCBOT2] vehicle retreat userid=%d veh=%d reason=%s weapons=%s pos=(%.0f %.0f %.0f)\n",
+					userId, v.vehicleIndex, v.ammoTrip ? "ammo" : "loadout", v.weaponSummary, origin.x, origin.y, origin.z);
 			}
 		}
 		if (!v.retreating && !v.billNye && !v.commanderCV && (hullFrac < 0.4f || armorGone) &&
@@ -2712,6 +2732,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				const bool wasLoadout = v.loadoutRefit;
 				v.loadoutRefit = false;
+				v.ammoTrip = false;
 				v.refitDone = false;
 				v.refitStep = 0;
 				v.padStation = -1;
@@ -2913,6 +2934,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			// run 20261114-2216): the loadout cannot be changed, fight on and look again later.
 			v.retreating = false;
 			v.loadoutRefit = false;
+			v.ammoTrip = false;
 			v.loadoutRetryAt = now + 60.0f;
 			v.nextReplan = 0.0f;
 			// Pad lost mid-refit: start the next refit from step 0 (expert review).
@@ -3689,6 +3711,58 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors)
 		}
 		RCBOT_DIAG("[RCBOT2] vehicle debug-hp veh=%d health=%d->%d total=%.0f armor=%d/%d/%d/%d\n", i, before, *hp,
 			total, armor[0], armor[1], armor[2], armor[3]);
+		++changed;
+	}
+	return changed;
+}
+
+// Test only (rcbotd empires_vehicle_setammo <magazine> <reserve>): sets every weapon of every
+// vehicle with a turret. The tank's own counters (+0x90c magazine, +0x92c reserve, 8 slots,
+// CEmpTank::GiveAmmo 0x697ce0) are what the game uses; the turret arrays are its network copies.
+int EmpiresVehicleDebugSetAmmo(int magazine, int reserve)
+{
+	if (gpGlobals == nullptr || engine == nullptr || !EmpiresBinaryOffsetsTrusted())
+		return 0;
+	int changed = 0;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (!IsClass(e, "emp_vehicle") || e->GetUnknown() == nullptr || e->GetUnknown()->GetBaseEntity() == nullptr)
+			continue;
+		const char* className = e->GetClassName();
+		if (className != nullptr && std::strstr(className, "commander") != nullptr)
+			continue;
+		int turretIndex = -1;
+		CBaseHandle* handle = nullptr;
+		{
+			IServerNetworkable* net = e->GetUnknown()->GetNetworkable();
+			ServerClass* cls = net != nullptr ? net->GetServerClass() : nullptr;
+			unsigned offset = 0;
+			if (cls != nullptr && UTIL_FindSendPropInfo(cls, "m_hTurret", &offset) && offset > 0)
+				handle = reinterpret_cast<CBaseHandle*>(reinterpret_cast<char*>(e->GetUnknown()->GetBaseEntity()) + offset);
+		}
+		if (handle != nullptr && handle->IsValid())
+			turretIndex = handle->GetEntryIndex();
+		edict_t* turret = turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+		std::int32_t weapons[8], ammo[8], clips[8];
+		if (turret == nullptr || !ReadTurretArray(turret, "m_iWeapon", weapons))
+			continue;
+		char* tank = reinterpret_cast<char*>(e->GetUnknown()->GetBaseEntity());
+		for (int k = 0; k < 8; ++k)
+		{
+			const bool used = weapons[k] >= 0 && weapons[k] <= 42;
+			ammo[k] = used ? magazine : 0;
+			clips[k] = used ? reserve : 0;
+			if (used)
+			{
+				reinterpret_cast<int*>(tank + 0x90c)[k] = magazine;
+				reinterpret_cast<int*>(tank + 0x92c)[k] = reserve;
+			}
+		}
+		if (!ReadTurretArray(turret, "m_iWeaponAmmo", ammo, true) || !ReadTurretArray(turret, "m_iWeaponClips", clips, true))
+			continue;
+		turret->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED; // StateChanged() needs engine-only symbols
+		RCBOT_DIAG("[RCBOT2] vehicle debug-ammo veh=%d turret=%d magazine=%d reserve=%d\n", i, turretIndex, magazine, reserve);
 		++changed;
 	}
 	return changed;

@@ -230,6 +230,38 @@ Payment comes from wages if they suffice (0x6545bd), otherwise from team resourc
 - Health fields: `m_iHealth` (+0xf8) = hull, repaired by `DoRepairs` and the kit (`GetHealth`/`GetMaxHealth` vfunc 0x1e8/0x1e0; when full `DoRepairs` calls `ClearRequest`). Armor per side is server-side only: `float[4]` +0xfe4, `int[4]` +0x1004 (order front, rear, left, right; left = local −X, right = +X, front = +Y, confirmed in a run: an engineer on +X heals index 3). `m_iMaxArmorHealth` (+0x1024) = 70 **per inch** (2 inches → 140). The kit heals the side that is hit (`CEmpTank::GetSide` 0x3e61c0 by angle limits from the chassis, then `HealArmorSide`), range 100 → aim at the nearest hull point, not the centre of a face. Only `m_flTotalHealth`/`m_flMaxTotalHealth`, `m_iArmor`, `m_iMaxArmorHealth` are networked.
 - Max armor (inches per side, scripts): NF Light Tank 2, BE AFV 3, jeeps 1, NF Medium 5, BE Medium 4, heavy 6.
 
+### Vehicle ammo (read 2026-11-14, static)
+
+- Tank ammo is authoritative on the tank: magazine `+0x90c+4*i`, reserve clips `+0x92c+4*i` (8 weapon slots,
+  weapon def `shared_ptr` at `+0xb28+8*i`). The turret netprops `m_iWeaponAmmo` (turret `+0x4f4`) and
+  `m_iWeaponClips` (`+0x514`) are mirrors written after each change. A test write must set both.
+- Weapon def fields: `+0xcbc` bool (slot skipped by GiveAmmo), `+0xcc0` max magazine, `+0xcc4` max clips,
+  `+0xcc8` magazine refill per step (weapons with max clips 0), `+0xcdc` reload time.
+- `CEmpTank::AddWeapon` 0x69a090 (vtable +0x3f4) takes the first free slot and fills clips = max, magazine = max.
+  `RecustomizeVehicle` calls it for every chosen weapon (0x69f2eb) -> a refit (`emp_vehicle_build` on the pad)
+  should refill ammo fully (static; not measured).
+- `CEmpTank::GiveAmmo(float mult, bool silent)` 0x697ce0: returns if not alive or `curtime < +0x950`. Per slot:
+  max clips 0 and magazine < max -> magazine += `+0xcc8` (clamped); else clips < max -> clips += 1. The magazine of
+  clip weapons is not filled here (reload `CEmpTank::ReloadWeapon` 0x68c550 moves clip -> magazine). Each slot that
+  needs ammo sets `+0x950 = curtime + reload * mult * 0.5`. Flag `+0x94c` (reset on build/refit/ctor): the first
+  call after it only arms the timer, gives nothing. End: `GetPassenger(0)` -> `ClearRequest(4)`; sound
+  `Vehicle.AmmoPickup` unless `silent`. No driver needed.
+- Repair station: `GiveAmmo(mult, false)` with mult 1.0, 4.0 if the building is sabotaged (`+0x5c0`); station think
+  0.25 s, same 600-unit radius as repairs.
+- Crates `CEngineerCrate::CrateThink` 0x62af30: think 1.0 s; if `+0x596` set, every same-team `CEmpTank` with
+  `WorldSpaceCenter` within **1000 units** (dist² 1e6, 0x957f84) of the crate origin gets `GiveAmmo(1.0, false)`.
+  `CEngineerCrate::Spawn` 0x62c5b0: `+0x596` = 1 for `emp_eng_crate` (also `+0x595` = expires: removed after
+  **120 s**, 0x976224), otherwise `+0x596` = classname contains "ammo" -> map crates `emp_{nf,imp}_ammo_crate` feed
+  vehicles too; health crates do not.
+- Engineer kit: `m_iEngineerBuildItem` (player `+0x128c`) dispatch in `PrimaryAttack` (0x3cfb6e..): 1 MG turret,
+  2 ML turret, 4 camera, 5 radar, 6 walls, **7 supply crate** (`BuildAmmoCrate` 0x3ce830 -> `emp_eng_crate` at
+  `GetBuildLocation`, no construction). Cooldown `m_flEngineerNextSupply` (`+0x12a8`), message "You cannot build a
+  supply crate for %f more seconds"; after placing, build item -> 0 and next supply = value at `+0x12ac`.
+  (engineer.md listed 0 crate / 7 walls; the dispatch says 6 walls / 7 crate.)
+- Radio "I need ammo!": `emp_menu_command 29` (jump table 0x9d8db0 -> 0x66e31a): SayGlobal, minimap order active,
+  `SetRequest(GetVehicleRole() == 0 ? 4 : 2)` -> driver = request 4 (vehicle ammo, cleared by GiveAmmo), otherwise
+  2. For comparison: 30 "I need repairs!" sets request 3. `GetVehicleRole` 0x65cce0 is -1 without a vehicle.
+
 ## Rainbowroad base expansion: offline map inspection (2026-11-14)
 
 - BSP entities: NF starting barracks `(13680,-1136,256)`, CV `(12953,0,339.51)`,

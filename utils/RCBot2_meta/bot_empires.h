@@ -526,12 +526,15 @@ struct EmpiresVehicleBrain
 	float loadoutRetryAt = 0.0f;   // no new loadout trip before this (refit refused or no pad)
 	bool loadoutRefit = false;     // the current retreat is for the loadout, not for damage
 	bool loadoutVerify = false;    // read and log the loadout once after a loadout refit
+	bool ammoTrip = false;         // 3.10b: the loadout trip is for empty cannon/missiles
 	bool weaponsKnown = false;
 	int weaponMgPure = 0;     // buttons firing only machine guns that have rounds loaded
 	int weaponMgMixed = 0;    // buttons with a loaded machine gun that also fire another weapon
 	int weaponHeavyInf = 0;   // buttons with a loaded cannon or grenade launcher
 	int weaponArmour = 0;     // buttons with a loaded weapon that hurts armour
 	bool weaponMgLeft = false; // a machine gun in the group still has magazine or reserve rounds
+	bool weaponHeavyPresent = false; // the group has a cannon or missile launcher (3.10b)
+	bool weaponHeavyLeft = false;    // one of them still has magazine or reserve rounds
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;
