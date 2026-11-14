@@ -10,13 +10,18 @@ namespace EmpiresCommanderEconomy
 enum BuildType { Refinery = 0, Barracks = 1, Radar = 2, Armory = 3, Repair = 4, VehicleFactory = 5, TypeCount = 6 };
 
 // Costs from scripts_000.vpk (buildings).
+// Research item indexes (scripts/research_items.txt order, server_srv.so GetResearch 0x3a8440).
+constexpr int kResearchItemCount = 128;
+constexpr int kResearchStructural = 60;      // Structural_Engineering
+constexpr int kResearchVehicleFactory = 61;  // Vehicle_Factory, needs 60
+
 constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f};
 
 struct Step { BuildType type; int targetCount; };
 
 // Economy first (income is the only source), then infantry support, vehicles, supply.
 constexpr Step kBuildOrder[] = {
-	{Refinery, 1}, {Refinery, 2}, {Barracks, 1}, {VehicleFactory, 1},
+	{Refinery, 1}, {Refinery, 2}, {Barracks, 1}, {Radar, 1}, {VehicleFactory, 1},
 	{Armory, 1}, {Refinery, 3}, {Repair, 1}, {Refinery, 4},
 };
 constexpr int kBuildOrderSize = sizeof(kBuildOrder) / sizeof(kBuildOrder[0]);

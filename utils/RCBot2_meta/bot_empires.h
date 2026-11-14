@@ -694,6 +694,9 @@ public:
 		std::vector<AssignTry> assignTries;
 		int lastLogKey = -1;
 		float escortUntil = 0.0f; // an Engineer walks toward a resource point out of reach
+		float nextResearch = 0.0f;
+		int lastResearchActive = -1;
+		bool lastResearchPaused = false;
 	} m_commanderEconomy;
 	// An Engineer walks to one assigned building and works on it until full.
 	bool requestEmpiresBuildAssignment(edict_t* building);

@@ -46,6 +46,9 @@ int main()
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == Barracks, "ECON-3 barracks after two refineries");
 
 	inventory.count[Barracks] = 1;
+	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == Radar, "ECON-4a radar (research building) before the factory");
+
+	inventory.count[Radar] = 1;
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == VehicleFactory, "ECON-4 factory next");
 
 	inventory.count[VehicleFactory] = 1;
@@ -62,6 +65,7 @@ int main()
 	inventory = AllSites();
 	inventory.count[Refinery] = 2;
 	inventory.count[Barracks] = 1;
+	inventory.count[Radar] = 1;
 	Require(NextBuild(inventory, 200.0f, type) == Decision::Saving && type == VehicleFactory, "ECON-8 saves for the factory");
 
 	// Nothing available at all.
@@ -72,6 +76,7 @@ int main()
 	inventory = AllSites();
 	inventory.count[Refinery] = 4;
 	inventory.count[Barracks] = 1;
+	inventory.count[Radar] = 1;
 	inventory.count[VehicleFactory] = 1;
 	inventory.count[Armory] = 1;
 	inventory.count[Repair] = 1;

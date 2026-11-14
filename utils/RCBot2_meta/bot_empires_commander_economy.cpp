@@ -456,6 +456,42 @@ bool ReadTeamResources(int team, float& resources)
 	}
 	return false;
 }
+
+// Research state of a team (server_srv.so, ResearchStart 0x682280 / ResearchUpdate 0x682be0):
+// CEmpTeam +0x3d0 int active item (0 = none), +0x3d4 int time remaining, +0x3d8 byte research
+// building built, +0x3d9 byte paused, +0x3e4 + item index: byte researched.
+struct TeamResearch
+{
+	int active = 0;
+	int remaining = 0;
+	bool building = false;
+	bool paused = false;
+	bool done[EmpiresCommanderEconomy::kResearchItemCount] = {};
+};
+
+bool ReadTeamResearch(int team, TeamResearch& out)
+{
+	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)
+			continue;
+		ServerClass* serverClass = e->GetNetworkable()->GetServerClass();
+		if (serverClass == nullptr || std::strcmp(serverClass->GetName(), "CEmpTeam") != 0)
+			continue;
+		const char* raw = RawEntity(e);
+		if (raw == nullptr || *reinterpret_cast<const int*>(raw + 0x3a8) != team)
+			continue;
+		out.active = *reinterpret_cast<const int*>(raw + 0x3d0);
+		out.remaining = *reinterpret_cast<const int*>(raw + 0x3d4);
+		out.building = *reinterpret_cast<const unsigned char*>(raw + 0x3d8) != 0;
+		out.paused = *reinterpret_cast<const unsigned char*>(raw + 0x3d9) != 0;
+		for (int idx = 0; idx < EmpiresCommanderEconomy::kResearchItemCount; ++idx)
+			out.done[idx] = *reinterpret_cast<const unsigned char*>(raw + 0x3e4 + idx) != 0;
+		return true;
+	}
+	return false;
+}
 }
 
 bool CBotEmpires::isEmpiresEngineerClass() const
@@ -1140,6 +1176,55 @@ void CBotEmpires::tickCommanderEconomy()
 		inventory.siteAvailable[type] = now >= state.blockedUntil[type];
 	if (refinerySites.empty())
 		inventory.siteAvailable[Refinery] = false;
+
+	// --- Research (TODO 5.1): the game only lets a team build a vehicle factory after the
+	// research building (radar) stands and Structural_Engineering + Vehicle_Factory are researched.
+	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
+	bool researchUnlocked = true;
+	{
+		ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
+		TeamResearch research;
+		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
+			ReadTeamResearch(team, research))
+		{
+			researchUnlocked = research.done[kResearchVehicleFactory];
+			const int next = research.done[kResearchStructural] ? kResearchVehicleFactory : kResearchStructural;
+			if (!researchUnlocked && research.building && (research.active == 0 || research.paused) && now >= state.nextResearch)
+			{
+				EmpiresNativePlacement::ContextIdentity researchContext;
+				bool researchCommander = false;
+				if (EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(m_pEdict), researchContext) &&
+					EmpiresNativePlacement::ReadCommanderMode(researchContext, researchCommander) && researchCommander)
+				{
+					// A research paused for lack of money is never resumed by the game itself
+					// (ResearchResume 0x682d16 only after the radar returns, or by this command).
+					if (research.active != 0 && research.paused)
+					{
+						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
+						Msg("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
+					}
+					else
+					{
+						char researchCommand[48];
+						std::snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
+						helpers->ClientCommand(m_pEdict, researchCommand);
+						Msg("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
+					}
+					state.nextResearch = now + 10.0f;
+				}
+			}
+			if (research.active != state.lastResearchActive || research.paused != state.lastResearchPaused)
+			{
+				state.lastResearchActive = research.active;
+				state.lastResearchPaused = research.paused;
+				Msg("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
+					research.active, research.remaining, int(research.paused), int(research.building),
+					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]));
+			}
+		}
+	}
+	if (!researchUnlocked)
+		inventory.siteAvailable[VehicleFactory] = false;
 
 	BuildType type = Refinery;
 	const Decision decision = NextBuild(inventory, resources, type, rcbot_empires_commander_first.GetInt());
