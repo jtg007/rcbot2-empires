@@ -1516,7 +1516,20 @@ bool CBotEmpires::isEnemy(edict_t* pEdict, const bool bCheckWeapons)
 	// A seated commander's player position is the top-down camera: enemy bots aimed into the sky
 	// at it (human test 15.11.). The CV itself stays a target.
 	int commander = 0;
-	return !(readEmpiresEntityIntProperty(pEdict, "m_bCommander", commander) && commander != 0);
+	if (readEmpiresEntityIntProperty(pEdict, "m_bCommander", commander) && commander != 0)
+		return false;
+	// Rifles and SMGs do nothing to a vehicle: only the Grenadier fights its crew (human test
+	// 15.11.: enemy infantry fired at tanks). Scout stun grenade and Rifleman sticky grenade
+	// against vehicles are not built yet (TODO).
+	if (m_pEdict != pEdict && EmpiresVehiclePlayerVehicle(this, pEdict) >= 0)
+	{
+		int classId = -1;
+		bool desired = false, desiredKnown = false;
+		const char* prop = nullptr;
+		if (!readEmpiresClass(m_pEdict, classId, desired, desiredKnown, prop) || classId != EMP_CLASS_GRENADIER)
+			return false;
+	}
+	return true;
 }
 
 float CBotEmpires::getEnemyFactor(edict_t* pEnemy)
@@ -6445,10 +6458,13 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 			CClassInterface::getTeam(bot->getEdict()) != team)
 			continue;
 		const CBotEmpires* other = static_cast<const CBotEmpires*>(bot);
-		if (other->isEmpiresEngineerClass() && engine->GetPlayerUserId(bot->getEdict()) < myId)
+		if (other->isEmpiresEngineerClass() && !EmpiresIsEngibot(bot->getEdict()) &&
+			engine->GetPlayerUserId(bot->getEdict()) < myId)
 			++lower;
 	}
-	const bool repairFirst = (lower % 2) == 0;
+	// EngiBots repair the base: repair upgrade first always (user 15.11.), and they do not count in
+	// the repair/revive split of the other engineers.
+	const bool repairFirst = EmpiresIsEngibot(m_pEdict) || (lower % 2) == 0;
 	m_bEmpiresRepairRole = repairFirst;
 	const int wanted[4] = {repairFirst ? kRepair : kRevive, repairFirst ? kRevive : kRepair, kTurret, kHealing};
 	bool changed = false;
@@ -6463,14 +6479,30 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 		changed = true;
 	}
 	bool repair = false, revive = false, turret = false;
-	readEmpiresBoolProperty(m_pEdict, "m_bSkillIncreasedRepair", repair);
 	readEmpiresBoolProperty(m_pEdict, "m_bSkillRevive", revive);
 	readEmpiresBoolProperty(m_pEdict, "m_bSkillTurretUpgrade", turret);
-	const int flags = (repair ? 1 : 0) | (revive ? 2 : 0) | (turret ? 4 : 0);
-	// Rank points (CEmpPlayer+0x12c0); slots unlock at >0, >9, >29, >59.
+	// Rank points (CEmpPlayer+0x12c0); slot 1 is free at 0 points, then >9, >29, >59 (expert 15.11.,
+	// UpdateSkills 0x65b234).
 	CBaseEntity* base = m_pEdict->GetUnknown() != nullptr ? m_pEdict->GetUnknown()->GetBaseEntity() : nullptr;
 	if (!EmpiresBinaryOffsetsTrusted())
 		base = nullptr; // rank/skill/gate offsets unverified: read as unavailable
+	// A choice only becomes active at the next spawn and the bot sends it after its first spawn, so a
+	// new EngiBot repaired without the upgrade for a whole life. Set what the spawn would set: effect
+	// byte +0x121d (AddSkill 0x66312b, read by the kit 0x3cf5cd) and active slot 1 (+0x11f0)
+	// (user 15.11.: EngiBots have the repair upgrade from the start; RE notes skills.md).
+	if (base != nullptr && EmpiresIsEngibot(m_pEdict) && wanted[0] == kRepair)
+	{
+		char* b = reinterpret_cast<char*>(base);
+		if (b[0x121d] == 0)
+		{
+			b[0x121d] = 1;
+			*reinterpret_cast<int*>(b + 0x11f0) = kRepair;
+			RCBOT_DIAG("[RCBOT2] engibot repair-upgrade userid=%d set=1\n", myId);
+		}
+	}
+	// m_bSkillIncreasedRepair is no SendProp (always read false): read the effect byte instead.
+	repair = base != nullptr && reinterpret_cast<const char*>(base)[0x121d] != 0;
+	const int flags = (repair ? 1 : 0) | (revive ? 2 : 0) | (turret ? 4 : 0);
 	const int rank = base != nullptr ? *reinterpret_cast<const int*>(reinterpret_cast<const char*>(base) + 0x12c0) : -1;
 	const int gates = base != nullptr ? (reinterpret_cast<const char*>(base)[0x121e] != 0 ? 8 : 0) |
 		(reinterpret_cast<const char*>(base)[0x121f] != 0 ? 16 : 0) : 0;

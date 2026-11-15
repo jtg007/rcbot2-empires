@@ -20,9 +20,19 @@ int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
 
 namespace
 {
+// Trace filter that skips one entity (the engineer itself, for the miss diagnosis).
+class CTraceFilterSimpleLocal : public CTraceFilter
+{
+public:
+	explicit CTraceFilterSimpleLocal(const IHandleEntity* skip) : m_skip(skip) {}
+	bool ShouldHitEntity(IHandleEntity* entity, int) override { return entity != m_skip; }
+private:
+	const IHandleEntity* m_skip;
+};
+
 constexpr float kSearchRange = 16000.0f; // same as the repair call; the tank drives home meanwhile
 constexpr float kPlaceRange = 450.0f; // from the vehicle's origin; the crate reaches 1000
-constexpr int kMaxTries = 3;
+constexpr int kMaxTries = 4;
 
 float Dist2D(const Vector& a, const Vector& b)
 {
@@ -165,6 +175,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		m_iAmmoCrateStage = 1;
 		m_iAmmoCrateVehicle = req->vehicle;
 		m_iAmmoCrateTries = 0;
+		m_bAmmoCrateMove = false;
 		m_flAmmoCrateNextNav = 0.0f;
 		m_flAmmoCrateStageAt = now;
 		m_flAmmoCrateBestDist = dist;
@@ -201,7 +212,38 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	const Vector at = CBotGlobals::entityOrigin(vehicle);
 	const float dist = Dist2D(origin, at);
 
-	if (m_iAmmoCrateStage == 1)
+	// After a miss: walk to a new spot right beside the vehicle (human test 15.11.: three tries from
+	// the same spot on a factory platform all failed, the engineer only turned).
+	if (m_iAmmoCrateStage == 1 && m_bAmmoCrateMove)
+	{
+		const float left = Dist2D(origin, m_vAmmoCrateStand);
+		if (left > 40.0f && now - m_flAmmoCrateStageAt < 12.0f)
+		{
+			if (now >= m_flAmmoCrateNextNav)
+			{
+				m_flAmmoCrateNextNav = now + 3.0f;
+				if (m_bEmpiresNavGoalActive)
+					endEmpiresNavmeshGoal("drop", "ammo-crate", 0.0f);
+				cancelNavigationAttempt("ammo-crate-respot");
+				if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+					m_pSchedules->freeMemory();
+				if (left < 200.0f || !requestNavigation(m_vAmmoCrateStand, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+					setMoveTo(m_vAmmoCrateStand);
+			}
+			if (left < 200.0f)
+				setMoveTo(m_vAmmoCrateStand);
+			return true;
+		}
+		m_bAmmoCrateMove = false;
+		RCBOT_DIAG("[RCBOT2] ammo-crate respot userid=%d veh=%d left=%.0f\n", userId, m_iAmmoCrateVehicle, left);
+		cancelNavigationAttempt("ammo-crate-place");
+		if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+			m_pSchedules->freeMemory();
+		m_iAmmoCrateStage = 2;
+		m_flAmmoCrateStageAt = now;
+		m_flAmmoCrateNextNav = 0.0f;
+	}
+	else if (m_iAmmoCrateStage == 1)
 	{
 		if (dist > kPlaceRange)
 		{
@@ -323,7 +365,8 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		Vector forward;
 		AngleVectors(m_vViewAngles, &forward);
 		const Vector eye = getEyePosition();
-		CBotGlobals::traceLine(eye, eye + forward * 150.0f, MASK_SOLID, nullptr);
+		CTraceFilterSimpleLocal self(m_pEdict != nullptr ? m_pEdict->GetIServerEntity() : nullptr);
+		CBotGlobals::traceLine(eye, eye + forward * 150.0f, MASK_SOLID, &self);
 		const trace_t* tr = CBotGlobals::getTraceResult();
 		RCBOT_DIAG("[RCBOT2] ammo-crate miss userid=%d item=%d weapon=%s next_supply=%.1f now=%.1f view=(%.0f %.0f) "
 			"target=(%.0f %.0f %.0f) eye=(%.0f %.0f %.0f) trace=%.2f end=(%.0f %.0f %.0f) crates=%d/%d all=%d\n", userId, item,
@@ -335,7 +378,20 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	}
 	if (++m_iAmmoCrateTries >= kMaxTries)
 		return stop("no-crate", 30.0f);
-	m_iAmmoCrateStage = 2; // select again and turn a little for the next try
+	// Next try from a new spot beside the vehicle, each time on another side.
+	Vector side = origin - at;
+	side.z = 0.0f;
+	side = side.Length() > 1.0f ? side.Normalized() : Vector(1, 0, 0);
+	const float turn = 120.0f * 3.14159265f / 180.0f; // relative to where it stands now (expert review)
+	side = Vector(side.x * std::cos(turn) - side.y * std::sin(turn), side.x * std::sin(turn) + side.y * std::cos(turn), 0.0f);
+	ICollideable* hull = vehicle->GetCollideable();
+	const float reach = (hull != nullptr ? std::max(hull->OBBMaxs().Length2D(), hull->OBBMins().Length2D()) : 150.0f) + 70.0f;
+	m_vAmmoCrateStand = at + side * reach;
+	Vector onMesh;
+	if (RCBotNavMesh::ClosestPointOnMesh(m_vAmmoCrateStand, 150.0f, onMesh))
+		m_vAmmoCrateStand = onMesh;
+	m_bAmmoCrateMove = true;
+	m_iAmmoCrateStage = 1;
 	m_flAmmoCrateStageAt = now;
 	m_flAmmoCrateNextNav = 0.0f;
 	return true;

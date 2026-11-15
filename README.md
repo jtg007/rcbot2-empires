@@ -97,6 +97,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
    commander seat. Your orders go first: a *guard* on a building replaces the job it is on, and an engineer under
    your order only answers repair/ammo calls near the order spot or the guarded building. With two EngiBots, each
    takes a different building when there is more than one to build.
+   EngiBots have the repair upgrade active from their first spawn (the first perk is free at 0 points).
 6. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
    its slot is free and the commander can buy a new one. The bot quota does not count or kick EngiBots, and bots
    that fill the quota later do not become EngiBots.

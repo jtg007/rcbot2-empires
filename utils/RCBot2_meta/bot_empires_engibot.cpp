@@ -379,7 +379,10 @@ bool CBotEmpires::tickEmpiresEngibot()
 	edict_t* cv = TeamCommanderVehicle(team);
 	// A standing commander order: work only around the order spot, else the order's leash (500)
 	// and the base pull it back and forth (expert review 15.11.).
-	const bool atOrder = order != 0 && m_bEmpiresCommanderMoveRouteIssued;
+	// Only attack location (the turret order) keeps the work there; guard stays set all round and
+	// once the guarded building is full the EngiBot serves the base again (human test 15.11.: it stood
+	// at a finished turret while base buildings waited).
+	const bool atOrder = order == 2 && m_bEmpiresCommanderMoveRouteIssued;
 	const Vector anchor = atOrder ? m_vEmpiresCommanderMoveTarget : (cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index]);
 	const float leash = atOrder ? 450.0f : std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
 	const Vector origin = getOrigin();
@@ -457,7 +460,7 @@ bool CBotEmpires::tickEmpiresEngibot()
 
 	const float home = (origin - anchor).Length2D();
 	// A standing commander order (attack location, guard) keeps it where the commander sent it.
-	if (order == 0 && home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
+	if (order != 2 && order != 1 && home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
 	{
 		// Wait 900 out, each EngiBot on its own side: standing next to the CV blocked the
 		// commander's building spots (run 20261115-030313: barracks 36/36 invalid, both at 328).

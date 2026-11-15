@@ -174,6 +174,8 @@ Check free space before long recordings and remove only recordings you created.
   spawn, towards the front), later at least two repair pads there, and more vehicle factories
   before the first ramp from the spawn as the match goes on. First inspect route geometry and
   available space; ramp detection is not yet part of the planner.
+- Infantry against vehicles (user 15.11.): only Grenadiers target vehicle crews now (rifles did nothing).
+  Open: Scout stun grenade and Rifleman sticky grenade thrown at vehicles.
 - Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
   modes, groups, magazine and reserve every 0.25 s; MG only against infantry (up to 1200, the MG

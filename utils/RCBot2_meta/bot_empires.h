@@ -899,6 +899,8 @@ private:
 	float m_flAmmoCrateBestDist = 0.0f;   // nearest the walk got (progress check)
 	float m_flAmmoCrateProgressAt = 0.0f;
 	Vector m_vAmmoCrateTarget;
+	Vector m_vAmmoCrateStand; // after a miss: a new spot beside the vehicle
+	bool m_bAmmoCrateMove = false;
 	int m_iTurretRefinery = 0;
 	int m_iTurretAttempt = 0;
 	int m_iTurretBuilding = 0;
