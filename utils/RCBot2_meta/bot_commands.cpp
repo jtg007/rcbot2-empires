@@ -1856,6 +1856,18 @@ CBotCommandInline EmpiresVehicleSetAmmoCommand("empires_vehicle_setammo", CMD_AC
 		return COMMAND_ACCESSED;
 	});
 
+int EmpiresVehicleDebugCrate(float distance); // bot_empires_vehicle.cpp
+
+CBotCommandInline EmpiresVehicleCrateCommand("empires_vehicle_crate", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		const float distance = args[0] != nullptr && *args[0] != '\0' ? static_cast<float>(std::atof(args[0])) : 1500.0f;
+		const int crate = EmpiresVehicleDebugCrate(distance);
+		CBotGlobals::botMessage(pEntity, 0, "empires_vehicle_crate distance=%.0f crate=%d", distance, crate);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_vehicle_crate <distance>" : test-only, puts a team supply crate beside the first vehicle)");
+
 int EmpiresTestWagesChat(int speakerUserId, float wages); // bot_empires_vehicle.cpp
 
 CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDICATED,
@@ -3843,6 +3855,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresCommanderMoveTestCommand,
 	&EmpiresVehicleScaleHpCommand,
 	&EmpiresVehicleSetAmmoCommand,
+	&EmpiresVehicleCrateCommand,
 	&EmpiresTestWagesCommand,
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,

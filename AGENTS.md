@@ -57,7 +57,8 @@ scripts/run_*_tests.sh                     # unit tests of single headers
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
 Mixed loadout refit on the pad (~1 min): `scripts/dev_mixed.sh [map] [timescale]`.
-Empty cannon -> pad -> refit (~1.5 min): `scripts/dev_ammo.sh [map] [timescale]`.
+Empty cannon -> pad -> refit (~1.5 min): `scripts/dev_ammo.sh [map] [timescale]`. Empty cannon -> nearer team
+ammo crate (~1 min): `[DEV_CRATE_WAIT=s] scripts/dev_crate.sh [map] [timescale] [distance]`.
 Builds and test servers run on CPUs `RCBOT_CPUS` (default `4,5,10,11`, empty = all) with nice
 `RCBOT_NICE` (10), so a game client on the other cores stays smooth (`scripts/dev_cpu.sh`); `dev_check` then takes
 about 1.5 min instead of 1 (all PASS). Set `RCBOT_CPUS=` to use every core.

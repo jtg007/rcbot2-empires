@@ -535,6 +535,15 @@ struct EmpiresVehicleBrain
 	bool weaponMgLeft = false; // a machine gun in the group still has magazine or reserve rounds
 	bool weaponHeavyPresent = false; // the group has a cannon or missile launcher (3.10b)
 	bool weaponHeavyLeft = false;    // one of them still has magazine or reserve rounds
+	int weaponHeavyTotal = 0;        // magazine + reserve of those weapons (3.10b step 2)
+	// 3.10b step 2: an ammo trip may end at a supply crate nearer than the pad.
+	int crateIndex = -1;             // crate driven to, -1 = pad
+	float crateNearSince = -1.0f;    // inside the crate's reach (1000) since
+	int crateAmmoSeen = -1;          // highest weaponHeavyTotal seen there
+	float crateAmmoRise = 0.0f;      // last time it rose
+	float crateReadAt = 0.0f;
+	bool crateDone = false;          // refilled at the crate: end the trip
+	int crateSkip = -1;              // crate that gave nothing for 30 s: use the pad
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;

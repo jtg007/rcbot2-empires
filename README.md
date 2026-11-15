@@ -89,7 +89,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Fight | Leads targets and circles enemies; chooses MG or cannon by target and remaining ammo within the active weapon group; group switching is not yet implemented |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
-| 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the own repair pad and refits (refills every weapon); ammo crates and the ammo call are planned |
+| 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the nearest source: a team ammo crate (engineer or map crate) or the own repair pad, where it refits (refills every weapon); the ammo call is planned |
 | 🟡 | Re-customize on the repair pad | Seen in 22-bot matches after a purchase at the factory; not yet confirmed on a server without `emp_sv_debug_build_vehicles 1`. Same loadout is free (the game charges only the difference). A light tank/AFV whose MG shares a fire button with another weapon drives to the pad and refits the bot loadout |
 | 🟡 | Bill Nye mode | One scout jeep rams enemy vehicles off the road (on `emp_rainbowroad`); still falls off itself sometimes |
 

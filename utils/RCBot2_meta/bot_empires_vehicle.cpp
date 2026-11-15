@@ -648,6 +648,7 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 	v.weaponMgPure = v.weaponMgMixed = v.weaponHeavyInf = v.weaponArmour = 0;
 	v.weaponMgLeft = false;
 	v.weaponHeavyPresent = v.weaponHeavyLeft = false;
+	v.weaponHeavyTotal = 0;
 	v.weaponSummary[0] = '\0';
 	std::int32_t weapons[8], ammo[8], clips[8];
 	std::uint8_t modes[8], groups[48];
@@ -683,6 +684,7 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 		if ((id >= 12 && id <= 22) || (id >= 27 && id <= 39))
 		{
 			v.weaponHeavyPresent = true;
+			v.weaponHeavyTotal += std::max(0, ammo[i]) + std::max(0, clips[i]);
 			if (ammo[i] > 0 || clips[i] > 0)
 				v.weaponHeavyLeft = true;
 		}
@@ -2657,6 +2659,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				// 3.10b step 1: cannon/missiles out of magazine and reserve: the refit on the pad
 				// refills every weapon (AddWeapon 0x69a090 sets magazine and reserve to max, RE).
 				v.ammoTrip = v.weaponMgMixed == 0;
+				v.crateIndex = v.crateSkip = -1;
+				v.crateDone = false;
 				v.retreating = true;
 				v.loadoutRefit = true;
 				v.lastHealth = total;
@@ -2696,7 +2700,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
 			// A loadout trip ends only after the refit was sent (healthy tanks would end at once).
 			const bool refitPending = v.loadoutRefit && !v.refitDone;
-			const char* end = refitPending ? (now - v.lastHealthRise > 180.0f ? "retreat-timeout" : nullptr) : (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
+			const char* end = v.crateDone ? "resupplied" : refitPending ? (now - v.lastHealthRise > 180.0f ? "retreat-timeout" : nullptr) : (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
 				now - v.lastHealthRise > 120.0f ? "retreat-timeout" : nullptr;
 			// Never park for good (user): after 20 s without repairs try again
 			// (the stuck edge is blocked for vehicles, the other pad entrance
@@ -2712,6 +2716,12 @@ void CBotEmpires::tickEmpiresVehicle()
 					v.nextReplan = 0.0f;
 					v.padStation = -1;
 					++v.padEntryAttempt;
+					// A crate the vehicle cannot reach: try the pad next (expert review).
+					if (v.crateIndex >= 0)
+					{
+						v.crateSkip = v.crateIndex;
+						v.crateIndex = -1;
+					}
 					RCBOT_DIAG("[RCBOT2] vehicle park-retry userid=%d veh=%d parks=%d pos=(%.0f %.0f)\n", userId,
 						v.vehicleIndex, v.parkCount, origin.x, origin.y);
 				}
@@ -2727,12 +2737,15 @@ void CBotEmpires::tickEmpiresVehicle()
 				{
 					// Read the loadout again soon; a refused refit (money) is not retried for 2 min.
 					v.loadoutCheckAt = now + 2.0f;
-					v.loadoutRetryAt = now + 120.0f;
+					// A crate refill succeeded: a new empty cannon may start the next trip soon (expert review).
+					v.loadoutRetryAt = now + (v.crateDone ? 10.0f : 120.0f);
 					v.loadoutVerify = true;
 				}
 				const bool wasLoadout = v.loadoutRefit;
 				v.loadoutRefit = false;
 				v.ammoTrip = false;
+				v.crateIndex = -1;
+				v.crateDone = false;
 				v.refitDone = false;
 				v.refitStep = 0;
 				v.padStation = -1;
@@ -2758,12 +2771,20 @@ void CBotEmpires::tickEmpiresVehicle()
 		Vector home(0, 0, 0), enemyHome(0, 0, 0);
 		bool haveHome = false, haveEnemyHome = false;
 		std::vector<edict_t*> stations;
+		std::vector<edict_t*> crates;
+		const char* mapCrateClass = team == 2 ? "emp_nf_ammo_crate" : "emp_imp_ammo_crate";
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 		{
 			edict_t* e = engine->PEntityOfEntIndex(i);
 			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
 				continue;
-			if (std::strstr(e->GetClassName(), "repairstation") != nullptr &&
+			// 3.10b step 2: engineer crates and the team's map ammo crates feed vehicles within 1000
+			// every second (CEngineerCrate::CrateThink 0x62af30); health crates do not.
+			if (v.ammoTrip && i != v.crateSkip &&
+				((IsClass(e, "emp_eng_crate") && EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) == team) ||
+					IsClass(e, mapCrateClass)))
+				crates.push_back(e);
+			else if (std::strstr(e->GetClassName(), "repairstation") != nullptr &&
 				std::strncmp(e->GetClassName(), "emp_building_", 13) == 0)
 				stations.push_back(e);
 			else if (!haveHome && IsClass(e, cvClass))
@@ -2796,6 +2817,26 @@ void CBotEmpires::tickEmpiresVehicle()
 				station = e;
 			}
 		}
+		// Ammo only: a crate nearer than the pad (or no pad) is enough; not once the refit has begun.
+		edict_t* crate = nullptr;
+		float crateDist = 1.0e9f;
+		if (v.ammoTrip && v.refitStep == 0)
+			for (edict_t* e : crates)
+			{
+				const float d = Dist2D(origin, CBotGlobals::entityOrigin(e));
+				if (d < crateDist && (station == nullptr || d < best))
+				{
+					crateDist = d;
+					crate = e;
+				}
+			}
+		if (crate == nullptr && v.crateIndex >= 0)
+		{
+			RCBOT_DIAG("[RCBOT2] vehicle crate-lost userid=%d veh=%d crate=%d pad=%d\n", userId, v.vehicleIndex,
+				v.crateIndex, station != nullptr ? engine->IndexOfEdict(station) : -1);
+			v.crateIndex = -1;
+			v.nextReplan = 0.0f;
+		}
 		if (v.parkValid)
 		{
 			// Stuck on the way home (base gates/ramps only open from inside,
@@ -2803,6 +2844,64 @@ void CBotEmpires::tickEmpiresVehicle()
 			// (engineers could not reach every side there, run 223745).
 			driveTo = origin;
 			arrive = 400.0f;
+		}
+		else if (crate != nullptr)
+		{
+			const Vector at = CBotGlobals::entityOrigin(crate);
+			const int crateIndex = engine->IndexOfEdict(crate);
+			if (v.crateIndex != crateIndex)
+			{
+				v.crateIndex = crateIndex;
+				v.crateNearSince = -1.0f;
+				v.crateAmmoSeen = -1;
+				v.nextReplan = 0.0f;
+				v.padStation = -1; // a later pad approach picks its entrance again
+				v.padInside = false;
+				RCBOT_DIAG("[RCBOT2] vehicle crate-target userid=%d veh=%d crate=%d class=%s dist=%.0f pad=%.0f stations=%zu\n", userId,
+					v.vehicleIndex, crateIndex, crate->GetClassName(), crateDist, station != nullptr ? best : -1.0f, stations.size());
+			}
+			driveTo = at;
+			arrive = 450.0f;
+			// The crate measures from the vehicle's WorldSpaceCenter (1000); 850 leaves a margin.
+			if ((origin - at).Length() < 850.0f)
+			{
+				if (v.crateNearSince < 0.0f)
+				{
+					v.crateNearSince = now;
+					v.crateAmmoRise = now;
+					RCBOT_DIAG("[RCBOT2] vehicle crate-reach userid=%d veh=%d crate=%d dist=%.0f weapons=%s\n", userId,
+						v.vehicleIndex, crateIndex, (origin - at).Length(), v.weaponSummary);
+				}
+				if (now >= v.crateReadAt)
+				{
+					v.crateReadAt = now + 1.0f;
+					int turretIndex = -1;
+					edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
+						turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+					ReadVehicleWeapons(this, turret, v);
+					v.weaponReadAt = now;
+					if (v.weaponHeavyTotal > v.crateAmmoSeen)
+					{
+						v.crateAmmoSeen = v.weaponHeavyTotal;
+						v.crateAmmoRise = now;
+					}
+				}
+				// Full when nothing came for 8 s (GiveAmmo steps every reload * 0.5 s, RE).
+				if (v.weaponsKnown && v.weaponHeavyLeft && now - v.crateAmmoRise > 8.0f)
+				{
+					v.crateDone = true;
+					RCBOT_DIAG("[RCBOT2] vehicle crate-done userid=%d veh=%d crate=%d waited=%.0f weapons=%s\n", userId,
+						v.vehicleIndex, crateIndex, now - v.crateNearSince, v.weaponSummary);
+				}
+				else if (now - v.crateAmmoRise > 30.0f)
+				{
+					RCBOT_DIAG("[RCBOT2] vehicle crate-skip userid=%d veh=%d crate=%d weapons=%s\n", userId,
+						v.vehicleIndex, crateIndex, v.weaponSummary);
+					v.crateSkip = crateIndex;
+					v.crateIndex = -1;
+					v.nextReplan = 0.0f;
+				}
+			}
 		}
 		else if (station != nullptr)
 		{
@@ -2935,6 +3034,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.retreating = false;
 			v.loadoutRefit = false;
 			v.ammoTrip = false;
+			v.crateIndex = -1;
 			v.loadoutRetryAt = now + 60.0f;
 			v.nextReplan = 0.0f;
 			// Pad lost mid-refit: start the next refit from step 0 (expert review).
@@ -3766,6 +3866,83 @@ int EmpiresVehicleDebugSetAmmo(int magazine, int reserve)
 		++changed;
 	}
 	return changed;
+}
+
+// Test only (rcbotd empires_vehicle_crate <distance>): puts an emp_eng_crate of the vehicle's team
+// <distance> units beside the first non-commander vehicle, on the navmesh (3.10b step 2).
+extern IServerTools* servertools;
+static int* DebugTeamField(edict_t* e)
+{
+	IServerNetworkable* net = e != nullptr && e->GetUnknown() != nullptr ? e->GetUnknown()->GetNetworkable() : nullptr;
+	ServerClass* cls = net != nullptr ? net->GetServerClass() : nullptr;
+	unsigned offset = 0;
+	if (cls == nullptr || e->GetUnknown()->GetBaseEntity() == nullptr || !UTIL_FindSendPropInfo(cls, "m_iTeamNum", &offset) ||
+		offset == 0)
+		return nullptr;
+	return reinterpret_cast<int*>(reinterpret_cast<char*>(e->GetUnknown()->GetBaseEntity()) + offset);
+}
+
+static int DebugReadTeam(edict_t* e)
+{
+	const int* field = DebugTeamField(e);
+	return field != nullptr ? *field : -1;
+}
+
+int EmpiresVehicleDebugCrate(float distance)
+{
+	if (gpGlobals == nullptr || engine == nullptr || servertools == nullptr)
+		return -1;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (!IsClass(e, "emp_vehicle"))
+			continue;
+		const char* className = e->GetClassName();
+		if (className != nullptr && std::strstr(className, "commander") != nullptr)
+			continue;
+		const int team = DebugReadTeam(e);
+		if (team != 2 && team != 3)
+			continue;
+		const Vector at = CBotGlobals::entityOrigin(e);
+		Vector spot = at;
+		for (int k = 0; k < 8; ++k)
+		{
+			const float yaw = 45.0f * k;
+			Vector tryAt = at + YawDir(yaw) * distance;
+			Vector onMesh;
+			if (RCBotNavMesh::ClosestPointOnMesh(tryAt, 300.0f, onMesh) && std::fabs(Dist2D(onMesh, at) - distance) < 300.0f)
+			{
+				spot = onMesh;
+				break;
+			}
+		}
+		CBaseEntity* crate = servertools->CreateEntityByName("emp_eng_crate");
+		if (crate == nullptr)
+			return -1;
+		char buf[64];
+		std::snprintf(buf, sizeof(buf), "%d", team);
+		servertools->SetKeyValue(crate, "TeamNum", buf);
+		servertools->SetKeyValue(crate, "origin", spot + Vector(0, 0, 16));
+		servertools->DispatchSpawn(crate);
+		edict_t* ce = nullptr;
+		for (int k = gpGlobals->maxClients + 1; k < gpGlobals->maxEntities && ce == nullptr; ++k)
+		{
+			edict_t* c = engine->PEntityOfEntIndex(k);
+			if (IsClass(c, "emp_eng_crate") && c->GetUnknown() != nullptr && c->GetUnknown()->GetBaseEntity() == crate)
+				ce = c;
+		}
+		const int ci = ce != nullptr ? engine->IndexOfEdict(ce) : -1;
+		// The TeamNum keyvalue does not reach it (run 234730: read 0); set the field directly.
+		if (int* field = DebugTeamField(ce))
+		{
+			*field = team;
+			ce->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED;
+		}
+		RCBOT_DIAG("[RCBOT2] vehicle debug-crate veh=%d crate=%d team=%d readteam=%d at=(%.0f %.0f %.0f) dist=%.0f\n", i, ci, team,
+			ce != nullptr ? DebugReadTeam(ce) : -1, spot.x, spot.y, spot.z, Dist2D(spot, at));
+		return ci;
+	}
+	return -1;
 }
 
 void EmpiresVehicleLevelReset()

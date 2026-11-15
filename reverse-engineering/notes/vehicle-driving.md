@@ -253,6 +253,10 @@ Payment comes from wages if they suffice (0x6545bd), otherwise from team resourc
   `CEngineerCrate::Spawn` 0x62c5b0: `+0x596` = 1 for `emp_eng_crate` (also `+0x595` = expires: removed after
   **120 s**, 0x976224), otherwise `+0x596` = classname contains "ammo" -> map crates `emp_{nf,imp}_ammo_crate` feed
   vehicles too; health crates do not.
+- Measured 2026-11-14 (runs 234818, 234908, 234949, crossroads): an `emp_eng_crate` created by the plugin
+  (`IServerTools::CreateEntityByName` + `DispatchSpawn`) ignores the `TeamNum` keyvalue (team read 0); with
+  `m_iTeamNum` written directly it feeds a same-team tank at 650-810 units: cannon 0/0 -> 40/0 and MG 0/0 -> 60/4
+  within about 13 s (no further rise for 8 s afterwards).
 - Engineer kit: `m_iEngineerBuildItem` (player `+0x128c`) dispatch in `PrimaryAttack` (0x3cfb6e..): 1 MG turret,
   2 ML turret, 4 camera, 5 radar, 6 walls, **7 supply crate** (`BuildAmmoCrate` 0x3ce830 -> `emp_eng_crate` at
   `GetBuildLocation`, no construction). Cooldown `m_flEngineerNextSupply` (`+0x12a8`), message "You cannot build a

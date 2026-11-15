@@ -18,8 +18,10 @@ Check free space before long recordings and remove only recordings you created.
    chassis need their own slot, engine and armour values.
 5. Ammunition: step 1 done for light tank/AFV (empty cannon/missiles -> own pad, the refit refills every
    weapon; `scripts/dev_ammo.sh`, test command `rcbotd empires_vehicle_setammo <magazine> <reserve>`).
-   Next: nearest source pad or ammo crate (engineer crates and map crates refill vehicles within 1000),
-   the "I need ammo" call (`emp_menu_command 29`) with an engineer placing a crate (build item 7), other
+   Step 2 done: a team ammo crate (engineer crate or the team's map ammo crate) nearer than the finished
+   pad is used instead; the tank stops within 850 and waits until the crate gives nothing for 8 s
+   (`scripts/dev_crate.sh`, test command `rcbotd empires_vehicle_crate <distance>`; measured: empty
+   cannon and MG back to 40/0 and 60/4 after 21-22 s). Next: the "I need ammo" call (`emp_menu_command 29`) with an engineer placing a crate (build item 7), other
    chassis, then infantry resupply for every class.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
