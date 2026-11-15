@@ -45,15 +45,36 @@ int CratesNear(const Vector& at, float radius)
 	return n;
 }
 
-edict_t* RequestVehicle(int team)
+edict_t* RequestVehicle(const EmpiresAmmoRequest* r)
 {
-	EmpiresAmmoRequest& r = EmpiresAmmoRequestFor(team);
-	if (r.vehicle <= 0 || gpGlobals->curtime > r.until)
+	if (r == nullptr || r->vehicle <= 0 || gpGlobals->curtime > r->until)
 		return nullptr;
-	edict_t* e = engine->PEntityOfEntIndex(r.vehicle);
+	edict_t* e = engine->PEntityOfEntIndex(r->vehicle);
 	if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
 		return nullptr;
 	return e;
+}
+
+// The nearest live call that no other engineer holds (one engineer per vehicle).
+EmpiresAmmoRequest* OpenRequest(int team, int userId, const Vector& from, float& dist)
+{
+	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
+	EmpiresAmmoRequest* best = nullptr;
+	dist = 1.0e9f;
+	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
+	{
+		EmpiresAmmoRequest& r = slots[i];
+		edict_t* e = RequestVehicle(&r);
+		if (e == nullptr || (r.engineerUserId >= 0 && r.engineerUserId != userId && gpGlobals->curtime <= r.claimUntil))
+			continue;
+		const float d = Dist2D(from, CBotGlobals::entityOrigin(e));
+		if (d < dist)
+		{
+			dist = d;
+			best = &r;
+		}
+	}
+	return best;
 }
 } // namespace
 
@@ -64,31 +85,33 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		m_iBuildAssignStage > 0 ? "build-assign" : commanderDutyBlocksSideTasks() ? "commander" : m_bTurretBuildArmed || m_iTurretBuilding > 0 ? "turret" : nullptr;
 	if (busy != nullptr)
 	{
-		if (busy[0] != '\0' && gpGlobals->curtime >= m_flAmmoCrateNextNav + 10.0f && RequestVehicle(getTeam()) != nullptr)
+		float openDist = 0.0f;
+		if (busy[0] != '\0' && gpGlobals->curtime >= m_flAmmoCrateNextNav + 10.0f &&
+			OpenRequest(getTeam(), engine->GetPlayerUserId(m_pEdict), getOrigin(), openDist) != nullptr)
 		{
 			m_flAmmoCrateNextNav = gpGlobals->curtime;
 			RCBOT_DIAG("[RCBOT2] ammo-crate busy userid=%d reason=%s\n", engine->GetPlayerUserId(m_pEdict), busy);
 		}
 		if (m_iAmmoCrateStage != 0)
 		{
-			EmpiresAmmoRequest& r = EmpiresAmmoRequestFor(getTeam());
-			if (r.engineerUserId == engine->GetPlayerUserId(m_pEdict))
-				r.engineerUserId = -1;
+			EmpiresAmmoRequest* r = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
+			if (r != nullptr && r->engineerUserId == engine->GetPlayerUserId(m_pEdict))
+				r->engineerUserId = -1;
 			m_iAmmoCrateStage = 0;
+			m_iAmmoCrateVehicle = -1;
 		}
 		return false;
 	}
 	const float now = gpGlobals->curtime;
 	const int team = getTeam();
 	const int userId = engine->GetPlayerUserId(m_pEdict);
-	EmpiresAmmoRequest& r = EmpiresAmmoRequestFor(team);
-	edict_t* vehicle = RequestVehicle(team);
+	EmpiresAmmoRequest* req = m_iAmmoCrateStage != 0 ? EmpiresAmmoRequestForVehicle(team, m_iAmmoCrateVehicle, false) : nullptr;
 
 	auto stop = [&](const char* reason, float pause) {
 		RCBOT_DIAG("[RCBOT2] ammo-crate end userid=%d veh=%d reason=%s tries=%d\n", userId, m_iAmmoCrateVehicle, reason,
 			m_iAmmoCrateTries);
-		if (r.engineerUserId == userId)
-			r.engineerUserId = -1;
+		if (req != nullptr && req->engineerUserId == userId)
+			req->engineerUserId = -1;
 		m_iAmmoCrateStage = 0;
 		m_iAmmoCrateVehicle = -1;
 		m_flAmmoCrateNextSearch = now + pause;
@@ -98,13 +121,15 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 
 	if (m_iAmmoCrateStage == 0)
 	{
-		if (vehicle == nullptr || now < m_flAmmoCrateNextSearch || (r.engineerUserId != userId && now <= r.claimUntil))
+		if (now < m_flAmmoCrateNextSearch)
 			return false;
-		const float dist = Dist2D(getOrigin(), CBotGlobals::entityOrigin(vehicle));
+		float dist = 0.0f;
+		req = OpenRequest(team, userId, getOrigin(), dist);
+		if (req == nullptr)
+			return false;
 		if (dist > kSearchRange)
 		{
-			if (now >= m_flAmmoCrateNextSearch)
-				RCBOT_DIAG("[RCBOT2] ammo-crate far userid=%d veh=%d dist=%.0f\n", userId, r.vehicle, dist);
+			RCBOT_DIAG("[RCBOT2] ammo-crate far userid=%d veh=%d dist=%.0f\n", userId, req->vehicle, dist);
 			m_flAmmoCrateNextSearch = now + 5.0f;
 			return false;
 		}
@@ -115,28 +140,30 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 			return false; // cooldown: another engineer may take it
 		}
 		m_iAmmoCrateStage = 1;
-		m_iAmmoCrateVehicle = r.vehicle;
+		m_iAmmoCrateVehicle = req->vehicle;
 		m_iAmmoCrateTries = 0;
 		m_flAmmoCrateNextNav = 0.0f;
 		m_flAmmoCrateStageAt = now;
 		m_flAmmoCrateBestDist = dist;
 		m_flAmmoCrateProgressAt = now;
-		RCBOT_DIAG("[RCBOT2] ammo-crate start userid=%d veh=%d dist=%.0f\n", userId, r.vehicle, dist);
+		RCBOT_DIAG("[RCBOT2] ammo-crate start userid=%d veh=%d dist=%.0f\n", userId, req->vehicle, dist);
 	}
 
 	// The driver clears the call as soon as it sees the crate: check our result first.
 	if (m_iAmmoCrateStage == 4 && CratesNear(getOrigin(), 300.0f) > m_iAmmoCrateBaseline)
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d tries=%d\n", userId, m_iAmmoCrateVehicle, m_iAmmoCrateTries);
-		if (r.engineerUserId == userId)
-			r.engineerUserId = -1;
+		if (req != nullptr && req->engineerUserId == userId)
+			req->engineerUserId = -1;
 		m_iAmmoCrateStage = 0;
 		m_iAmmoCrateVehicle = -1;
 		m_flAmmoCrateNextSearch = now + 5.0f;
 		return false;
 	}
-	if (vehicle == nullptr || engine->IndexOfEdict(vehicle) != m_iAmmoCrateVehicle)
+	edict_t* vehicle = RequestVehicle(req);
+	if (vehicle == nullptr)
 		return stop("call-gone", 3.0f);
+	EmpiresAmmoRequest& r = *req;
 	if (now - m_flAmmoCrateStageAt > (m_iAmmoCrateStage == 1 ? 120.0f : 6.0f))
 		return stop(m_iAmmoCrateStage == 1 ? "walk-timeout" : "place-timeout", 20.0f);
 	// Back after death, a repair job or a seat: another engineer may hold the call by now (expert).
@@ -255,7 +282,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	if (CratesNear(origin, 300.0f) > m_iAmmoCrateBaseline)
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d dist=%.0f\n", userId, m_iAmmoCrateVehicle, dist);
-		r = EmpiresAmmoRequest(); // answered; the driver now sees the crate
+		r = EmpiresAmmoRequest(); // this vehicle's call is answered; the driver now sees the crate
 		m_iAmmoCrateStage = 0;
 		m_iAmmoCrateVehicle = -1;
 		m_flAmmoCrateNextSearch = now + 5.0f;

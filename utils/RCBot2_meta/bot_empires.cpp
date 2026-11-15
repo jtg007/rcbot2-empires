@@ -2535,9 +2535,9 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
 	if (m_iAmmoCrateStage != 0)
 	{
-		EmpiresAmmoRequest& ar = EmpiresAmmoRequestFor(getTeam());
-		if (engine != nullptr && ar.engineerUserId == engine->GetPlayerUserId(m_pEdict))
-			ar.engineerUserId = -1; // the tank stops waiting for a dead engineer
+		EmpiresAmmoRequest* ar = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
+		if (ar != nullptr && engine != nullptr && ar->engineerUserId == engine->GetPlayerUserId(m_pEdict))
+			ar->engineerUserId = -1; // the tank stops waiting for a dead engineer
 		m_iAmmoCrateStage = 0;
 		m_iAmmoCrateVehicle = -1;
 	}

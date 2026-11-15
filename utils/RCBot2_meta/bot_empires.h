@@ -424,8 +424,9 @@ void EmpiresVehicleLevelReset();
 void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
 
-// 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one per team; an engineer
-// walks over and places a supply crate (bot_empires_ammo_crate.cpp).
+// 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one slot per vehicle (up to
+// kEmpiresAmmoRequestSlots per team); an engineer walks over and places a supply crate
+// (bot_empires_ammo_crate.cpp).
 struct EmpiresAmmoRequest
 {
 	int vehicle = -1;
@@ -434,7 +435,12 @@ struct EmpiresAmmoRequest
 	int engineerUserId = -1;
 	float claimUntil = 0.0f;
 };
-EmpiresAmmoRequest& EmpiresAmmoRequestFor(int team);
+constexpr int kEmpiresAmmoRequestSlots = 4;
+// The team's call slots (kEmpiresAmmoRequestSlots); a slot is live while vehicle > 0 and curtime <= until.
+EmpiresAmmoRequest* EmpiresAmmoRequests(int team);
+// The live slot of this vehicle; with create, a free (or the oldest) slot, reset, when it has none.
+EmpiresAmmoRequest* EmpiresAmmoRequestForVehicle(int team, int vehicle, bool create);
+void EmpiresAmmoRequestClear(int team, int vehicle);
 
 struct EmpiresVehicleBrain
 {

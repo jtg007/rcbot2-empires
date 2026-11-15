@@ -594,13 +594,47 @@ struct RepairRequest
 	bool armorDamaged = false;
 };
 RepairRequest s_repairRequest[4];
-EmpiresAmmoRequest s_ammoRequest[4];
+EmpiresAmmoRequest s_ammoRequest[4][kEmpiresAmmoRequestSlots];
 
 } // namespace
 
-EmpiresAmmoRequest& EmpiresAmmoRequestFor(int team)
+EmpiresAmmoRequest* EmpiresAmmoRequests(int team)
 {
 	return s_ammoRequest[team >= 0 && team <= 3 ? team : 0];
+}
+
+EmpiresAmmoRequest* EmpiresAmmoRequestForVehicle(int team, int vehicle, bool create)
+{
+	if (vehicle <= 0 || gpGlobals == nullptr)
+		return nullptr;
+	const float now = gpGlobals->curtime;
+	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
+	auto live = [now](const EmpiresAmmoRequest& r) { return r.vehicle > 0 && now <= r.until; };
+	auto held = [now](const EmpiresAmmoRequest& r) { return r.engineerUserId >= 0 && now <= r.claimUntil; };
+	auto rank = [&](const EmpiresAmmoRequest& r) { return !live(r) ? 0 : !held(r) ? 1 : 2; };
+	EmpiresAmmoRequest* spare = nullptr;
+	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
+	{
+		EmpiresAmmoRequest& r = slots[i];
+		if (live(r) && r.vehicle == vehicle)
+			return &r;
+		// Prefer a dead slot, then a live one no engineer holds, each the one that runs out first.
+		if (spare == nullptr || rank(r) < rank(*spare) || (rank(r) == rank(*spare) && r.until < spare->until))
+			spare = &r;
+	}
+	if (!create || spare == nullptr)
+		return nullptr;
+	*spare = EmpiresAmmoRequest();
+	spare->vehicle = vehicle;
+	return spare;
+}
+
+void EmpiresAmmoRequestClear(int team, int vehicle)
+{
+	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
+	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
+		if (vehicle > 0 && slots[i].vehicle == vehicle)
+			slots[i] = EmpiresAmmoRequest();
 }
 
 namespace
@@ -2766,8 +2800,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					v.retreatCooldownUntil = now + 60.0f;
 				if (s_repairRequest[team].vehicle == v.vehicleIndex)
 					s_repairRequest[team] = RepairRequest();
-				if (s_ammoRequest[team].vehicle == v.vehicleIndex)
-					s_ammoRequest[team] = EmpiresAmmoRequest();
+				EmpiresAmmoRequestClear(team, v.vehicleIndex);
 			}
 		}
 	}
@@ -2854,13 +2887,12 @@ void CBotEmpires::tickEmpiresVehicle()
 		bool ammoWait = false;
 		if (v.ammoTrip && crate == nullptr && v.refitStep == 0 && (station == nullptr || best > 2500.0f))
 		{
-			EmpiresAmmoRequest& ar = s_ammoRequest[team];
-			if (now >= v.nextAmmoCall)
+			const bool call = now >= v.nextAmmoCall;
+			EmpiresAmmoRequest* slot = EmpiresAmmoRequestForVehicle(team, v.vehicleIndex, call);
+			if (call && slot != nullptr)
 			{
+				EmpiresAmmoRequest& ar = *slot;
 				v.nextAmmoCall = now + 25.0f;
-				if (ar.vehicle != v.vehicleIndex)
-					ar = EmpiresAmmoRequest();
-				ar.vehicle = v.vehicleIndex;
 				ar.driverUserId = userId;
 				ar.until = now + 40.0f;
 				if (helpers != nullptr)
@@ -2868,12 +2900,14 @@ void CBotEmpires::tickEmpiresVehicle()
 				RCBOT_DIAG("[RCBOT2] vehicle ammo-call userid=%d veh=%d pad=%.0f pos=(%.0f %.0f %.0f)\n", userId,
 					v.vehicleIndex, station != nullptr ? best : -1.0f, origin.x, origin.y, origin.z);
 			}
-			if (ar.vehicle == v.vehicleIndex)
-				ar.until = std::max(ar.until, now + 5.0f);
-			ammoWait = ar.vehicle == v.vehicleIndex && ar.engineerUserId >= 0 && now <= ar.claimUntil;
+			if (slot != nullptr)
+			{
+				slot->until = std::max(slot->until, now + 5.0f);
+				ammoWait = slot->engineerUserId >= 0 && now <= slot->claimUntil;
+			}
 		}
-		else if (s_ammoRequest[team].vehicle == v.vehicleIndex)
-			s_ammoRequest[team] = EmpiresAmmoRequest(); // a crate or a near pad answers the call
+		else
+			EmpiresAmmoRequestClear(team, v.vehicleIndex); // a crate or a near pad answers the call
 		if (ammoWait && !v.parkValid)
 		{
 			driveTo = origin;
@@ -3073,8 +3107,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 		else if (v.loadoutRefit && (!haveHome || now - v.lastHealthRise > (v.ammoTrip ? 60.0f : 30.0f)))
 		{
-			if (s_ammoRequest[team].vehicle == v.vehicleIndex)
-				s_ammoRequest[team] = EmpiresAmmoRequest();
+			EmpiresAmmoRequestClear(team, v.vehicleIndex);
 			// No finished own pad for 30 s (a new one may still be building: head home meanwhile,
 			// run 20261114-2216): the loadout cannot be changed, fight on and look again later.
 			v.retreating = false;
@@ -3995,8 +4028,9 @@ void EmpiresVehicleLevelReset()
 {
 	for (RepairRequest& r : s_repairRequest)
 		r = RepairRequest();
-	for (EmpiresAmmoRequest& r : s_ammoRequest)
-		r = EmpiresAmmoRequest();
+	for (auto& team : s_ammoRequest)
+		for (EmpiresAmmoRequest& r : team)
+			r = EmpiresAmmoRequest();
 	g_pushZones.clear();
 	g_pushZonesAt = -1.0f;
 }
