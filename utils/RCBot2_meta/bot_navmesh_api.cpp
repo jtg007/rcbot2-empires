@@ -142,6 +142,33 @@ std::set<std::pair<unsigned, unsigned>> s_blockedEdges;
 std::map<std::pair<unsigned, unsigned>, float> s_timedBlockedEdges; // until gpGlobals->curtime
 // Links a vehicle got stuck on (infantry may still use them).
 std::map<std::pair<unsigned, unsigned>, float> s_vehicleBlockedEdges;
+// Areas whose water reaches head height (a player there swims and can drown; palmbay
+// flag 131: bots drowned on a route over the sea floor). Filled on demand per map.
+std::unordered_map<unsigned, float> s_waterDepth;
+constexpr float kWaterDepthStep = 8.0f;
+constexpr float kWaterDepthMax = 256.0f;
+
+// Water depth over the area's floor at its centre, in kWaterDepthStep steps (0 = dry).
+float AreaWaterDepth(CNavArea* area)
+{
+	if (area == nullptr || !area->IsUnderwater() || enginetrace == nullptr)
+		return 0.0f;
+	const auto it = s_waterDepth.find(area->GetID());
+	if (it != s_waterDepth.end())
+		return it->second;
+	const Vector floor = area->GetCenter();
+	float depth = kWaterDepthStep;
+	while (depth < kWaterDepthMax &&
+		(enginetrace->GetPointContents(floor + Vector(0, 0, depth + kWaterDepthStep)) & MASK_WATER) != 0)
+		depth += kWaterDepthStep;
+	s_waterDepth[area->GetID()] = depth;
+	return depth;
+}
+
+bool AreaDeepWater(CNavArea* area)
+{
+	return AreaWaterDepth(area) >= 64.0f;
+}
 
 unsigned s_blockGeneration = 0;
 
@@ -344,6 +371,7 @@ void ClearBlockedEdges()
 	s_blockedEdges.clear();
 	s_timedBlockedEdges.clear();
 	s_vehicleBlockedEdges.clear();
+	s_waterDepth.clear();
 	for (DangerCircle &circle : s_teamDanger)
 		circle.radius = 0.0f;
 }
@@ -626,10 +654,15 @@ public:
 		const auto timed = s_timedBlockedEdges.find({fromArea->GetID(), area->GetID()});
 		if (timed != s_timedBlockedEdges.end() && gpGlobals != nullptr && gpGlobals->curtime < timed->second)
 			return -1.0f;
+		// Entering an enemy turret's circle: very expensive instead of forbidden. A detour is still
+		// taken whenever one exists; with none (emp_dmz_b1 gates shut: the only east-west way runs
+		// through a lvl3 turret's 4000 circle) the route goes through instead of no-path everywhere
+		// (638 plan failures in run 161624, reverse-engineering/notes/maps.md).
+		float dangerPenalty = 0.0f;
 		if (m_dangerRadius > 0.0f &&
 			(area->GetCenter() - m_dangerCenter).Length2D() < m_dangerRadius &&
 			(fromArea->GetCenter() - m_dangerCenter).Length2D() >= m_dangerRadius)
-			return -1.0f;
+			dangerPenalty = 30000.0f;
 		if (ladder == nullptr && elevator == nullptr)
 		{
 			const float heightChange = fromArea->ComputeAdjacentConnectionHeightChange(area);
@@ -648,7 +681,15 @@ public:
 		const auto learned = EmpiresAnalysis::EvaluateLearnedNavigationCost(
 			RCBotNavigationExperience::Provider::NAVMESH, fromNode, toNode,
 			traversal);
-		const float effectiveCost = baseCost +
+		// Water: wading costs a little, swimming (head under) a lot, so bots only swim when no
+		// sensible way over land exists.
+		float waterPenalty = 0.0f;
+		if (area->IsUnderwater())
+		{
+			const float dist = length > 0.0f ? length : (area->GetCenter() - fromArea->GetCenter()).Length();
+			waterPenalty = dist * (AreaDeepWater(area) ? 9.0f : 0.5f);
+		}
+		const float effectiveCost = baseCost + waterPenalty + dangerPenalty +
 			static_cast<float>(learned.penalty);
 		if (learned.penalty > 0.0 && m_observer != nullptr)
 			EmpiresAnalysis::RecordLearnedNavigationEdgeConsidered(m_observer,
@@ -1382,7 +1423,7 @@ bool FindDirectionTo(const CNavArea* from, const CNavArea* to, NavDirType& dir)
 class VehicleNavMeshCost
 {
 public:
-	explicit VehicleNavMeshCost(float width) : m_width(width) {}
+	VehicleNavMeshCost(float width, float maxWaterDepth) : m_width(width), m_maxWaterDepth(maxWaterDepth) {}
 	float operator()(CNavArea* area, CNavArea* fromArea, const CNavLadder* ladder,
 		const CFuncElevator* elevator, const float length) const
 	{
@@ -1391,6 +1432,11 @@ public:
 		if (ladder != nullptr || elevator != nullptr || area == nullptr)
 			return -1.0f;
 		if (area->GetAttributes() & (NAV_MESH_CROUCH | NAV_MESH_JUMP))
+			return -1.0f;
+		// Water: fords up to m_maxWaterDepth (measured per vehicle) are driven, deeper water stalls or wrecks the
+		// vehicle (user 15.11.). A vehicle already that deep may still drive on to get out.
+		const float waterDepth = AreaWaterDepth(area);
+		if (waterDepth > m_maxWaterDepth && AreaWaterDepth(fromArea) <= m_maxWaterDepth)
 			return -1.0f;
 		const std::pair<unsigned, unsigned> key{fromArea->GetID(), area->GetID()};
 		if (s_blockedEdges.count(key) != 0)
@@ -1419,8 +1465,8 @@ public:
 		// Small areas mean clutter (generated meshes cut around props and walls).
 		if (std::min(area->GetSizeX(), area->GetSizeY()) < m_width * 0.6f)
 			cost += dist * 1.5f;
-		if (area->IsUnderwater())
-			cost += dist * 2.0f;
+		if (waterDepth > 0.0f)
+			cost += dist * (waterDepth > m_maxWaterDepth ? 4.0f : 0.5f);
 		return cost;
 	}
 
@@ -1428,10 +1474,12 @@ private:
 	static constexpr float kVehicleMaxStep = 30.0f;
 	static constexpr float kVehicleMaxDrop = 160.0f;
 	float m_width;
+	float m_maxWaterDepth;
 };
 }
 
-PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial)
+PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial,
+	float maxWaterDepth)
 {
 	path.clear();
 	if (!IsLoaded())
@@ -1450,7 +1498,7 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	path.goalAreaId = static_cast<int>(goalArea->GetID());
 
 	CNavArea *closestArea = nullptr;
-	const bool full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width), &closestArea) &&
+	const bool full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth), &closestArea) &&
 		closestArea == goalArea;
 	Vector goal = to;
 	if (!full)

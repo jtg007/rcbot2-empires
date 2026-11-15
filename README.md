@@ -18,7 +18,8 @@ Bots that play Empires the way a team does, not generic shooter bots:
 - **A bot commander** builds the base, keeps the economy running and leads the team,
   or hands the seat to a human player.
 - **Human commanders can command bots** like units in a real-time strategy game:
-  move and guard orders are supported in part; attack orders are planned.
+  move, abort, attack location and guard orders work (tested through the game's own order
+  commands, not yet with a real human); attack target is still open.
 - **Engineers** keep the base alive: build, repair, revive, place turrets.
 - **Vehicles** are bought, driven, fought with and brought back for repairs.
 
@@ -34,7 +35,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Walk around buildings | Also buildings placed during the match |
 | ✅ | Get unstuck | Notice when stuck, back off, take another route |
 | 🟡 | Doors and gates | Some doors and buttons work; crossroads base gates and ramps remain a problem |
-| 🟡 | All maps | Runs exist on 7 maps; three additional installed maps have navmeshes but no recorded run yet |
+| 🟡 | All maps | Runs exist on 7 maps; three additional installed maps have navmeshes but no recorded run yet. Doors and sliding gates (`func_movelinear`) are in the mesh and blocked for routing while shut |
 
 ### Commander
 
@@ -51,7 +52,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; further research items are planned |
 | ⬜ | Expand the base forward | Additional forward buildings and their vehicle access are planned |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
-| ⬜ | Give orders to bots | Attack location, attack target, guard |
+| 🟡 | Give orders to bots | The seated bot commander sends its free attackers (no engineers, defenders or bots with another order) to the next open capture point with an *attack location* order, re-targets when it is taken and releases them after 120 s without progress (`rcbot_empires_commander_orders`). Measured on palmbay and DMZ: orders arrive and bots walk there; no capture measured yet |
 
 ### Engineers
 
@@ -117,9 +118,10 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | 🟡 | Resupply | Engineer resupply exists; ammo requests and coverage for other classes remain open |
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
-| ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human |
+| ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human. A move ends within the game's 100 units (route extended straight to the spot when the mesh ends beside it) |
 | 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
-| 🟡 | Follow guard orders | Infantry follow the guarded unit; engineers build or repair the guarded building. Attack target and a test with a real human are open |
+| 🟡 | Follow guard and attack-target orders | Infantry follow the guarded unit or the attack target; engineers build or repair the guarded building (also refineries). Attack target on an enemy is accepted by the game only from a human commander's view, so it was tested with a test hook; a test with a real human is open |
+| 🟡 | Water | Bots come up for air after 5 s with the head under water and avoid deep water when there is a way over land. Flags reachable only by ladders from the water (palmbay boats) are skipped for now |
 | ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |
 | 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
 | 🟡 | Mines, scout binoculars | Implemented, rarely used in matches |
@@ -130,7 +132,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | | Feature | Notes |
 |:-:|---|---|
 | ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
-| ✅ | Drive | On the navmesh, three-point turns, keep away from edges |
+| ✅ | Drive | On the navmesh, three-point turns, keep away from edges ; fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
 | 🟡 | Fight | Leads targets and circles enemies; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target; group switching is not yet implemented |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
@@ -178,6 +180,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 |---|---|---|
 | `rcbot_empires_auto_commander` | 1 | A bot takes the command vehicle if no human does |
 | `rcbot_empires_commander_engineer` | 1 | The bot commander is an engineer and builds near the CV itself |
+| `rcbot_empires_commander_orders` | 1 | The seated bot commander sends its free attacker bots (no engineers, no defenders, none with another order) to the next capture point with an attack location order |
 | `rcbot_empires_commander_drive_from` | 1000 | The commander drives the CV to buildings farther away than this |
 | `rcbot_empires_commander_boomtank` | 1 | Commander runs over enemies in the base: 0 off, 1 on except on rainbowroad maps, 2 everywhere |
 | `rcbot_empires_engineer_turrets` | 1 | Engineers build MG turrets at the team's refineries |
@@ -238,6 +241,11 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
 - `scripts/dev_check.sh` runs the commander chain, long-move, repair-pad, turret-build and
   revive checks in parallel, one server per test on its own port (about 1 minute;
   `DEV_CHECK_SERIAL=1` runs them one after another). The long-move check fails if the bot only arrives after retries.
+- `scripts/dev_orders.sh [map] [timescale]` gives commander orders like the game UI (move, attack
+  target on an enemy, guard on a refinery); `scripts/dev_cmdorders.sh [map]` checks the bot
+  commander's own orders (map with a CV and capture points, e.g. emp_palmbay).
+- `scripts/dev_navgen.sh <map>` generates a map's navmesh on the test server (`-nowatchdog`;
+  copy the map's files listed in `maps/<map>.res` first).
 - `scripts/dev_econ.sh [map] [game-minutes]` plays with production economy values (no debug
   vehicle purchase) and ends when a bot drives a vehicle it bought.
 - Bots hand their wages to a teammate who writes "wages" in chat (`!give #<userid>` when the

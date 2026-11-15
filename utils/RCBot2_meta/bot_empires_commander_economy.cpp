@@ -635,6 +635,7 @@ void CBotEmpires::tickCommanderEconomy()
 		readEmpiresWeaponHandleProperty(m_pEdict, "m_hVehicle", seatVehicle);
 		if (m_iCommanderEntryStage == 4)
 		{
+			releaseCommanderOrders(team, "human-seat");
 			// Commander view: the player is outside the CV (m_hVehicle invalid). emp_comm_exit only puts him
 			// back into the driver seat (still commander). Use from the driver seat leaves the CV, and
 			// CEmpTank::ExitVehicle(role 0) clears the commander state. LEFT_SEAT resets the stage.
@@ -1190,6 +1191,8 @@ void CBotEmpires::tickCommanderEconomy()
 		}
 	}
 
+	// --- Orders to the team's bots (TODO 5.4). ---
+	tickCommanderOrders(team, now, home);
 
 	// --- Result of the last emp_build. ---
 	if (state.verifyPending)

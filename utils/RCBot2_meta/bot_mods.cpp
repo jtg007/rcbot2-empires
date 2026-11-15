@@ -407,6 +407,7 @@ void CEmpiresMod::mapInit()
 	EmpiresCommanderEconomyLevelReset();
 	EmpiresObjectiveLevelReset();
 	EmpiresEngibotLevelReset();
+	EmpiresCommanderOrdersLevelReset();
 	RCBOT_DIAG("[RCBOT2] empires level-reset\n");
 	m_CapturePoints.clear();
 	m_flNextCapturePointScan = 0.0f;

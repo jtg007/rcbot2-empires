@@ -3642,6 +3642,32 @@ void CBot :: doMove ()
 		m_fUpSpeed = 0.0f;
 	}
 
+	// Air: a route along or under the water never made the bot come up, and a bot standing on the
+	// sea floor at a flag (palmbay 131, z -3259 under the flag) drowned (health 100 -> 13 in 25 s,
+	// "suicide with world"). Head under water (level 3) for 5 s: swim straight up until the head
+	// is out, then 1 s more. Moving or not.
+	{
+		const float nowTime = engine->Time();
+		if ( CClassInterface::getWaterLevel(m_pEdict) >= 3 )
+		{
+			if ( m_fHeadUnderwaterSince <= 0.0f )
+				m_fHeadUnderwaterSince = nowTime;
+			else if ( nowTime - m_fHeadUnderwaterSince > 5.0f && m_fSurfaceUntil < nowTime )
+				m_fSurfaceUntil = nowTime + 30.0f;
+		}
+		else
+		{
+			if ( m_fHeadUnderwaterSince > 0.0f && m_fSurfaceUntil > nowTime + 1.0f )
+				m_fSurfaceUntil = nowTime + 1.0f;
+			m_fHeadUnderwaterSince = 0.0f;
+		}
+		if ( m_fSurfaceUntil > nowTime && isUnderWater() )
+		{
+			m_fUpSpeed = m_fIdealMoveSpeed > 0.0f ? m_fIdealMoveSpeed : 320.0f;
+			m_pButtons->holdButton(IN_JUMP, 0, 0.2f, 0);
+		}
+	}
+
 	// Local Yielding is deliberately the last, provider-neutral movement gate.
 	// It suppresses only this frame's forward/side command; the move target,
 	// route, intent, provider, look and combat buttons remain untouched.

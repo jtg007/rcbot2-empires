@@ -32,6 +32,7 @@ NO_RECORDER = bool(os.environ.get("DEV_NO_RECORDER"))
 # Fast iteration (all optional):
 #   DEV_TIMESCALE=4      host_timescale; minutes and waits count game time
 #   DEV_ROSTER="2:1 2:3" team:class per bot instead of the alternating default
+#   DEV_SRCDS_ARGS="-nowatchdog"   extra srcds_run arguments (navmesh generation on big maps)
 #   DEV_CMDS="cmd;wait 5;waitfor 120 some regex;cmd"   waitfor = up to 120 game seconds
 #   "mark" in DEV_CMDS: later waitfor only match lines logged after it (repeated results)
 #   DEV_UNTIL="regex"    end the run as soon as a log line matches
@@ -69,7 +70,7 @@ class Server:
         self.proc = subprocess.Popen(
             ["./srcds_run", "-norestart", "-console", "-condebug", "-game", "empires",
              "-insecure", "-nomaster", *([] if source_tv else ["-nohltv"]), "-nojoy",
-             "-ip", args.ip, "-port", SERVER_PORT,
+             "-ip", args.ip, "-port", SERVER_PORT, *os.environ.get("DEV_SRCDS_ARGS", "").split(),
              "+sv_lan", "1", "+rcbot_empires_debug_log", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
             cwd=args.server_root, env=dict(os.environ, SteamAppId="17740", SteamGameId="17740"),
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True, close_fds=True)

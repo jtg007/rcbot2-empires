@@ -84,6 +84,23 @@ Check free space before long recordings and remove only recordings you created.
   which can be up to 600 units off the order location; the game ends a MOVE only within
   100. The end distance is now logged (`commander-move result=… dist=`); measure with
   targets beside the mesh and on a roof. A long-move test ended 61 units from its on-mesh target.
+  The route is now extended straight to the spot when the mesh ends up to 600 beside it with ground and a free
+  hull (`navmesh-path-extended`); a target beside the mesh is not measured yet.
+- [ ] **Bot commander orders (built, measuring):** the seated bot commander sends its free attackers (no
+  engineers, EngiBots, drivers, defenders by rank, none with another order) an *attack location* order on the
+  nearest open, reachable capture point every 15 s, re-targets after a capture and aborts after 120 s without
+  progress or when a human wants the seat (`rcbot_empires_commander_orders`, `scripts/dev_cmdorders.sh`). Measured
+  on palmbay and DMZ: orders arrive and the bots go; a capture with orders and a comparison with the cvar off are open.
+- [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
+  vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
+  20 HP/s once the centre is wet). Fords on emp_cyclopean are not measured yet. palmbay boat flags (deck only by
+  ladders from the water) are skipped; capturing them needs swimming to the ladder and climbing.
+- [ ] **Gates:** doors and sliding gates (`func_movelinear`) count as passable when generating, and routing
+  blocks the links a gate covers while shut (`navmesh-gate`). On emp_dmz_b1 (paths open by player count) the
+  `no-path` everywhere came from an enemy turret's danger circle being forbidden while the only open way ran
+  through it; entering the circle is now very expensive instead of forbidden. Open: the DMZ flag rock has no
+  upward link in the mesh (a crouch-jump link of about 52 would be needed). On emp_slaughtered the flag sits
+  743 above the nearest mesh area and is skipped; how to get up there is open.
 
 ## 2. Needs a human player
 
@@ -104,8 +121,10 @@ Check free space before long recordings and remove only recordings you created.
   build or repair the guarded building: barracks, radar, armory, repair pad, factory). New
   `rcbot_empires_engineer_help_human`: with a human commander up to 2 engineers per team build and repair near the
   CV on their own. Open: attack target (type 3) on an enemy cannot be given by a bot commander (the game only accepts targets
-  that were transmitted to the commander's client); the bot side shares the guard code. Also open: refinery not tested, a navmesh
-  trap on emp_streetsoffire near (-4245 -5424), confirmation with a real human commander.
+  that were transmitted to the commander's client); the bot side shares the guard code. With a test hook that marks
+  the enemy like a commander view does, attack target is accepted and the bot follows the target; a guard on a
+  damaged refinery was repaired in 10 s (`scripts/dev_orders.sh`). Open: a navmesh trap on emp_streetsoffire near
+  (-4245 -5424), confirmation with a real human commander.
   `Bad SetLocalAngles(..., -nan)` about twice a minute: a NaN view angle is now zeroed before the user command
   and logged (`viewangles non-finite`), the source is still open.
 
@@ -132,7 +151,7 @@ Check free space before long recordings and remove only recordings you created.
   `emp_comm_research_resume` once money returned, finished item 60 and started 61. Open: real
   research duration without a speed-up, a destroyed radar.
 - Commander: more research (turret levels, chassis, armour) and better vehicle parts;
-  give orders to bots; rebuild lost buildings, choose resource points by value.
+  rebuild lost buildings, choose resource points by value.
 - Shared team economy: commander and bots should share one view of team resources, income
   and planned spending so money is used for a natural game flow. Static findings: vehicle
   purchases pay from the buyer's own wages first and only the remainder from the team pool,

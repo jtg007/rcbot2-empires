@@ -112,6 +112,11 @@ bool IsEntityWalkable(edict_t *entity, unsigned int flags) {
 	if (FClassnameIs(entity, "prop_door*")) {
 		return (flags & WALK_THRU_PROP_DOORS);
 	}
+	// RCBot2: gates that slide (emp_dmz_b1 door_tunnel*, door_center_*; opened by map logic,
+	// e.g. player count). Generate the way behind them; routing blocks them while they are shut.
+	if (FClassnameIs(entity, "func_movelinear")) {
+		return (flags & WALK_THRU_FUNC_DOORS);
+	}
 	// if we hit a clip brush, ignore it if it is not BRUSHSOLID_ALWAYS
 	if (FClassnameIs(entity, "func_brush")) {
 		switch ( entity->GetCollideable()->GetSolidFlags( ))

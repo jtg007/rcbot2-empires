@@ -1811,7 +1811,11 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 		// Repair needs the building's floor: the kit reaches 100 (as_escort: a route
 		// that ended one storey above turret 292 counted as arrived).
 		const bool repair = m_iEmpiresNavGoalType == NAVGOAL_REPAIR;
-		if ((dist <= radius && closeInHeight) || (drained && dist <= radius * 2.0f && (!repair || closeInHeight)))
+		// Flags too: a route that ended on the sea floor 312 under the boat deck (palmbay cp_boat)
+		// counted as arrived and the bot held there until it drowned (reverse-engineering/notes/maps.md).
+		const bool needHeight = repair || m_iEmpiresNavGoalType == NAVGOAL_CAPTURE ||
+			m_iEmpiresNavGoalType == NAVGOAL_DEFEND;
+		if ((dist <= radius && closeInHeight) || (drained && dist <= radius * 2.0f && (!needHeight || closeInHeight)))
 		{
 			const bool capture = m_iEmpiresNavGoalType == NAVGOAL_CAPTURE;
 			const bool defend = m_iEmpiresNavGoalType == NAVGOAL_DEFEND;
@@ -1913,6 +1917,22 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 	return pickEmpiresNavmeshGoal();
 }
 
+// A flag whose approach point has no navmesh area within 120 cannot be reached on foot by the
+// mesh (palmbay cp_boat: deck only by ladders from the water, nearest area the sea floor 312 below).
+// Without a ground approach the flag origin is checked with more room (a trigger's origin sits above
+// the floor; emp_slaughtered flag 130: nearest mesh 743 below the origin, bots stood under it).
+bool EmpiresCapturePointOnMesh(const CEmpiresMod::CapturePointObservation& point)
+{
+	Vector onMesh;
+	if (point.groundApproachKnown)
+		return RCBotNavMesh::ClosestPointOnMesh(point.groundApproachOrigin, 120.0f, onMesh);
+	if (!point.originKnown)
+		return true;
+	// A tall trigger's centre can sit a few hundred units over its floor: allow up to 400 below.
+	return RCBotNavMesh::ClosestPointOnMesh(point.origin, 450.0f, onMesh) &&
+		(point.origin - onMesh).Length2D() <= 200.0f && point.origin.z - onMesh.z <= 400.0f;
+}
+
 bool CBotEmpires::pickEmpiresNavmeshGoal()
 {
 	const float now = gpGlobals->curtime;
@@ -1944,6 +1964,8 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		if (point.teamOwnerKnown && point.teamOwner == team)
 			continue;
 		const Vector goal = point.groundApproachKnown ? point.groundApproachOrigin : point.origin;
+		if (!EmpiresCapturePointOnMesh(point))
+			continue;
 		tiers[NAVGOAL_CAPTURE].push_back({ point.entityIndex, goal,
 			empiresNavGoalDistance2D(origin, goal), "emp_cap_point" });
 	}
@@ -1970,6 +1992,8 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 			if (!enemyCappableKnown || enemyCappable == 0)
 				continue;
 			const Vector goal = point.groundApproachKnown ? point.groundApproachOrigin : point.origin;
+			if (!EmpiresCapturePointOnMesh(point))
+				continue;
 			threatened.push_back({ point.entityIndex, goal,
 				empiresNavGoalDistance2D(origin, goal), "emp_cap_point" });
 			if (empiresPointUnderAttack(point, team))
@@ -2123,7 +2147,8 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		}), resources.end());
 
 	// Nothing inside the circle of a turret that shot us: wait outside instead.
-	// Routes go around the circle (SetTeamDangerCircle); no route means no goal.
+	// Routes go around the circle (SetTeamDangerCircle) when a detour exists; entering it costs
+	// +30000, so with no detour (emp_dmz_b1, gates shut) a route may still pass through it.
 	for (std::vector<EmpiresNavGoalCandidate>& list : tiers)
 		list.erase(std::remove_if(list.begin(), list.end(),
 			[&](const EmpiresNavGoalCandidate& candidate) { return isInsideEmpiresTurretThreat(candidate.origin); }),

@@ -3728,8 +3728,18 @@ bool CNavMesh::UpdateGeneration( float maxTime )
 
 			Msg( "Finding sniper spots...DONE\n" );
 
-			m_generationState = COMPUTE_MESH_VISIBILITY;
 			m_generationIndex = 0;
+			// RCBot2: the bots never read the area visibility sets, and on big maps
+			// (emp_dmz_b1) this phase ran for more than 10 minutes. Skip it with nav_quicksave
+			// like the other analysis phases; the areas themselves are unchanged.
+			extern ConVar nav_quicksave;
+			if ( nav_quicksave.GetBool() )
+			{
+				Msg( "Computing mesh visibility...SKIPPED (nav_quicksave)\n" );
+				m_generationState = FIND_EARLIEST_OCCUPY_TIMES;
+				return true;
+			}
+			m_generationState = COMPUTE_MESH_VISIBILITY;
 			BeginVisibilityComputations();
 			Msg( "Computing mesh visibility...\n" );
 		

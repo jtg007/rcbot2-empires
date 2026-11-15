@@ -47,6 +47,59 @@ struct Route
 
 Route s_routes[RCBOT_MAXPLAYERS];
 
+class SkipSelfAndPlayers : public CTraceFilter
+{
+public:
+	explicit SkipSelfAndPlayers(const IHandleEntity* self) : m_self(self) {}
+	bool ShouldHitEntity(IHandleEntity* entity, int) override
+	{
+		if (entity == m_self)
+			return false;
+		IServerUnknown* unknown = static_cast<IServerUnknown*>(entity);
+		CBaseEntity* base = unknown != nullptr ? unknown->GetBaseEntity() : nullptr;
+		edict_t* e = base != nullptr && servergameents != nullptr ? servergameents->BaseEntityToEdict(base) : nullptr;
+		const char* name = e != nullptr ? e->GetClassName() : nullptr;
+		return name == nullptr || strcmp(name, "player") != 0;
+	}
+private:
+	const IHandleEntity* m_self;
+};
+
+// The route ends on the nearest mesh point, up to 600 beside the goal, but a commander MOVE only
+// ends within 100 of the order spot (TODO 3.18). Add the goal as last point when the bot can walk
+// there in a straight line: same height (step), hull free, ground under it.
+void ExtendPathToGoal(CBot* bot, const Vector& goal, RCBotNavMesh::Path& path)
+{
+	if (enginetrace == nullptr || bot == nullptr || bot->getEdict() == nullptr || path.points.empty())
+		return;
+	const Vector last = path.points.back();
+	const float gap = (goal - last).Length2D();
+	if (gap <= 32.0f || gap > 600.0f || std::fabs(goal.z - last.z) > kStepHeight + 24.0f)
+		return;
+	SkipSelfAndPlayers skip(bot->getEdict()->GetIServerEntity());
+	// Ground under the goal, at most a step below the end point's height.
+	Ray_t down;
+	down.Init(Vector(goal.x, goal.y, std::max(goal.z, last.z) + kStepHeight),
+		Vector(goal.x, goal.y, last.z - kStepHeight - 8.0f), Vector(-16, -16, 0), Vector(16, 16, 2));
+	trace_t ground;
+	enginetrace->TraceRay(down, MASK_PLAYERSOLID, &skip, &ground);
+	if (ground.startsolid || ground.allsolid || ground.fraction >= 1.0f || ground.plane.normal.z < 0.7f)
+		return;
+	const Vector end = ground.endpos;
+	if (std::fabs(end.z - last.z) > kStepHeight)
+		return;
+	Ray_t walk;
+	walk.Init(last + Vector(0, 0, kStepHeight + 2.0f), end + Vector(0, 0, kStepHeight + 2.0f),
+		Vector(-16, -16, 0), Vector(16, 16, 72 - kStepHeight - 2.0f));
+	trace_t hit;
+	enginetrace->TraceRay(walk, MASK_PLAYERSOLID, &skip, &hit);
+	if (hit.startsolid || hit.fraction < 1.0f)
+		return;
+	path.points.push_back(end);
+	path.length += (end - last).Length();
+	RCBOT_DIAG("[RCBOT2] navmesh-path-extended gap=%.0f end=(%.0f %.0f %.0f)\n", gap, end.x, end.y, end.z);
+}
+
 bool DoorDatamapInt(edict_t* door, const char* name, int& value)
 {
 	CBaseEntity* base = door != nullptr && !door->IsFree() && door->GetUnknown() != nullptr ?
@@ -136,6 +189,26 @@ void UpdateInputOnlyDoorBlocks()
 		if (s_closed[index] != (closed ? 1 : 0))
 			RCBOT_DIAG("[RCBOT2] navmesh-input-door door=%d state=%s links=%d\n", index,
 				closed ? "closed" : "open", links);
+		s_closed[index] = closed ? 1 : 0;
+	}
+	// Sliding gates (func_movelinear, opened by map logic only): block the links their box covers
+	// right now. An open gate has moved up or aside and covers no walkway, so no state is needed.
+	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+	{
+		edict_t* gate = INDEXENT(index);
+		const char* name = gate != nullptr && !gate->IsFree() ? gate->GetClassName() : nullptr;
+		ICollideable* collide = name != nullptr && std::strcmp(name, "func_movelinear") == 0 ?
+			gate->GetCollideable() : nullptr;
+		if (collide == nullptr || collide->GetSolid() == SOLID_NONE)
+			continue;
+		Vector mins, maxs;
+		collide->WorldSpaceSurroundingBounds(&mins, &maxs);
+		const int links = RCBotNavMesh::BlockEdgesThroughBox(mins - Vector(8, 8, 0), maxs + Vector(8, 8, 0), 2.5f,
+			false);
+		const bool closed = links > 0;
+		if (s_closed[index] != (closed ? 1 : 0))
+			RCBOT_DIAG("[RCBOT2] navmesh-gate gate=%d state=%s links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n", index,
+				closed ? "closed" : "open", links, mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
 		s_closed[index] = closed ? 1 : 0;
 	}
 }
@@ -441,6 +514,7 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 			failureReasonFor(pathResult), resultFor(pathResult), detail);
 		return false;
 	}
+	ExtendPathToGoal(bot, goal, path);
 
 	char pathDetail[320];
 	std::snprintf(pathDetail, sizeof(pathDetail),

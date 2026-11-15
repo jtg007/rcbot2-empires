@@ -1920,7 +1920,8 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 		edict_t* target = nullptr;
 		if (commander == nullptr || unit == nullptr)
 			return COMMAND_ERROR;
-		if (arg(6) != nullptr && arg(6)[0] == 'b')
+		const bool refinery = arg(6) != nullptr && arg(6)[0] == 'r';
+		if (arg(6) != nullptr && (arg(6)[0] == 'b' || refinery))
 		{
 			// "b": the unit's nearest own building below full health; "bd": nearest full one, damaged to 100.
 			float best = 0.0f;
@@ -1930,6 +1931,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 				edict_t* e = engine->PEntityOfEntIndex(i);
 				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
 					std::strncmp(e->GetClassName(), "emp_building", 12) != 0 ||
+					(refinery && std::strstr(e->GetClassName(), "refinery") == nullptr) ||
 					CClassInterface::getTeam(e) != CClassInterface::getTeam(unit))
 					continue;
 				int hp = -1, maxHp = -1;
@@ -1943,7 +1945,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 					if (int* p = m.getIntPointer(e)) maxHp = *p;
 				}
 				const bool full = hp >= maxHp && maxHp > 0;
-				if (full != (arg(6)[1] == 'd')) // b: not full (new or damaged); bd: full, damaged below
+				if (!refinery && full != (arg(6)[1] == 'd')) // b: not full (new or damaged); bd: full, damaged below
 					continue;
 				const float d = (CBotGlobals::entityOrigin(e) - from).Length();
 				if (target == nullptr || d < best)
@@ -1952,7 +1954,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 					best = d;
 				}
 			}
-			if (target != nullptr && arg(6)[1] == 'd' && target->GetNetworkable() != nullptr)
+			if (target != nullptr && (arg(6)[1] == 'd' || refinery) && target->GetNetworkable() != nullptr)
 			{
 				CClassInterfaceValue health(target->GetNetworkable()->GetServerClass()->m_pNetworkName, "m_iHealth", 0);
 				health.findOffset();
@@ -1968,6 +1970,15 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 		char command[160];
 		std::snprintf(command, sizeof(command), "emp_unit_order_list %d\n", engine->IndexOfEdict(unit));
 		helpers->ClientCommand(commander, command);
+		if (target != nullptr && engine->IndexOfEdict(target) <= gpGlobals->maxClients &&
+			CClassInterface::getTeam(target) != CClassInterface::getTeam(commander) &&
+			target->GetUnknown() != nullptr && target->GetUnknown()->GetBaseEntity() != nullptr)
+		{
+			// An enemy player is accepted only with byte +0x14ec set, which only ShouldTransmit to a
+			// human commander's client writes (0x673173; commander-order-types.md). A bot commander gets
+			// no snapshots, so set it here like a human commander's view would.
+			reinterpret_cast<unsigned char*>(target->GetUnknown()->GetBaseEntity())[0x14ec] = 1;
+		}
 		if (target != nullptr)
 			std::snprintf(command, sizeof(command), "emp_unit_order %d %d\n", type, engine->IndexOfEdict(target)); // entity form: 2 args (0x650114)
 		else
@@ -1986,7 +1997,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 			arg(0), engine->IndexOfEdict(unit), type, target != nullptr ? engine->IndexOfEdict(target) : -1, command, commandType);
 		RCBOT_DIAG("[RCBOT2] test-unit-order unit=%d type=%d unit_command_type_now=%d\n", engine->IndexOfEdict(unit), type, commandType);
 		return COMMAND_ACCESSED;
-	}, R"(usage "empires_test_unit_order <commander_userid> <type> <unit_userid> <x> <y> <z> [target_userid|b|bd]" : test-only (b = nearest own building below full health, bd = nearest full one, damaged to 100 first), the commander orders one unit through emp_unit_order_list + emp_unit_order)");
+	}, R"(usage "empires_test_unit_order <commander_userid> <type> <unit_userid> <x> <y> <z> [target_userid|b|bd|r]" : test-only (b = nearest own building below full health, bd = nearest full one, damaged to 100 first, r = nearest own refinery, damaged to 100; an enemy player target gets the commander-view byte +0x14ec), the commander orders one unit through emp_unit_order_list + emp_unit_order)");
 
 extern int g_empiresTestHumanCommanderTeam; // bot_empires_engibot.cpp
 

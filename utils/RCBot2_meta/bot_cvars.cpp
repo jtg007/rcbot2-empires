@@ -116,6 +116,7 @@ ConVar rcbot_empires_vehicles("rcbot_empires_vehicles", "1", 0, "if 1, bots buy 
 ConVar rcbot_empires_debug_log("rcbot_empires_debug_log", "0", 0, "if 1, print the bots' diagnostic [RCBOT2] lines to the server console (on in the dev harness)");
 ConVar rcbot_empires_engibot("rcbot_empires_engibot", "1", 0, "1 = the commander can buy base engineer bots with /buildengibot in chat");
 ConVar rcbot_empires_engibot_cost("rcbot_empires_engibot_cost", "100", 0, "team resources one /buildengibot costs");
+ConVar rcbot_empires_commander_orders("rcbot_empires_commander_orders", "1", 0, "the seated bot commander orders its free attacker bots to the next capture point (attack location)");
 ConVar rcbot_empires_engibot_limit("rcbot_empires_engibot_limit", "2", 0, "maximum EngiBots per team (0-8)");
 ConVar rcbot_empires_engineer_help_human("rcbot_empires_engineer_help_human", "2", 0, "with a human commander, up to this many engineer bots per team build and repair the team's unfinished or damaged buildings near the CV on their own (0 = only on the commander's guard order)");
 ConVar rcbot_empires_engibot_leash("rcbot_empires_engibot_leash", "2500", 0, "EngiBots work only within this distance of their team CV (else their first spawn)");

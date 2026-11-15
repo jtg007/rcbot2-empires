@@ -3225,8 +3225,25 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (size.x > 40.0f && size.x < 400.0f)
 				v.width = size.x;
 		}
-		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f\n", userId, v.vehicleIndex,
-			chassis, v.width);
+		// Water: the game damages a vehicle (20 HP/s) and stops its engine only when its body centre
+		// (WorldSpaceCenter) is in water; wet wheels do nothing (CEmpTank::CheckWater 0x692040,
+		// reverse-engineering/notes/vehicles.md). Fords up to centre height over ground - 16.
+		v.waterDepth = 32.0f;
+		if (vehicle->GetCollideable() != nullptr && enginetrace != nullptr)
+		{
+			ICollideable* box = vehicle->GetCollideable();
+			const Vector centre = box->GetCollisionOrigin() +
+				Vector(0, 0, 0.5f * (box->OBBMins().z + box->OBBMaxs().z));
+			Ray_t down;
+			down.Init(centre, centre - Vector(0, 0, 400.0f));
+			CTraceFilterWorldOnly worldOnly;
+			trace_t ground;
+			enginetrace->TraceRay(down, MASK_SOLID, &worldOnly, &ground);
+			if (ground.fraction < 1.0f && !ground.startsolid)
+				v.waterDepth = std::max(0.0f, std::min(160.0f, centre.z - ground.endpos.z - 16.0f));
+		}
+		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f water_depth=%.0f\n", userId,
+			v.vehicleIndex, chassis, v.width, v.waterDepth);
 	}
 	// A new vehicle stands in the factory bay, inside the factory's box. Planned from there, the
 	// building detour ran along the factory side into a gap between crates and a tower instead of
@@ -3286,7 +3303,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.routeGoal = driveTo;
 			RCBotNavMesh::Path path;
 			const RCBotNavMesh::PathResult result =
-				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true);
+				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth);
 			const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2;
 			if (static_cast<int>(result) != v.routeResult || (ok && v.route.empty()) || path.partial != v.routePartial)
 				RCBOT_DIAG("[RCBOT2] vehicle route userid=%d result=%s%s points=%zu length=%.0f from=(%.0f %.0f %.0f) "

@@ -97,8 +97,9 @@ bool PointNearBuilding(const Vector &point, float pad);
 // small steps only, narrow links expensive, portal points kept off the edges.
 // allowPartial: with no full path, return the way to the reachable area nearest the goal
 // (only if that is clearly closer than the start); path.partial is then set.
+// maxWaterDepth: deepest water over the area floor the vehicle may drive through (body centre dry).
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width,
-	bool allowPartial = false);
+	bool allowPartial = false, float maxWaterDepth = 32.0f);
 // Closes the path link the vehicle is stuck on, for vehicles only. Returns its
 // index in areaIds or -1.
 int BlockVehicleEdgeAt(const Vector &position, const std::vector<unsigned int> &areaIds, float seconds);

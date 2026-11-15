@@ -425,6 +425,7 @@ void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
 void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
+void EmpiresCommanderOrdersLevelReset(); // bot_empires_commander_orders.cpp
 
 // 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one slot per vehicle (up to
 // kEmpiresAmmoRequestSlots per team); an engineer walks over and places a supply crate
@@ -497,6 +498,7 @@ struct EmpiresVehicleBrain
 	bool routePartial = false; // route ends at the reachable area nearest the goal
 	int routeResult = -1;
 	float width = 0.0f;
+	float waterDepth = 0.0f; // deepest water the body centre stays dry in (0 = not measured)
 	float bailLogAt = 0.0f; // diagnosis: log the bot's position after a bail-out (0.3 s, 1 s, 3 s)
 	int bailLogStep = 0;
 	float stageSince = 0.0f; // curtime of the last stage change (bail-out waits 1 s after boarding)
@@ -727,6 +729,8 @@ public:
 	float m_fCommanderHuntZone = 0.0f;
 	// Automatic Commander (bot_empires_commander_economy.cpp, cvar rcbot_empires_auto_commander).
 	void tickCommanderEconomy();
+	void tickCommanderOrders(int team, float now, const Vector& home); // bot_empires_commander_orders.cpp
+	void releaseCommanderOrders(int team, const char* reason); // bot_empires_commander_orders.cpp
 	static CBotEmpires* commanderSeatCandidate(int team);
 	// Seat candidate, approaching, seated or out building: no refinery turrets.
 	bool commanderDutyBlocksSideTasks();

@@ -1123,6 +1123,8 @@ protected:
 	float m_fSideSpeed;
 	// bots upward move speed (e.g in water)
 	float m_fUpSpeed;
+	float m_fHeadUnderwaterSince = 0.0f; // 0 = head above water
+	float m_fSurfaceUntil = 0.0f;         // swim up for air until then
 	float m_fAimMoment; // aiming "mouse" momentum
 
 	float m_fLookAtTimeStart;
