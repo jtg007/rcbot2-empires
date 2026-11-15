@@ -7,6 +7,7 @@
 #include "vector.h"
 
 class CBot;
+struct edict_t;
 
 namespace RCBotNavMesh
 {
@@ -98,8 +99,9 @@ bool PointNearBuilding(const Vector &point, float pad);
 // allowPartial: with no full path, return the way to the reachable area nearest the goal
 // (only if that is clearly closer than the start); path.partial is then set.
 // maxWaterDepth: deepest water over the area floor the vehicle may drive through (body centre dry).
+// drivenVehicle: exclude the vehicle itself from the building detour checks.
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width,
-	bool allowPartial = false, float maxWaterDepth = 32.0f);
+	bool allowPartial = false, float maxWaterDepth = 32.0f, const edict_t* drivenVehicle = nullptr);
 // Closes the path link the vehicle is stuck on, for vehicles only. Returns its
 // index in areaIds or -1.
 int BlockVehicleEdgeAt(const Vector &position, const std::vector<unsigned int> &areaIds, float seconds);

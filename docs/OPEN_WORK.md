@@ -69,6 +69,13 @@ Check free space before long recordings and remove only recordings you created.
   vehicles; one NF commander drive got stuck, then the next attempt reached the factory.
 - [ ] **Commander vehicle drive can get stuck:** in the production match an NF commander
   recovered on its second attempt. Identify the obstacle with a verified demo if it recurs.
+  On `emp_slaughtered`, the CV stopped in front of the radar on the same approach at
+  normal speed (`20261115-175843`) and at 4× (`20261115-175413`). The driver now keeps
+  the detour around the radar and starts a reverse turn at low speed if the next point is
+  behind the vehicle. With the same start and goal (`20261115-180657`), arrival took
+  about 4 seconds at normal speed versus 8 before. At 4× it took 287 game ticks versus
+  591 with only the self-vehicle exclusion (`20261115-180116`). Both new runs arrived
+  after one planned reverse turn with no stall. All five checks in `dev_check` passed.
 - [ ] **Refinery MG turrets fail silently** (BE 5/5, NF 1/2 in one match). The same spots worked
   in earlier runs, so it is a state, not the geometry; likely the turret allotment or the
   engineer restriction state. The game's `TextMsg` rejections use a different engine

@@ -47,7 +47,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Build the base | Refineries, barracks, vehicle factory, armory, repair station in a fixed order |
 | ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings |
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
-| 🟡 | Drive the CV | To distant buildings and enemy infantry; can get stuck and retry around the base |
+| 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
 | 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; further research items are planned |
 | ⬜ | Expand the base forward | Additional forward buildings and their vehicle access are planned |

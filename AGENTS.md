@@ -34,6 +34,8 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 - Test harnesses should wait for the success condition they actually verify.
 - Record completion distance when measuring movement orders.
 - Retain recovery and failure counts even when a full-match outcome succeeds.
+- Confirm vehicle handling changes at normal game speed. Record arrivals, planned reverse
+  turns, stalls and exits.
 
 ## Setup
 

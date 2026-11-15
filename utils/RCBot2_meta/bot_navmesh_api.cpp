@@ -728,13 +728,13 @@ struct BuildingBox
 	const char* className;
 };
 
-std::vector<BuildingBox> CollectSolidBuildings()
+std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nullptr)
 {
 	std::vector<BuildingBox> boxes;
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 	{
 		edict_t* edict = engine->PEntityOfEntIndex(index);
-		if (edict == nullptr || edict->IsFree())
+		if (edict == nullptr || edict == drivenVehicle || edict->IsFree())
 			continue;
 		const char* name = edict->GetClassName();
 		// The physbox only stops vehicles; players walk through it, and it
@@ -1049,12 +1049,12 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	return true;
 }
 
-void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
+void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false, const edict_t* drivenVehicle = nullptr)
 {
 	if (enginetrace == nullptr || gpGlobals == nullptr || path.points.size() < 2)
 		return;
 	const auto started = std::chrono::steady_clock::now();
-	const std::vector<BuildingBox> boxes = CollectSolidBuildings();
+	const std::vector<BuildingBox> boxes = CollectSolidBuildings(drivenVehicle);
 	int applied = 0;
 	for (std::size_t i = 0; i + 1 < path.points.size() && applied < 6; ++i)
 	{
@@ -1065,10 +1065,10 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false)
 		float firstFraction = 1.0f;
 		for (const BuildingBox& box : boxes)
 		{
-			// Vehicles driving onto a repair pad: the goal building is the way in. Also a
-			// goal right next to a building (BE armory beside the CV, run 20261112-182815):
-			// the vehicle stops before it anyway.
-			if (skipGoalBuilding && InPaddedBox(path.points.back(), box, 300.0f))
+			// A vehicle can enter a repair pad or stop short of a building on its final
+			// approach. A nearby goal does not make earlier segments through it drivable.
+			if (skipGoalBuilding && (drivenVehicle == nullptr || i + 2 == path.points.size()) &&
+				InPaddedBox(path.points.back(), box, 300.0f))
 				continue;
 			if (planeZ < box.mins.z || planeZ > box.maxs.z || !SegmentHitsBox(a, b, box, 16.0f))
 				continue;
@@ -1479,7 +1479,7 @@ private:
 }
 
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial,
-	float maxWaterDepth)
+	float maxWaterDepth, const edict_t* drivenVehicle)
 {
 	path.clear();
 	if (!IsLoaded())
@@ -1554,7 +1554,7 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	}
 	AppendPoint(path, path.walkGoal);
 	g_detourHalf = (std::max)(16.0f, width * 0.5f);
-	ApplyBuildingDetours(path, true);
+	ApplyBuildingDetours(path, true, drivenVehicle);
 	g_detourHalf = 16.0f;
 	for (std::size_t i = 1; i < path.points.size(); ++i)
 		path.length += (path.points[i] - path.points[i - 1]).Length();

@@ -563,22 +563,27 @@ float DropDistance(const Vector& p, float yaw, float range)
 class CVehicleSightFilter : public CTraceFilter
 {
 public:
+	explicit CVehicleSightFilter(const edict_t* ignored = nullptr) : m_ignored(ignored) {}
+
 	bool ShouldHitEntity(IHandleEntity* handle, int) override
 	{
 		IServerUnknown* unknown = static_cast<IServerUnknown*>(handle);
 		IServerNetworkable* networkable = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
 		edict_t* e = networkable != nullptr ? networkable->GetEdict() : nullptr;
 		const char* cls = e != nullptr ? e->GetClassName() : nullptr;
-		if (cls == nullptr)
+		if (cls == nullptr || e == m_ignored)
 			return false;
 		return (std::strncmp(cls, "emp_building_", 13) == 0 && std::strstr(cls, "physbox") == nullptr) ||
 			std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0;
 	}
+
+private:
+	const edict_t* m_ignored;
 };
 
 constexpr float kVehicleMgInfantryRange = 1200.0f; // MG round 1000 u/s (vehicle_weapons.txt)
 
-bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth)
+bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth, const edict_t* drivenCV = nullptr)
 {
 	Vector dir = to - from;
 	dir.z = 0.0f;
@@ -587,7 +592,9 @@ bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth)
 		return true;
 	dir /= len;
 	const Vector side(-dir.y, dir.x, 0.0f);
-	CTraceFilterWorldOnly filter;
+	CTraceFilterWorldOnly worldOnly;
+	CVehicleSightFilter buildings(drivenCV);
+	ITraceFilter* filter = drivenCV != nullptr ? static_cast<ITraceFilter*>(&buildings) : &worldOnly;
 	for (const float s : {-1.0f, 1.0f})
 	{
 		const Vector a = from + side * (s * halfWidth) + Vector(0, 0, 48);
@@ -595,7 +602,7 @@ bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth)
 		trace_t hit;
 		Ray_t ray;
 		ray.Init(a, b);
-		enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &filter, &hit);
+		enginetrace->TraceRay(ray, MASK_PLAYERSOLID, filter, &hit);
 		if (hit.fraction < 1.0f)
 			return false;
 	}
@@ -3297,13 +3304,14 @@ void CBotEmpires::tickEmpiresVehicle()
 	bool onRoute = false;
 	if (!closeManeuver && Dist2D(origin, driveTo) > 300.0f)
 	{
+		const edict_t* drivenCV = v.commanderCV ? vehicle : nullptr;
 		if (now >= v.nextReplan || Dist2D(v.routeGoal, driveTo) > 500.0f)
 		{
 			v.nextReplan = now + 4.0f;
 			v.routeGoal = driveTo;
 			RCBotNavMesh::Path path;
 			const RCBotNavMesh::PathResult result =
-				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth);
+				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, drivenCV);
 			const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2;
 			if (static_cast<int>(result) != v.routeResult || (ok && v.route.empty()) || path.partial != v.routePartial)
 				RCBOT_DIAG("[RCBOT2] vehicle route userid=%d result=%s%s points=%zu length=%.0f from=(%.0f %.0f %.0f) "
@@ -3329,8 +3337,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				seg.z = 0.0f;
 				Vector toP = p - origin;
 				toP.z = 0.0f;
-				if (Dist2D(origin, p) < (std::max)(160.0f, v.width) ||
-					(DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f))
+				const bool reached = Dist2D(origin, p) < (std::max)(160.0f, v.width) ||
+					(DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f);
+				if (reached && (drivenCV == nullptr || DriveLineClear(origin, q, v.width * 0.5f, drivenCV)))
 					++v.routeIndex;
 				else
 					break;
@@ -3346,7 +3355,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			{
 				along += Dist2D(v.route[k - 1], v.route[k]);
 				if (along > look || std::fabs(v.route[k].z - origin.z) > 200.0f ||
-					!DriveLineClear(origin, v.route[k], v.width * 0.5f))
+					!DriveLineClear(origin, v.route[k], v.width * 0.5f, drivenCV))
 					break;
 				pick = k;
 			}
@@ -3477,7 +3486,10 @@ void CBotEmpires::tickEmpiresVehicle()
 		!(arrive > 0.0f && goalDistance < arrive);
 	if (mayBack || v.cvBackUntil > 0.0f)
 	{
-		const bool wantBack = std::fabs(err) > 110.0f || (!headingSafe && forwardSpeed < 60.0f);
+		// A CV route can start with a detour point behind the vehicle. Swinging
+		// forward toward it takes more room than backing up while there is room behind.
+		const float backTurnAngle = v.commanderCV && onRoute && target == nullptr && speed < 60.0f ? 90.0f : 110.0f;
+		const bool wantBack = std::fabs(err) > backTurnAngle || (!headingSafe && forwardSpeed < 60.0f);
 		if (mayBack && v.cvBackUntil == 0.0f && now >= v.cvBackNext && wantBack && forwardSpeed < 200.0f &&
 			rearSafe && found)
 		{
@@ -3531,8 +3543,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			{
 				v.cvArrived = true;
 				v.cvEnd = "arrived";
-				RCBOT_DIAG("[RCBOT2] cv-drive arrived userid=%d pos=(%.0f %.0f %.0f) dist=%.0f\n", userId, origin.x,
-					origin.y, origin.z, goalDistance);
+				RCBOT_DIAG("[RCBOT2] cv-drive arrived userid=%d pos=(%.0f %.0f %.0f) dist=%.0f tick=%d\n", userId, origin.x,
+					origin.y, origin.z, goalDistance, gpGlobals->tickcount);
 			}
 		}
 	}
@@ -3652,8 +3664,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.reverseSide = side >= 0.0f ? -kMaxMove : kMaxMove;
 				if (v.fightMove)
 					v.fightSwitch = now; // blocked while circling: other way round
-				RCBOT_DIAG("[RCBOT2] vehicle stuck-reverse userid=%d pos=(%.0f %.0f %.0f) n=%d\n", userId,
-					origin.x, origin.y, origin.z, v.stuckReverses);
+				RCBOT_DIAG("[RCBOT2] vehicle stuck-reverse userid=%d pos=(%.0f %.0f %.0f) n=%d tick=%d\n", userId,
+					origin.x, origin.y, origin.z, v.stuckReverses, gpGlobals->tickcount);
 			}
 			else
 				RCBOT_DIAG("[RCBOT2] vehicle stuck-no-rear userid=%d pos=(%.0f %.0f %.0f) n=%d\n", userId,
@@ -3853,9 +3865,9 @@ bool CBotEmpires::startEmpiresCommanderDrive(edict_t* cv, const Vector& goal)
 	v.lastVehicleOrigin = CBotGlobals::entityOrigin(cv);
 	v.lastSampleTime = gpGlobals->curtime;
 	v.stage = EmpiresVehicleStage::DRIVING;
-	RCBOT_DIAG("[RCBOT2] cv-drive start userid=%d cv=%d from=(%.0f %.0f %.0f) goal=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] cv-drive start userid=%d cv=%d from=(%.0f %.0f %.0f) goal=(%.0f %.0f %.0f) tick=%d\n",
 		engine->GetPlayerUserId(m_pEdict), v.vehicleIndex, v.lastVehicleOrigin.x, v.lastVehicleOrigin.y,
-		v.lastVehicleOrigin.z, goal.x, goal.y, goal.z);
+		v.lastVehicleOrigin.z, goal.x, goal.y, goal.z, gpGlobals->tickcount);
 	return true;
 }
 
