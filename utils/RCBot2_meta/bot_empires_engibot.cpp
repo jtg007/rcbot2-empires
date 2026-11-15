@@ -24,9 +24,22 @@ bool EmpiresModifyTeamResources(int team, float delta);
 bool EmpiresBinaryOffsetsTrusted();
 void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int botClass); // bot.cpp
 
+// Turret on the commander's order: "Attack location" (m_iCommandType 2) to an EngiBot. The order
+// consumer walks it there; on arrival it places an MG turret facing the enemy and builds it up.
+struct EngibotTurretJob
+{
+	int stage = 0; // 0 none, 1 wait for arrival / place, 2 placing, 3 building up, 4 done or given up
+	Vector order;
+	Vector stand;
+	int tries = 0;
+	int turret = 0;
+	float next = 0.0f;
+};
+
 namespace
 {
 constexpr int kMaxEngibots = 8; // per team, upper bound of the cvar
+
 
 struct EngibotTeam
 {
@@ -36,6 +49,7 @@ struct EngibotTeam
 	float nextTick[kMaxEngibots] = {};
 	bool homeKnown[kMaxEngibots] = {};
 	Vector home[kMaxEngibots];        // first spawn, used when the team has no CV
+	EngibotTurretJob turret[kMaxEngibots];
 	int count = 0;
 };
 EngibotTeam s_engibots[4];
@@ -114,6 +128,7 @@ void Prune(int team)
 		t.nextTick[kept] = t.nextTick[i];
 		t.homeKnown[kept] = t.homeKnown[i];
 		t.home[kept] = t.home[i];
+		t.turret[kept] = t.turret[i];
 		++kept;
 	}
 	t.count = kept;
@@ -224,6 +239,7 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 			t.claimUntil[t.count] = 0.0f;
 			t.nextTick[t.count] = 0.0f;
 			t.homeKnown[t.count] = false;
+			t.turret[t.count] = EngibotTurretJob();
 			++t.count;
 			float after = -1.0f;
 			EmpiresTeamResources(team, after);
@@ -335,13 +351,21 @@ bool CBotEmpires::tickEmpiresEngibot()
 		t.claimUntil[index] = now + 3.0f;
 		return true; // the assignment drives the bot
 	}
+	int order = 0;
+	if (!readEmpiresIntProperty(m_pEdict, "m_iCommandType", order))
+		order = 0;
+	if (tickEngibotTurretOrder(t.turret[index], team, order))
+		return true;
 	if (now < t.nextTick[index])
 		return true;
 	t.nextTick[index] = now + 2.0f;
 
 	edict_t* cv = TeamCommanderVehicle(team);
-	const Vector anchor = cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index];
-	const float leash = std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
+	// A standing commander order: work only around the order spot, else the order's leash (500)
+	// and the base pull it back and forth (expert review 15.11.).
+	const bool atOrder = order != 0 && m_bEmpiresCommanderMoveRouteIssued;
+	const Vector anchor = atOrder ? m_vEmpiresCommanderMoveTarget : (cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index]);
+	const float leash = atOrder ? 450.0f : std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
 	const Vector origin = getOrigin();
 
 	edict_t* best = nullptr;
@@ -387,7 +411,8 @@ bool CBotEmpires::tickEmpiresEngibot()
 		t.claim[index] = 0;
 
 	const float home = (origin - anchor).Length2D();
-	if (home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
+	// A standing commander order (attack location, guard) keeps it where the commander sent it.
+	if (order == 0 && home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
 	{
 		// Wait 900 out, each EngiBot on its own side: standing next to the CV blocked the
 		// commander's building spots (run 20261115-030313: barracks 36/36 invalid, both at 328).
@@ -408,6 +433,208 @@ bool CBotEmpires::tickEmpiresEngibot()
 		RCBOT_DIAG("[RCBOT2] engibot home userid=%d dist=%.0f anchor=%s\n", userId, home, cv != nullptr ? "cv" : "spawn");
 	}
 	return true;
+}
+
+namespace
+{
+bool GroundUnder(const Vector& p, Vector& ground)
+{
+	if (enginetrace == nullptr)
+		return false;
+	CTraceFilterWorldOnly filter;
+	trace_t hit;
+	Ray_t ray;
+	ray.Init(p + Vector(0, 0, 60), p - Vector(0, 0, 200));
+	enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+	if (hit.fraction >= 1.0f || hit.startsolid)
+		return false;
+	ground = hit.endpos;
+	return true;
+}
+
+} // namespace
+
+bool EmpiresFrontYaw(const Vector& at, int team, float& yaw); // bot_empires_commander_economy.cpp
+
+// Commander "Attack location" to an EngiBot = build a turret there (community: turrets only on
+// the commander's order). Returns true while the turret work owns the bot.
+bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, const int order)
+{
+	const float now = gpGlobals->curtime;
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+	if (order != 2 || m_iEmpiresCommanderOrderType != 2 || !m_bEmpiresCommanderMoveRouteIssued)
+	{
+		if (job.stage != 0 && job.stage != 4)
+			RCBOT_DIAG("[RCBOT2] engibot turret end userid=%d reason=order-changed order=%d stage=%d\n", userId, order, job.stage);
+		if (order != 2)
+			job = EngibotTurretJob();
+		return job.stage == 2 && isEmpiresEngineerBuildActionActive();
+	}
+	const Vector target = m_vEmpiresCommanderMoveTarget;
+	if (job.stage == 0 || (job.order - target).Length2D() > 200.0f)
+	{
+		job = EngibotTurretJob();
+		job.stage = 1;
+		job.order = target;
+		RCBOT_DIAG("[RCBOT2] engibot turret order userid=%d target=(%.0f %.0f %.0f) dist=%.0f\n", userId, target.x, target.y,
+			target.z, (getOrigin() - target).Length2D());
+	}
+	char name[64];
+	std::snprintf(name, sizeof(name), "%s", m_pPlayerInfo != nullptr && m_pPlayerInfo->GetName() != nullptr ? m_pPlayerInfo->GetName() : "EngiBot");
+	char text[128];
+	// Message on the screen of the team's human commander (whoever gave the order).
+	auto notify = [this, team](const char* message)
+	{
+		for (int i = 1; i <= gpGlobals->maxClients; ++i)
+		{
+			edict_t* p = engine->PEntityOfEntIndex(i);
+			IPlayerInfo* info = p != nullptr && !p->IsFree() && playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(p) : nullptr;
+			int commander = 0;
+			if (info != nullptr && info->IsConnected() && !info->IsFakeClient() && CClassInterface::getTeam(p) == team &&
+				readEmpiresEntityIntProperty(p, "m_bCommander", commander) && commander != 0)
+				RCBotPluginMeta::HudTextMessage(p, message);
+		}
+	};
+	if (job.stage == 1)
+	{
+		if (m_bEmpiresCommanderMoveFailed)
+		{
+			job.stage = 4;
+			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=unreachable\n", userId);
+			std::snprintf(text, sizeof(text), "%s: cannot reach that spot for a turret", name);
+			notify(text);
+			return false;
+		}
+		if (!m_bEmpiresCommanderMoveFinished || (getOrigin() - target).Length2D() > 250.0f)
+			return false; // the order consumer walks it there
+		if (now < job.next)
+			return true; // between tries: no base repair in between (expert review 15.11.)
+		if (isEmpiresEngineerBuildActionActive())
+			return true;
+		int built = -1, allotted = -1;
+		if (readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerTurretsBuilt", built) &&
+			readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerTurretsAllotted", allotted) && allotted >= 0 && built >= allotted)
+		{
+			job.stage = 4;
+			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=limit built=%d allotted=%d\n", userId, built, allotted);
+			std::snprintf(text, sizeof(text), "%s: turret limit reached (%d/%d)", name, built, allotted);
+			notify(text);
+			return false;
+		}
+		// Face the enemy: the front direction at the spot, else the enemy CV, else away from the own CV.
+		float yaw = 0.0f;
+		const Vector origin = getOrigin();
+		if (!EmpiresFrontYaw(origin, team, yaw))
+		{
+			edict_t* enemyCv = TeamCommanderVehicle(team == 2 ? 3 : 2);
+			edict_t* ownCv = TeamCommanderVehicle(team);
+			const Vector to = enemyCv != nullptr ? CBotGlobals::entityOrigin(enemyCv) - origin :
+				(ownCv != nullptr ? origin - CBotGlobals::entityOrigin(ownCv) : Vector(1, 0, 0));
+			yaw = std::atan2(to.y, to.x) * 180.0f / 3.14159265f;
+		}
+		static const float kTurn[] = {0.0f, 45.0f, -45.0f, 90.0f, -90.0f, 135.0f, -135.0f, 180.0f};
+		yaw += kTurn[job.tries % 8];
+		const float r = yaw * 3.14159265f / 180.0f;
+		Vector place = origin + Vector(std::cos(r), std::sin(r), 0.0f) * 60.0f;
+		Vector ground;
+		if (GroundUnder(place, ground))
+			place = ground;
+		cancelNavigationAttempt("engibot-turret-place");
+		if (requestEmpiresEngineerBuildOnce(-1, &place, false))
+		{
+			job.stage = 2;
+			job.stand = origin;
+			RCBOT_DIAG("[RCBOT2] engibot turret place userid=%d try=%d yaw=%.0f target=(%.0f %.0f %.0f)\n", userId, job.tries, yaw,
+				place.x, place.y, place.z);
+			return true;
+		}
+		job.next = now + 1.0f;
+		if (++job.tries >= 8)
+		{
+			job.stage = 4;
+			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=build-rejected\n", userId);
+			std::snprintf(text, sizeof(text), "%s: no room for a turret here", name);
+			notify(text);
+		}
+		return false;
+	}
+	if (job.stage == 2)
+	{
+		if (isEmpiresEngineerBuildActionActive())
+			return true;
+		// The build action reports the new building; the distance search is only the fallback (an
+		// older damaged turret nearby would be taken first, expert review 15.11.).
+		edict_t* turret = nullptr;
+		if (m_iEmpiresEngineerBuildActionResultIndex > 0)
+			if (edict_t* e = engine->PEntityOfEntIndex(m_iEmpiresEngineerBuildActionResultIndex);
+				e != nullptr && !e->IsFree() && e->GetClassName() != nullptr && std::strstr(e->GetClassName(), "turret") != nullptr)
+				turret = e;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && turret == nullptr; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			int health = -1, maxHealth = -1;
+			if (e != nullptr && !e->IsFree() && e->GetClassName() != nullptr && std::strncmp(e->GetClassName(), "emp_building_", 13) == 0 &&
+				std::strstr(e->GetClassName(), "turret") != nullptr && CClassInterface::getTeam(e) == team &&
+				(CBotGlobals::entityOrigin(e) - job.stand).Length2D() < 250.0f &&
+				readEmpiresEntityIntProperty(e, "m_iHealth", health) && readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHealth) &&
+				health < maxHealth)
+				turret = e;
+		}
+		RCBOT_DIAG("[RCBOT2] engibot turret %s userid=%d try=%d turret=%d\n", turret != nullptr ? "placed" : "not-placed", userId,
+			job.tries, turret != nullptr ? engine->IndexOfEdict(turret) : -1);
+		if (turret == nullptr)
+		{
+			job.stage = ++job.tries >= 8 ? 4 : 1;
+			job.next = now + 1.0f;
+			if (job.stage == 4)
+			{
+				std::snprintf(text, sizeof(text), "%s: no room for a turret here", name);
+				notify(text);
+			}
+			return false;
+		}
+		job.turret = engine->IndexOfEdict(turret);
+		job.stage = 3;
+		job.next = 0.0f;
+		std::snprintf(text, sizeof(text), "%s: building a turret", name);
+		notify(text);
+	}
+	if (job.stage == 3)
+	{
+		edict_t* turret = engine->PEntityOfEntIndex(job.turret);
+		int health = -1, maxHealth = -1;
+		const bool alive = turret != nullptr && !turret->IsFree() && turret->GetClassName() != nullptr &&
+			std::strstr(turret->GetClassName(), "turret") != nullptr && CClassInterface::getTeam(turret) == team &&
+			readEmpiresEntityIntProperty(turret, "m_iHealth", health) &&
+			readEmpiresEntityIntProperty(turret, "m_iMaxHealth", maxHealth) && maxHealth > 0;
+		if (!alive || health >= maxHealth)
+		{
+			job.stage = 4;
+			RCBOT_DIAG("[RCBOT2] engibot turret %s userid=%d turret=%d health=%d/%d\n", alive ? "complete" : "gone", userId, job.turret,
+				health, maxHealth);
+			if (alive)
+			{
+				std::snprintf(text, sizeof(text), "%s: turret ready", name);
+				notify(text);
+			}
+			return false;
+		}
+		if (now >= job.next)
+		{
+			job.next = now + 2.0f;
+			if (requestEmpiresBuildAssignment(turret))
+				return true;
+			if (++job.tries >= 16)
+			{
+				job.stage = 4;
+				RCBOT_DIAG("[RCBOT2] engibot turret unfinished userid=%d turret=%d health=%d/%d reason=assign-rejected\n", userId,
+					job.turret, health, maxHealth);
+				return false;
+			}
+		}
+		return true; // holds the bot until the turret is full or given up
+	}
+	return false;
 }
 
 // Every 10 s from the plugin frame: drop EngiBots that left or switched team, and log each

@@ -88,9 +88,10 @@ Check free space before long recordings and remove only recordings you created.
 ## 2. Needs a human player
 
 - [ ] EngiBots (`/buildengibot`, community request): purchase, limit, leash, building help and map-change cleanup
-  are measured with a bot commander (`scripts/dev_engibot.sh`). Open: turrets on the commander's order (planned:
-  an "attack location" order to an EngiBot), repairing vehicles on the pad, the `/` chat with SourceMod loaded,
-  and a test with a human commander. A community server crashed on `!buildengibot` with SourceMod and humans;
+  are measured with a bot commander (`scripts/dev_engibot.sh`). Turret on an "attack location" order: placed on
+  the second try and built 100/100 in 3.9 s (bot commander). Console command `buildengibot` as a fallback for the
+  `/` chat under SourceMod (built, not measured). Open: repairing vehicles on the pad and a test with a human
+  commander. A community server crashed on `!buildengibot` with SourceMod and humans;
   the purchase now runs in the next server frame instead of inside the chat event (not yet confirmed there).
 
 - [ ] Orders from a human commander (community test: guard/stop ignored, bots ran off). Now testable without a

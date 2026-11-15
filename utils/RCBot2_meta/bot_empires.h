@@ -761,6 +761,7 @@ public:
 	// An Engineer walks to one assigned building and works on it until full.
 	bool requestEmpiresBuildAssignment(edict_t* building);
 	bool tickEmpiresEngibot(); // bot_empires_engibot.cpp
+	bool tickEngibotTurretOrder(struct EngibotTurretJob& job, int team, int order); // bot_empires_engibot.cpp
 	void applyEmpiresTeamClassName(); // bot_empires_engibot.cpp
 	void tickEmpiresBuildAssignment();
 	void tickEmpiresGuardOrder();

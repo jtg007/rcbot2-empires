@@ -63,11 +63,12 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Turrets at refineries | MG turret construction works; unreachable Rainbowroad stand points are rejected and rotated, while rare placement failures remain |
 | ✅ | Skills | Repair and revive split across the team's engineers |
 | ⬜ | Walls, cameras, radar | |
-| 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. Limit per team, removed on map change, not kicked by the bot quota. Turrets on the commander's order are planned |
+| 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. An "attack location" order makes it build a turret there. Limit per team, removed on map change, not kicked by the bot quota |
 
 #### How EngiBots work
 
-1. **Buy one.** While you sit in the CV as commander, type `/buildengibot` or `!buildengibot` in chat. The
+1. **Buy one.** While you sit in the CV as commander, type `/buildengibot` or `!buildengibot` in chat, or
+   `buildengibot` in the console (works even when a chat plugin hides the line; `bind <key> buildengibot`). The
    plugin checks the request, takes `rcbot_empires_engibot_cost` (default 100) from the team resources and adds
    an engineer bot named `EngiBot NF 1`, `EngiBot BE 2` and so on. A message on your screen gives the result:
    - `EngiBot ready (1/2), -100 resources`
@@ -84,14 +85,20 @@ Bots that play Empires the way a team does, not generic shooter bots:
    barracks next to them and they finish it. With no CV, the base point is where the EngiBot first spawned.
 3. **When there is nothing to do,** it walks back to about 900 units from the CV. Each EngiBot waits on its own
    side, so they do not stand on the commander's building spots.
-4. **What it never does.** It does not answer revive, repair or ammo calls. It does not capture flags, join
-   squads, roam, build its own turrets, enter vehicles or take the commander seat.
-5. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
+4. **Turrets on your order.** Select an EngiBot and give it an *attack location* order. It walks there, places
+   an MG turret facing the enemy (turns and retries if the spot is blocked) and builds it to full health. Your
+   screen shows `EngiBot NF 1: building a turret`, then `turret ready`, or why not: `turret limit reached`,
+   `no room for a turret here`, `cannot reach that spot for a turret`. While an order stands (attack location,
+   guard, move) the EngiBot stays there instead of walking back to the CV. A *guard* order on a building makes
+   it build or repair that building.
+5. **What it never does.** It does not answer revive, repair or ammo calls. It does not capture flags, join
+   squads, roam, build turrets without your order, enter vehicles or take the commander seat.
+6. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
    its slot is free and the commander can buy a new one. The bot quota does not count or kick EngiBots, and bots
    that fill the quota later do not become EngiBots.
 
-Not done yet: turrets on the commander's order, repairing vehicles on the pad, the `/` chat command while
-SourceMod is loaded (SourceMod hides `/` chat lines, use `!buildengibot`), and a test with a human commander.
+Not done yet: repairing vehicles on the pad, and a test with a human commander (with SourceMod, if `/buildengibot`
+does nothing, use `!buildengibot` or the console command `buildengibot`).
 A server crash on `!buildengibot` with SourceMod (community report) is fixed: the bot is now added in the next
 server frame instead of inside the chat event. So far everything was measured
 with a bot commander (`scripts/dev_engibot.sh`).

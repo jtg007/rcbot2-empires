@@ -84,6 +84,7 @@
 
 void EmpiresEngibotFrame(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
+void EmpiresHandleEngibotChat(edict_t* speaker, const char* text); // bot_empires_engibot.cpp
 
 #ifdef SM_EXT
 #include "rcbot/entprops.h"
@@ -1007,6 +1008,14 @@ void RCBotPluginMeta::Hook_ClientCommand(edict_t *pEntity)
 	}
 
 	CClient *pClient = CClients::get(pEntity);
+
+	// EngiBot purchase from the client console ("buildengibot", also for a key bind): works even
+	// where a chat plugin hides or swallows "/buildengibot". Queued like the chat command.
+	if ( pcmd != nullptr && std::strcmp(pcmd, "buildengibot") == 0 )
+	{
+		EmpiresHandleEngibotChat(pEntity, "/buildengibot");
+		RETURN_META(MRES_SUPERCEDE);
+	}
 
 	// is bot command?
 	if ( CBotGlobals::m_pCommands->isCommand(pcmd) )
