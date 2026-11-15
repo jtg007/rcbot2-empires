@@ -327,6 +327,20 @@ edict_t* TeamCommanderVehicle(int team)
 }
 } // namespace
 
+// Vehicle repair calls (bot_empires_vehicle.cpp): an EngiBot answers only inside its base leash.
+bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at)
+{
+	int team = 0, index = 0;
+	if (player == nullptr || engine == nullptr || !Entry(engine->GetPlayerUserId(player), team, index))
+		return true;
+	const EngibotTeam& t = s_engibots[team];
+	edict_t* cv = TeamCommanderVehicle(team);
+	if (cv == nullptr && !t.homeKnown[index])
+		return false;
+	const Vector anchor = cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index];
+	return (at - anchor).Length2D() <= std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
+}
+
 // Called from the idle branch of the Empires task dispatch instead of capture, squad, roam and
 // refinery turrets: an EngiBot works only inside the leash around its base (team CV, else its
 // first spawn). It takes the nearest damaged or unfinished own building there (claim: one
@@ -351,6 +365,8 @@ bool CBotEmpires::tickEmpiresEngibot()
 		t.claimUntil[index] = now + 3.0f;
 		return true; // the assignment drives the bot
 	}
+	if (m_iAmmoCrateStage != 0)
+		return true; // an ammo call at the base drives the bot (handleEmpiresAmmoRequest)
 	int order = 0;
 	if (!readEmpiresIntProperty(m_pEdict, "m_iCommandType", order))
 		order = 0;
@@ -368,9 +384,24 @@ bool CBotEmpires::tickEmpiresEngibot()
 	const float leash = atOrder ? 450.0f : std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
 	const Vector origin = getOrigin();
 
+	// Buildings the other EngiBots work on. The claim alone expired while one was building (the
+	// tick does not run during build-assign), so both took the same building and spot (human test
+	// 15.11., run 20261115-125702: radar 523 and VF 536 by both).
+	std::vector<edict_t*> busy;
+	for (int k = 0; k < t.count; ++k)
+		if (edict_t* other = k != index ? PlayerByUserId(t.userIds[k]) : nullptr; other != nullptr)
+			if (CBot* bot = CBots::getBotPointer(other); bot != nullptr)
+			{
+				CBotEmpires* e = static_cast<CBotEmpires*>(bot);
+				if (e->m_iBuildAssignStage != 0 && e->m_hBuildAssignBuilding.get() != nullptr)
+					busy.push_back(e->m_hBuildAssignBuilding.get());
+			}
 	edict_t* best = nullptr;
 	float bestDist = 1.0e9f;
 	int bestHealth = 0, bestMax = 0;
+	edict_t* shared = nullptr; // taken by another EngiBot: help only when nothing else is open
+	float sharedDist = 1.0e9f;
+	int sharedHealth = 0, sharedMax = 0;
 	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
@@ -384,16 +415,30 @@ bool CBotEmpires::tickEmpiresEngibot()
 		if (!readEmpiresEntityIntProperty(e, "m_iHealth", health) || !readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHealth) ||
 			maxHealth <= 0 || health < 0 || health >= maxHealth)
 			continue;
-		bool taken = false;
+		bool taken = std::find(busy.begin(), busy.end(), e) != busy.end();
 		for (int k = 0; k < t.count && !taken; ++k)
 			taken = k != index && t.claim[k] == i && now <= t.claimUntil[k];
 		const float d = (at - origin).Length2D();
+		if (taken && d < sharedDist)
+		{
+			shared = e;
+			sharedDist = d;
+			sharedHealth = health;
+			sharedMax = maxHealth;
+		}
 		if (taken || d >= bestDist)
 			continue;
 		best = e;
 		bestDist = d;
 		bestHealth = health;
 		bestMax = maxHealth;
+	}
+	if (best == nullptr && shared != nullptr)
+	{
+		best = shared;
+		bestDist = sharedDist;
+		bestHealth = sharedHealth;
+		bestMax = sharedMax;
 	}
 	if (best != nullptr)
 	{

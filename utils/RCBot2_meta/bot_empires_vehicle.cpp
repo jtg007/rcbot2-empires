@@ -557,6 +557,27 @@ float DropDistance(const Vector& p, float yaw, float range)
 }
 
 // World-only sight line a vehicle body can follow (two traces at its half width).
+// Sight for vehicle targets: world and buildings block (a world-only trace let tanks in the
+// enemy base shoot at infantry inside and behind barracks, human test 15.11.). Players and
+// vehicles do not block; the physbox only fills a building's interior for vehicles.
+class CVehicleSightFilter : public CTraceFilter
+{
+public:
+	bool ShouldHitEntity(IHandleEntity* handle, int) override
+	{
+		IServerUnknown* unknown = static_cast<IServerUnknown*>(handle);
+		IServerNetworkable* networkable = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
+		edict_t* e = networkable != nullptr ? networkable->GetEdict() : nullptr;
+		const char* cls = e != nullptr ? e->GetClassName() : nullptr;
+		if (cls == nullptr)
+			return false;
+		return (std::strncmp(cls, "emp_building_", 13) == 0 && std::strstr(cls, "physbox") == nullptr) ||
+			std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0;
+	}
+};
+
+constexpr float kVehicleMgInfantryRange = 1200.0f; // MG round 1000 u/s (vehicle_weapons.txt)
+
 bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth)
 {
 	Vector dir = to - from;
@@ -1336,7 +1357,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		else if (isEmpiresEngineerClass())
 		{
 			skip = "engineer";
-			edict_t* hurt = RepairRequestVehicle(team);
+			edict_t* hurt = empiresRepairCallAllowed(RepairRequestVehicle(team)) ? RepairRequestVehicle(team) : nullptr;
 			RepairRequest& r = s_repairRequest[team];
 			if (hurt != nullptr && (r.engineerUserId == userId || now > r.claimUntil) &&
 				(NearestOnVehicle(hurt, getEyePosition()) - getEyePosition()).Length2D() < 220.0f)
@@ -1979,7 +2000,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		edict_t* hurt = v.assistVehicle.get();
 		RepairRequest& r = s_repairRequest[team];
 		if (hurt == nullptr || hurt->IsFree() || RepairRequestVehicle(team) != hurt ||
-			(v.stageUntil > 0.0f && now > v.stageUntil))
+			(v.stageUntil > 0.0f && now > v.stageUntil) || !empiresRepairCallAllowed(hurt))
 		{
 			if (r.engineerUserId == userId)
 				r.engineerUserId = -1;
@@ -2294,9 +2315,14 @@ void CBotEmpires::tickEmpiresVehicle()
 			trace_t hit;
 			Ray_t ray;
 			ray.Init(eye, EntityCenter(e));
-			CTraceFilterWorldOnly filter;
+			CTraceFilterWorldOnly worldOnly; // also static props (rocks, crates)
+			enginetrace->TraceRay(ray, MASK_SHOT, &worldOnly, &hit);
+			if (hit.fraction <= 0.97f)
+				return false;
+			CVehicleSightFilter filter;
 			enginetrace->TraceRay(ray, MASK_SHOT, &filter, &hit);
-			return hit.fraction > 0.97f;
+			return hit.fraction > 0.97f ||
+				(hit.m_pEnt != nullptr && e->GetUnknown() != nullptr && hit.m_pEnt == e->GetUnknown()->GetBaseEntity());
 		};
 		edict_t* bestEmpty = nullptr;
 		float bestEmptyScore = 1500.0f; // empty enemy vehicles only close by, after everything else
@@ -2341,22 +2367,28 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 		}
-		// Enemy infantry on the ground: run them over or shoot them.
-		if (best == nullptr)
+		// Enemy infantry on the ground: run them over or shoot them. Only with MG ammo left: the
+		// cannon is not used on infantry (user 15.11.).
+		if (best == nullptr && (!v.weaponsKnown || v.weaponMgLeft || v.billNye))
 		{
 			for (int i = 1; i <= gpGlobals->maxClients; ++i)
 			{
 				edict_t* e = engine->PEntityOfEntIndex(i);
 				IPlayerInfo* info = e != nullptr && !e->IsFree() && playerinfomanager != nullptr ?
 					playerinfomanager->GetPlayerInfo(e) : nullptr;
-				if (info == nullptr || info->IsDead() || info->GetTeamIndex() != enemyTeam ||
-					EmpiresVehiclePlayerVehicle(this, e) >= 0)
+				if (info == nullptr || info->IsDead() || info->IsObserver() || info->GetHealth() <= 0 ||
+					info->GetTeamIndex() != enemyTeam || EmpiresVehiclePlayerVehicle(this, e) >= 0)
+					continue;
+				int seatedCommander = 0; // a seated commander's position is the camera above the map
+				if (readEmpiresEntityIntProperty(e, "m_bCommander", seatedCommander) && seatedCommander != 0)
 					continue;
 				const Vector at = CBotGlobals::entityOrigin(e);
 				if (std::fabs(at.z - origin.z) > 160.0f)
 					continue;
 				const float score = Dist2D(origin, at);
-				if (score < 3000.0f && score < bestScore && inSight(e)) // MG range (FalloffEnd 3000)
+				// MG on infantry up to 1200: the MG round flies 1000 u/s, so farther out the lead
+				// (over a second) only sprayed into empty ground (human test 15.11.).
+				if (score < kVehicleMgInfantryRange && score < bestScore && inSight(e))
 				{
 					bestScore = score;
 					best = e;
@@ -3196,7 +3228,53 @@ void CBotEmpires::tickEmpiresVehicle()
 		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f\n", userId, v.vehicleIndex,
 			chassis, v.width);
 	}
-	const bool closeManeuver = (v.billNye && targetIsVehicle) ||
+	// A new vehicle stands in the factory bay, inside the factory's box. Planned from there, the
+	// building detour ran along the factory side into a gap between crates and a tower instead of
+	// out of the bay (human test 15.11., run 20261115-125702, stuck at (1708 9688)). First drive
+	// straight ahead (the bay faces out) until clear of every building box, then plan.
+	if (!v.exitChecked && !v.commanderCV)
+	{
+		v.exitChecked = true;
+		const float pad = v.width * 0.5f + 112.0f;
+		if (RCBotNavMesh::PointNearBuilding(origin, 0.0f))
+		{
+			const Vector dir = YawDir(heading);
+			for (float d = 200.0f; d <= 2200.0f; d += 50.0f)
+			{
+				const Vector p = origin + dir * d;
+				if (!DriveLineClear(origin, p, v.width * 0.5f))
+					break;
+				v.exitPoint = p;
+				if (!RCBotNavMesh::PointNearBuilding(p, pad))
+					break;
+			}
+			if (Dist2D(origin, v.exitPoint) >= 200.0f)
+			{
+				v.exitUntil = now + 6.0f + Dist2D(origin, v.exitPoint) / 150.0f;
+				RCBOT_DIAG("[RCBOT2] vehicle factory-exit start userid=%d veh=%d from=(%.0f %.0f) to=(%.0f %.0f) dist=%.0f clear=%d\n",
+					userId, v.vehicleIndex, origin.x, origin.y, v.exitPoint.x, v.exitPoint.y, Dist2D(origin, v.exitPoint),
+					RCBotNavMesh::PointNearBuilding(v.exitPoint, pad) ? 0 : 1);
+			}
+		}
+	}
+	bool exitLeg = false;
+	if (v.exitUntil > 0.0f)
+	{
+		if (Dist2D(origin, v.exitPoint) < 150.0f || now >= v.exitUntil || target != nullptr)
+		{
+			RCBOT_DIAG("[RCBOT2] vehicle factory-exit end userid=%d reason=%s dist=%.0f pos=(%.0f %.0f)\n", userId,
+				target != nullptr ? "target" : (now >= v.exitUntil ? "timeout" : "reached"), Dist2D(origin, v.exitPoint),
+				origin.x, origin.y);
+			v.exitUntil = 0.0f;
+			v.nextReplan = 0.0f;
+		}
+		else
+		{
+			driveTo = v.exitPoint;
+			exitLeg = true;
+		}
+	}
+	const bool closeManeuver = exitLeg || (v.billNye && targetIsVehicle) ||
 		(target != nullptr && Dist2D(origin, driveTo) < 900.0f &&
 			DriveLineClear(origin, driveTo, v.width * 0.5f));
 	bool onRoute = false;
@@ -3670,23 +3748,18 @@ void CBotEmpires::tickEmpiresVehicle()
 				const char* why = "fallback";
 				if (v.weaponsKnown)
 				{
-					// User 14.11.: MG against infantry, the cannon there only once every machine gun
-					// of the group is out of magazine and reserve; cannon/missiles against vehicles
-					// and buildings. Buttons that would also fire a cannon are not used on infantry.
+					// Infantry only with the MG, never the cannon (user 15.11., replaces the 14.11.
+					// rule "cannon once every MG is empty"); cannon/missiles against vehicles and
+					// buildings. Buttons that would also fire a cannon are not used on infantry.
 					if (infantry)
 					{
-						if (distance < 3000.0f && v.weaponMgPure != 0)
+						if (distance < kVehicleMgInfantryRange + 200.0f && v.weaponMgPure != 0)
 						{
 							buttons |= v.weaponMgPure;
 							why = "mg";
 						}
 						else if (v.weaponMgMixed != 0)
 							why = "mg-mixed"; // user: never fire a shared MG/cannon button at infantry
-						else if (distance < 3000.0f && !v.weaponMgLeft && v.weaponHeavyInf != 0)
-						{
-							buttons |= v.weaponHeavyInf;
-							why = "mg-empty";
-						}
 						else
 							why = v.weaponMgLeft ? "mg-reloading" : "no-weapon";
 					}
@@ -3700,10 +3773,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				else if (infantry)
 				{
-					if (distance < 3000.0f)
-						buttons |= kMachineGun;
-					if (distance < 1500.0f)
-						buttons |= kCannon; // splash
+					if (distance < kVehicleMgInfantryRange + 200.0f)
+						buttons |= kMachineGun; // MG only on infantry (user 15.11.)
 				}
 				else if (distance < 4000.0f)
 					buttons |= kCannon;
@@ -3771,13 +3842,27 @@ bool CBotEmpires::startEmpiresCommanderDrive(edict_t* cv, const Vector& goal)
 	return true;
 }
 
+bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
+
+// A vehicle's repair call may take this engineer: not while the commander's order stands (the
+// assist owned the bot for up to 60 s and orders were ignored, human test 15.11., run
+// 20261115-125702), and an EngiBot only inside its base leash.
+bool CBotEmpires::empiresRepairCallAllowed(edict_t* hurt)
+{
+	if (hurt == nullptr || m_pEdict == nullptr)
+		return false;
+	if (commanderOrderHoldsFrom(hurt))
+		return false;
+	return !EmpiresIsEngibot(m_pEdict) || EmpiresEngibotWithinLeash(m_pEdict, CBotGlobals::entityOrigin(hurt));
+}
+
 bool CBotEmpires::handleEmpiresVehicleRepairRequest()
 {
 	if (gpGlobals == nullptr || engine == nullptr || !isEmpiresEngineerClass())
 		return false;
 	const int team = getTeam();
 	edict_t* hurt = RepairRequestVehicle(team);
-	if (hurt == nullptr)
+	if (hurt == nullptr || !empiresRepairCallAllowed(hurt))
 		return false;
 	const float now = gpGlobals->curtime;
 	const int userId = engine->GetPlayerUserId(m_pEdict);

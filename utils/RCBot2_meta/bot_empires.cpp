@@ -1496,6 +1496,14 @@ int CBotEmpires::classifyEmpiresPlayer(edict_t* pEdict) const
 	return static_cast<int>(EmpiresPlayerObservation::UNKNOWN);
 }
 
+// Shots of teammates are not a noise to turn to: every engineer holds attack while building, so
+// two engineers kept turning each other away from the building (expert 15.11.: LOOK_NOISE in 58 %
+// of repair frames, barracks 28 s -> 17 s without it). Also why bots in general turned so often.
+bool CBotEmpires::wantToListenToPlayerAttack(edict_t* pPlayer, int)
+{
+	return pPlayer != nullptr && CClassInterface::getTeam(pPlayer) != getTeam();
+}
+
 bool CBotEmpires::isEnemy(edict_t* pEdict, const bool bCheckWeapons)
 {
 	// Empires has two playable teams. The old donor also rejected self and
@@ -1503,8 +1511,12 @@ bool CBotEmpires::isEnemy(edict_t* pEdict, const bool bCheckWeapons)
 	// but obtain all state from current SDK2013 IPlayerInfo instead of old
 	// class-name, offset, signature or GameRules assumptions.
 	(void)bCheckWeapons;
-	return classifyEmpiresPlayer(pEdict) ==
-		static_cast<int>(EmpiresPlayerObservation::ENEMY);
+	if (classifyEmpiresPlayer(pEdict) != static_cast<int>(EmpiresPlayerObservation::ENEMY))
+		return false;
+	// A seated commander's player position is the top-down camera: enemy bots aimed into the sky
+	// at it (human test 15.11.). The CV itself stays a target.
+	int commander = 0;
+	return !(readEmpiresEntityIntProperty(pEdict, "m_bCommander", commander) && commander != 0);
 }
 
 float CBotEmpires::getEnemyFactor(edict_t* pEnemy)
@@ -5509,7 +5521,8 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		CBotGlobals::entityIsValid(m_pLastEnemy) &&
 		CBotGlobals::entityIsAlive(m_pLastEnemy) &&
 		isEnemy(m_pLastEnemy, false) &&
-		wantToFollowEnemy();
+		wantToFollowEnemy() &&
+		!EmpiresIsEngibot(m_pEdict); // EngiBots stay at the base (human test 15.11.)
 
 	if (validLastEnemy && m_pSchedules != nullptr)
 	{
@@ -6273,6 +6286,24 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		return;
 	}
 
+	// An EngiBot does not chase: it fights from where it is (weapon handling is separate) and keeps
+	// its base work. Chasing pulled both EngiBots 10000 units to the front (human test 15.11.,
+	// run 20261115-125248).
+	if (EmpiresIsEngibot(m_pEdict))
+	{
+		if (m_bEmpiresApproachTaskIssued)
+		{
+			m_bEmpiresApproachTaskIssued = false;
+			m_pEmpiresApproachTarget = nullptr;
+			if (m_pSchedules != nullptr)
+				m_pSchedules->freeMemory();
+			if (m_pNavigator != nullptr)
+				m_pNavigator->clear();
+		}
+		tickEmpiresEngibot();
+		return;
+	}
+
 	if (m_pEmpiresApproachTarget.get() != pEnemy)
 	{
 		m_pEmpiresApproachTarget = nullptr;
@@ -6464,10 +6495,14 @@ void CBotEmpires::modThink()
 	updateEmpiresEngineerSkills();
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();
-	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive() && !EmpiresIsEngibot(m_pEdict))
+	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
 	{
-		handleEmpiresRevive();
-		if (!handleEmpiresAmmoRequest() && !EmpiresIsEngibot(m_pEdict))
+		// EngiBots: ammo calls of vehicles at the base only (human test 15.11.: a tank called for
+		// ammo next to both EngiBots and got none); no revive, no refinery turrets.
+		const bool engibot = EmpiresIsEngibot(m_pEdict);
+		if (!engibot)
+			handleEmpiresRevive();
+		if (!handleEmpiresAmmoRequest() && !engibot)
 			handleEmpiresRefineryTurret();
 	}
 	if (m_vehicle.stage == EmpiresVehicleStage::DRIVING ||
@@ -7640,12 +7675,12 @@ void CBotEmpires::tickEmpiresGuardOrder()
 {
 	constexpr int kGuardType = 4;
 	if (engine == nullptr || m_pEdict == nullptr || m_pPlayerInfo == nullptr ||
-		!m_pPlayerInfo->IsFakeClient() || m_iBuildAssignStage != 0 || !isAlive())
+		!m_pPlayerInfo->IsFakeClient() || !isAlive())
 		return;
 	const float now = engine->Time();
 	if (now < m_fEmpiresGuardNextCheck)
 		return;
-	m_fEmpiresGuardNextCheck = now + 3.0f;
+	m_fEmpiresGuardNextCheck = now + (m_iBuildAssignStage != 0 ? 1.0f : 3.0f);
 
 	int commandType = -1;
 	if (m_iEmpiresTestGuardTarget > 0)
@@ -7675,6 +7710,24 @@ void CBotEmpires::tickEmpiresGuardOrder()
 		std::strncmp(target->GetClassName(), "emp_building", 12) != 0 ||
 		CClassInterface::getTeam(target) != getTeam())
 		return;
+	// The commander's guard order replaces the bot's own building job: the bot finished a turret
+	// first (43 s) and looked as if it ignored the order (human test 15.11., run 20261115-130758).
+	int guardHealth = -1, guardMax = -1;
+	if (m_iBuildAssignStage != 0)
+	{
+		if (m_hBuildAssignBuilding.get() == target ||
+			!readEmpiresEntityIntProperty(target, "m_iHealth", guardHealth) ||
+			!readEmpiresEntityIntProperty(target, "m_iMaxHealth", guardMax) || guardHealth >= guardMax)
+			return;
+		RCBOT_DIAG("[RCBOT2] guard-order replaces userid=%d old=%d new=%d\n", engine->GetPlayerUserId(m_pEdict),
+			m_hBuildAssignBuilding.get() != nullptr ? engine->IndexOfEdict(m_hBuildAssignBuilding.get()) : -1, targetIndex);
+		if (isEmpiresEngineerRepairActionActive())
+			failEmpiresEngineerRepairAction("guard-order-replaced");
+		cancelNavigationAttempt("guard-order-replaced");
+		if (m_pSchedules != nullptr)
+			m_pSchedules->freeMemory();
+		m_iBuildAssignStage = 0;
+	}
 	int health = -1;
 	int maxHealth = -1;
 	if (!readEmpiresEntityIntProperty(target, "m_iHealth", health) ||
@@ -22240,4 +22293,30 @@ void CBotEmpires::freeMapMemory()
 	}
 
 	CBots::controlledTestLifecycleMayEnd();
+}
+
+// A standing commander order keeps an engineer from a vehicle's repair or ammo call, except near
+// the order: guard and attack location stay set for the whole round (RE commander-order-types),
+// so a guard on the repair station blocked every call right there (expert review 15.11.).
+bool CBotEmpires::commanderOrderHoldsFrom(edict_t* vehicle)
+{
+	int order = 0;
+	if (vehicle == nullptr || m_pEdict == nullptr || engine == nullptr || gpGlobals == nullptr ||
+		!readEmpiresIntProperty(m_pEdict, "m_iCommandType", order) || order == 0)
+		return false;
+	const Vector at = CBotGlobals::entityOrigin(vehicle);
+	if (order == 4)
+	{
+		const int targetIndex = ReadEmpiresCommandTargetIndex(m_pEdict);
+		if (targetIndex == engine->IndexOfEdict(vehicle))
+			return false; // guards this very vehicle
+		edict_t* target = targetIndex > 0 && targetIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(targetIndex) : nullptr;
+		if (target != nullptr && !target->IsFree() && (CBotGlobals::entityOrigin(target) - at).Length2D() < 800.0f)
+			return false; // next to the guarded building
+	}
+	Vector spot;
+	if ((order == 2 || order == 4) && readEmpiresEntityVectorProperty(m_pEdict, "m_vCommandLocation", spot) &&
+		spot.LengthSqr() > 1.0f && (spot - at).Length2D() < 800.0f)
+		return false;
+	return true;
 }

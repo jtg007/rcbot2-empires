@@ -16,7 +16,7 @@ if ! scripts/dev_build.sh >/dev/null 2>"$BUILD_LOG"; then
   grep -a -m5 "error" "$BUILD_LOG"; echo "Build failed: $BUILD_LOG"; exit 1
 fi
 export DEV_SKIP_BUILD=1
-port=49925
+port="${DEV_CHECK_PORT:-49925}" # first port; DEV_CHECK_PORT=49940 next to a running test server
 job() {  # job <name> <command...>: output to $TMP/<name>.txt, seconds to $TMP/<name>.sec
   local name="$1"; shift
   ( t0=$SECONDS; DEV_PORT=$port "$@" >"$TMP/$name.txt" 2>&1; echo $((SECONDS - t0)) >"$TMP/$name.sec" ) &

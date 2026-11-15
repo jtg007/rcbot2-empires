@@ -91,7 +91,11 @@ Check free space before long recordings and remove only recordings you created.
   are measured with a bot commander (`scripts/dev_engibot.sh`). Turret on an "attack location" order: placed on
   the second try and built 100/100 in 3.9 s (bot commander). Console command `buildengibot` as a fallback for the
   `/` chat under SourceMod (built, not measured). Open: repairing vehicles on the pad and a test with a human
-  commander. A community server crashed on `!buildengibot` with SourceMod and humans;
+  commander. First human test (15.11.) found and fixed: EngiBots chased enemies to the front, took the same building,
+  ignored ammo calls at the base; vehicle repair calls held engineers so orders were ignored; a guard waited for the
+  current build; tanks drove around the factory instead of out of the bay, saw infantry through buildings and fired
+  into empty ground at range; bots aimed at a seated commander's camera and turned to every teammate's shots
+  (barracks build 28 s -> 17 s without it). Retest with the human pending. A community server crashed on `!buildengibot` with SourceMod and humans;
   the purchase now runs in the next server frame instead of inside the chat event (not yet confirmed there).
 
 - [ ] Orders from a human commander (community test: guard/stop ignored, bots ran off). Now testable without a
@@ -172,8 +176,8 @@ Check free space before long recordings and remove only recordings you created.
   available space; ramp detection is not yet part of the planner.
 - Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
-  modes, groups, magazine and reserve every 0.25 s; MG only against infantry, cannon there only
-  after every MG of the group has an empty magazine and reserve, no fire while the MG reloads;
+  modes, groups, magazine and reserve every 0.25 s; MG only against infantry (up to 1200, the MG
+  round flies 1000 u/s; never the cannon, no infantry target without MG ammo), no fire while the MG reloads;
   cannon/missiles against vehicles and buildings. Run `20261114-150322-emp_crossroads-10b-12m`
   (10 bots, real time): MG magazine 60→0 and reserve 4→0 under IN_ATTACK, then IN_ATTACK2 and
   cannon 40→36; one armour target used the cannon. Still open: switching fire groups,

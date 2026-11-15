@@ -85,6 +85,8 @@ EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, co
 }
 } // namespace
 
+bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
+
 bool CBotEmpires::handleEmpiresAmmoRequest()
 {
 	const char* busy = gpGlobals == nullptr || engine == nullptr || m_pPlayerInfo == nullptr || m_pPlayerInfo->IsDead() ||
@@ -134,6 +136,20 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		req = OpenRequest(this, team, userId, getOrigin(), dist);
 		if (req == nullptr)
 			return false;
+		if (commanderOrderHoldsFrom(RequestVehicle(this, req)))
+		{
+			m_flAmmoCrateNextSearch = now + 5.0f;
+			return false; // the commander's order goes first
+		}
+		if (EmpiresIsEngibot(m_pEdict))
+		{
+			edict_t* calling = RequestVehicle(this, req);
+			if (calling == nullptr || !EmpiresEngibotWithinLeash(m_pEdict, CBotGlobals::entityOrigin(calling)))
+			{
+				m_flAmmoCrateNextSearch = now + 5.0f;
+				return false; // an EngiBot serves the base only
+			}
+		}
 		if (dist > kSearchRange)
 		{
 			RCBOT_DIAG("[RCBOT2] ammo-crate far userid=%d veh=%d dist=%.0f\n", userId, req->vehicle, dist);
@@ -170,6 +186,8 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	edict_t* vehicle = RequestVehicle(this, req);
 	if (vehicle == nullptr)
 		return stop("call-gone", 3.0f);
+	if (commanderOrderHoldsFrom(vehicle))
+		return stop("order", 5.0f);
 	EmpiresAmmoRequest& r = *req;
 	if (now - m_flAmmoCrateStageAt > (m_iAmmoCrateStage == 1 ? 120.0f : 6.0f))
 		return stop(m_iAmmoCrateStage == 1 ? "walk-timeout" : "place-timeout", 20.0f);

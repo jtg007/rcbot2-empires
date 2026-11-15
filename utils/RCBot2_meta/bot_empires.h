@@ -489,6 +489,10 @@ struct EmpiresVehicleBrain
 	std::size_t routeIndex = 0;
 	Vector routeGoal = Vector(0, 0, 0);
 	float nextReplan = 0.0f;
+	// Leaving the factory: straight out of the bay before the first route (human test 15.11.).
+	bool exitChecked = false;
+	Vector exitPoint = Vector(0, 0, 0);
+	float exitUntil = 0.0f;
 	bool routeFailed = false;
 	bool routePartial = false; // route ends at the reachable area nearest the goal
 	int routeResult = -1;
@@ -623,6 +627,7 @@ public:
 	bool isControlledTestOnly() const override { return m_bBootstrapOnly || m_bControllerProbeOnly; }
 	int getTeam() override;
 	bool isEnemy(edict_t* pEdict, bool bCheckWeapons = true) override;
+	bool wantToListenToPlayerAttack(edict_t* pPlayer, int iWeaponID = -1) override;
 	float getEnemyFactor(edict_t* pEnemy) override;
 	void enemyFound(edict_t* pEnemy) override;
 	void receiveEmpiresSpottedEnemy(edict_t* pEnemy, int sourceIndex);
@@ -761,6 +766,8 @@ public:
 	// An Engineer walks to one assigned building and works on it until full.
 	bool requestEmpiresBuildAssignment(edict_t* building);
 	bool tickEmpiresEngibot(); // bot_empires_engibot.cpp
+	bool empiresRepairCallAllowed(edict_t* hurt); // bot_empires_vehicle.cpp
+	bool commanderOrderHoldsFrom(edict_t* vehicle); // bot_empires.cpp
 	bool tickEngibotTurretOrder(struct EngibotTurretJob& job, int team, int order); // bot_empires_engibot.cpp
 	void applyEmpiresTeamClassName(); // bot_empires_engibot.cpp
 	void tickEmpiresBuildAssignment();

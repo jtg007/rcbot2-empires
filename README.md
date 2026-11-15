@@ -91,8 +91,12 @@ Bots that play Empires the way a team does, not generic shooter bots:
    `no room for a turret here`, `cannot reach that spot for a turret`. While an order stands (attack location,
    guard, move) the EngiBot stays there instead of walking back to the CV. A *guard* order on a building makes
    it build or repair that building.
-5. **What it never does.** It does not answer revive, repair or ammo calls. It does not capture flags, join
-   squads, roam, build turrets without your order, enter vehicles or take the commander seat.
+5. **What it never does.** It does not chase enemies (it shoots from where it is), answer revive calls, or answer
+   repair and ammo calls of vehicles outside its base area (inside it, it repairs them and drops ammo crates). It
+   does not capture flags, join squads, roam, build turrets without your order, enter vehicles or take the
+   commander seat. Your orders go first: a *guard* on a building replaces the job it is on, and an engineer under
+   your order only answers repair/ammo calls near the order spot or the guarded building. With two EngiBots, each
+   takes a different building when there is more than one to build.
 6. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
    its slot is free and the commander can buy a new one. The bot quota does not count or kick EngiBots, and bots
    that fill the quota later do not become EngiBots.
@@ -126,7 +130,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 |:-:|---|---|
 | ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
 | ✅ | Drive | On the navmesh, three-point turns, keep away from edges |
-| 🟡 | Fight | Leads targets and circles enemies; chooses MG or cannon by target and remaining ammo within the active weapon group; group switching is not yet implemented |
+| 🟡 | Fight | Leads targets and circles enemies; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target; group switching is not yet implemented |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
 | 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the nearest source: a team ammo crate (engineer or map crate) or the own repair pad, where it refits (refills every weapon); far from both it calls for ammo and an engineer places a supply crate |
