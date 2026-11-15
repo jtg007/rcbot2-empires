@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <cstring>
 
+int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
+
 namespace
 {
 constexpr float kSearchRange = 16000.0f; // same as the repair call; the tank drives home meanwhile
@@ -45,18 +47,23 @@ int CratesNear(const Vector& at, float radius)
 	return n;
 }
 
-edict_t* RequestVehicle(const EmpiresAmmoRequest* r)
+// A live call whose driver still sits alive in that vehicle (a call outlives an exit or death by up
+// to 40 s, and a freed index may belong to another vehicle by then: expert 15.11.).
+edict_t* RequestVehicle(const CBotEmpires* bot, const EmpiresAmmoRequest* r)
 {
 	if (r == nullptr || r->vehicle <= 0 || gpGlobals->curtime > r->until)
 		return nullptr;
 	edict_t* e = engine->PEntityOfEntIndex(r->vehicle);
 	if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
 		return nullptr;
+	edict_t* driver = r->driverUserId >= 0 ? CBotGlobals::playerByUserId(r->driverUserId) : nullptr;
+	if (driver == nullptr || !CBotGlobals::entityIsAlive(driver) || EmpiresVehiclePlayerVehicle(bot, driver) != r->vehicle)
+		return nullptr;
 	return e;
 }
 
 // The nearest live call that no other engineer holds (one engineer per vehicle).
-EmpiresAmmoRequest* OpenRequest(int team, int userId, const Vector& from, float& dist)
+EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, const Vector& from, float& dist)
 {
 	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
 	EmpiresAmmoRequest* best = nullptr;
@@ -64,7 +71,7 @@ EmpiresAmmoRequest* OpenRequest(int team, int userId, const Vector& from, float&
 	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
 	{
 		EmpiresAmmoRequest& r = slots[i];
-		edict_t* e = RequestVehicle(&r);
+		edict_t* e = RequestVehicle(bot, &r);
 		if (e == nullptr || (r.engineerUserId >= 0 && r.engineerUserId != userId && gpGlobals->curtime <= r.claimUntil))
 			continue;
 		const float d = Dist2D(from, CBotGlobals::entityOrigin(e));
@@ -87,7 +94,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	{
 		float openDist = 0.0f;
 		if (busy[0] != '\0' && gpGlobals->curtime >= m_flAmmoCrateNextNav + 10.0f &&
-			OpenRequest(getTeam(), engine->GetPlayerUserId(m_pEdict), getOrigin(), openDist) != nullptr)
+			OpenRequest(this, getTeam(), engine->GetPlayerUserId(m_pEdict), getOrigin(), openDist) != nullptr)
 		{
 			m_flAmmoCrateNextNav = gpGlobals->curtime;
 			RCBOT_DIAG("[RCBOT2] ammo-crate busy userid=%d reason=%s\n", engine->GetPlayerUserId(m_pEdict), busy);
@@ -124,7 +131,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		if (now < m_flAmmoCrateNextSearch)
 			return false;
 		float dist = 0.0f;
-		req = OpenRequest(team, userId, getOrigin(), dist);
+		req = OpenRequest(this, team, userId, getOrigin(), dist);
 		if (req == nullptr)
 			return false;
 		if (dist > kSearchRange)
@@ -160,7 +167,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		m_flAmmoCrateNextSearch = now + 5.0f;
 		return false;
 	}
-	edict_t* vehicle = RequestVehicle(req);
+	edict_t* vehicle = RequestVehicle(this, req);
 	if (vehicle == nullptr)
 		return stop("call-gone", 3.0f);
 	EmpiresAmmoRequest& r = *req;

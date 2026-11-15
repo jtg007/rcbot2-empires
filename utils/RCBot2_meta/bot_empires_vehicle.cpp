@@ -2865,11 +2865,16 @@ void CBotEmpires::tickEmpiresVehicle()
 		// Ammo only: a crate nearer than the pad (or no pad) is enough; not once the refit has begun.
 		edict_t* crate = nullptr;
 		float crateDist = 1.0e9f;
+		// An engineer on the way to our own call: only a near crate beats waiting for him (run
+		// 20261115-014937: the second tank drove 13000 to the first tank's crate, its engineer gave up).
+		const EmpiresAmmoRequest* heldCall = v.ammoTrip ? EmpiresAmmoRequestForVehicle(team, v.vehicleIndex, false) : nullptr;
+		const float crateRange = heldCall != nullptr && heldCall->engineerUserId >= 0 && now <= heldCall->claimUntil ?
+			2500.0f : 1.0e9f;
 		if (v.ammoTrip && v.refitStep == 0)
 			for (edict_t* e : crates)
 			{
 				const float d = Dist2D(origin, CBotGlobals::entityOrigin(e));
-				if (d < crateDist && (station == nullptr || d < best))
+				if (d < crateDist && d <= crateRange && (station == nullptr || d < best))
 				{
 					crateDist = d;
 					crate = e;

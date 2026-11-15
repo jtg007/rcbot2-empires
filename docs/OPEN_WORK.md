@@ -25,7 +25,8 @@ Check free space before long recordings and remove only recordings you created.
    the pad over 2500 away (or none) the tank calls "I need ammo" (`emp_menu_command 29`) and waits
    while an engineer holds the call; the engineer walks over and places a supply crate (`engSelect 7`,
    `scripts/dev_ammocall.sh`; measured: crate on the first try, tank full again after 22 s). Each vehicle has its own call (up to four per team); an engineer takes
-   the nearest call no other engineer holds (two empty tanks at once not measured yet). Next:
+   the nearest call no other engineer holds (measured with two empty tanks: one engineer each; `DEV_AMMO_TANKS=2`). A call holds only while its
+   driver sits alive in the vehicle. Engineers often get stuck on the way (`walk-stuck`). Next:
    other chassis, then infantry resupply for every class.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
