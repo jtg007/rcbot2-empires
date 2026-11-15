@@ -93,6 +93,7 @@ jobs:
             alliedmodders/hl2sdk-sdk2013 \
             alliedmodders/metamod-source \
             alliedmodders/sourcemod
+          git -C alliedmodders/sourcemod submodule update --init --depth 1 sourcepawn public/amtl
 
       - name: Configure and build
         shell: bash
