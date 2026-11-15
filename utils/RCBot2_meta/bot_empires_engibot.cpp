@@ -112,7 +112,7 @@ void Prune(int team)
 		if (e != nullptr && now != team && now >= 2)
 		{
 			char command[32];
-			std::snprintf(command, sizeof(command), "kickid %d\n", t.userIds[i]);
+			snprintf(command, sizeof(command), "kickid %d\n", t.userIds[i]);
 			engine->ServerCommand(command);
 			RCBOT_DIAG("[RCBOT2] engibot kick userid=%d team=%d reason=team-change now=%d\n", t.userIds[i], team, now);
 			continue;
@@ -192,8 +192,8 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 	const char* reason = nullptr;
 	char reply[160];
 	float before = -1.0f;
-	const int limit = std::max(0, std::min(kMaxEngibots, rcbot_empires_engibot_limit.GetInt()));
-	const float cost = std::max(0.0f, rcbot_empires_engibot_cost.GetFloat());
+	const int limit = (std::max)(0, (std::min)(kMaxEngibots, rcbot_empires_engibot_limit.GetInt()));
+	const float cost = (std::max)(0.0f, rcbot_empires_engibot_cost.GetFloat());
 	EmpiresNativePlacement::ContextIdentity context;
 	bool commander = false;
 	if (team == 2 || team == 3)
@@ -218,7 +218,7 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 	{
 		int slot = -1;
 		char name[32];
-		std::snprintf(name, sizeof(name), "EngiBot %s %d", team == 2 ? "NF" : "BE", s_engibots[team].count + 1);
+		snprintf(name, sizeof(name), "EngiBot %s %d", team == 2 ? "NF" : "BE", s_engibots[team].count + 1);
 		if (!CBots::createBot("3", team == 2 ? "2" : "3", name, &slot) || slot < 0 || CBots::getBot(slot) == nullptr ||
 			CBots::getBot(slot)->getEdict() == nullptr)
 			reason = "create-failed";
@@ -226,7 +226,7 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 		{
 			// Never hand out a free bot: take it back.
 			char command[32];
-			std::snprintf(command, sizeof(command), "kickid %d\n", engine->GetPlayerUserId(CBots::getBot(slot)->getEdict()));
+			snprintf(command, sizeof(command), "kickid %d\n", engine->GetPlayerUserId(CBots::getBot(slot)->getEdict()));
 			engine->ServerCommand(command);
 			reason = "pay-failed";
 		}
@@ -245,7 +245,7 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 			EmpiresTeamResources(team, after);
 			RCBOT_DIAG("[RCBOT2] engibot buy team=%d speaker=%d cost=%.0f res_before=%.0f res_after=%.0f slot=%d userid=%d count=%d/%d\n",
 				team, speakerId, cost, before, after, slot, userId, t.count, limit);
-			std::snprintf(reply, sizeof(reply), "EngiBot ready (%d/%d), -%.0f resources", t.count, limit, cost);
+			snprintf(reply, sizeof(reply), "EngiBot ready (%d/%d), -%.0f resources", t.count, limit, cost);
 			Reply(speaker, reply);
 			return;
 		}
@@ -253,17 +253,17 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 	RCBOT_DIAG("[RCBOT2] engibot refuse team=%d speaker=%d reason=%s count=%d limit=%d cost=%.0f res=%.0f\n", team,
 		speakerId, reason, team == 2 || team == 3 ? s_engibots[team].count : 0, limit, cost, before);
 	if (std::strcmp(reason, "limit") == 0)
-		std::snprintf(reply, sizeof(reply), "EngiBot limit reached (%d/%d)", limit, limit);
+		snprintf(reply, sizeof(reply), "EngiBot limit reached (%d/%d)", limit, limit);
 	else if (std::strcmp(reason, "money") == 0)
-		std::snprintf(reply, sizeof(reply), "Not enough resources for an EngiBot (%.0f needed)", cost);
+		snprintf(reply, sizeof(reply), "Not enough resources for an EngiBot (%.0f needed)", cost);
 	else if (std::strcmp(reason, "not-commander") == 0)
-		std::snprintf(reply, sizeof(reply), "Only the commander can build an EngiBot");
+		snprintf(reply, sizeof(reply), "Only the commander can build an EngiBot");
 	else if (std::strcmp(reason, "server-full") == 0)
-		std::snprintf(reply, sizeof(reply), "Server is full, no slot for an EngiBot");
+		snprintf(reply, sizeof(reply), "Server is full, no slot for an EngiBot");
 	else if (std::strcmp(reason, "disabled") == 0)
-		std::snprintf(reply, sizeof(reply), "EngiBots are disabled on this server");
+		snprintf(reply, sizeof(reply), "EngiBots are disabled on this server");
 	else
-		std::snprintf(reply, sizeof(reply), "Could not build an EngiBot (%s)", reason);
+		snprintf(reply, sizeof(reply), "Could not build an EngiBot (%s)", reason);
 	Reply(speaker, reply);
 }
 } // namespace
@@ -277,7 +277,7 @@ void EmpiresEngibotLevelReset()
 		for (int i = 0; i < t.count; ++i)
 		{
 			char command[32];
-			std::snprintf(command, sizeof(command), "kickid %d\n", t.userIds[i]);
+			snprintf(command, sizeof(command), "kickid %d\n", t.userIds[i]);
 			if (engine != nullptr)
 				engine->ServerCommand(command);
 			RCBOT_DIAG("[RCBOT2] engibot kick userid=%d reason=level-reset\n", t.userIds[i]);
@@ -298,7 +298,7 @@ bool EmpiresTestEngibotChat(int speakerUserId, char prefix)
 		return false;
 	s_testSpeaker = speakerUserId;
 	char command[40];
-	std::snprintf(command, sizeof(command), "say %cbuildengibot\n", prefix == '!' ? '!' : '/');
+	snprintf(command, sizeof(command), "say %cbuildengibot\n", prefix == '!' ? '!' : '/');
 	helpers->ClientCommand(speaker, command);
 	return true;
 }
@@ -338,7 +338,7 @@ bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at)
 	if (cv == nullptr && !t.homeKnown[index])
 		return false;
 	const Vector anchor = cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index];
-	return (at - anchor).Length2D() <= std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
+	return (at - anchor).Length2D() <= (std::max)(500.0f, rcbot_empires_engibot_leash.GetFloat());
 }
 
 // Called from the idle branch of the Empires task dispatch instead of capture, squad, roam and
@@ -384,7 +384,7 @@ bool CBotEmpires::tickEmpiresEngibot()
 	// at a finished turret while base buildings waited).
 	const bool atOrder = order == 2 && m_bEmpiresCommanderMoveRouteIssued;
 	const Vector anchor = atOrder ? m_vEmpiresCommanderMoveTarget : (cv != nullptr ? CBotGlobals::entityOrigin(cv) : t.home[index]);
-	const float leash = atOrder ? 450.0f : std::max(500.0f, rcbot_empires_engibot_leash.GetFloat());
+	const float leash = atOrder ? 450.0f : (std::max)(500.0f, rcbot_empires_engibot_leash.GetFloat());
 	const Vector origin = getOrigin();
 
 	// Buildings the other EngiBots work on. The claim alone expired while one was building (the
@@ -528,7 +528,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 			target.z, (getOrigin() - target).Length2D());
 	}
 	char name[64];
-	std::snprintf(name, sizeof(name), "%s", m_pPlayerInfo != nullptr && m_pPlayerInfo->GetName() != nullptr ? m_pPlayerInfo->GetName() : "EngiBot");
+	snprintf(name, sizeof(name), "%s", m_pPlayerInfo != nullptr && m_pPlayerInfo->GetName() != nullptr ? m_pPlayerInfo->GetName() : "EngiBot");
 	char text[128];
 	// Message on the screen of the team's human commander (whoever gave the order).
 	auto notify = [this, team](const char* message)
@@ -549,7 +549,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 		{
 			job.stage = 4;
 			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=unreachable\n", userId);
-			std::snprintf(text, sizeof(text), "%s: cannot reach that spot for a turret", name);
+			snprintf(text, sizeof(text), "%s: cannot reach that spot for a turret", name);
 			notify(text);
 			return false;
 		}
@@ -565,7 +565,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 		{
 			job.stage = 4;
 			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=limit built=%d allotted=%d\n", userId, built, allotted);
-			std::snprintf(text, sizeof(text), "%s: turret limit reached (%d/%d)", name, built, allotted);
+			snprintf(text, sizeof(text), "%s: turret limit reached (%d/%d)", name, built, allotted);
 			notify(text);
 			return false;
 		}
@@ -601,7 +601,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 		{
 			job.stage = 4;
 			RCBOT_DIAG("[RCBOT2] engibot turret failed userid=%d reason=build-rejected\n", userId);
-			std::snprintf(text, sizeof(text), "%s: no room for a turret here", name);
+			snprintf(text, sizeof(text), "%s: no room for a turret here", name);
 			notify(text);
 		}
 		return false;
@@ -636,7 +636,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 			job.next = now + 1.0f;
 			if (job.stage == 4)
 			{
-				std::snprintf(text, sizeof(text), "%s: no room for a turret here", name);
+				snprintf(text, sizeof(text), "%s: no room for a turret here", name);
 				notify(text);
 			}
 			return false;
@@ -644,7 +644,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 		job.turret = engine->IndexOfEdict(turret);
 		job.stage = 3;
 		job.next = 0.0f;
-		std::snprintf(text, sizeof(text), "%s: building a turret", name);
+		snprintf(text, sizeof(text), "%s: building a turret", name);
 		notify(text);
 	}
 	if (job.stage == 3)
@@ -662,7 +662,7 @@ bool CBotEmpires::tickEngibotTurretOrder(EngibotTurretJob& job, const int team, 
 				health, maxHealth);
 			if (alive)
 			{
-				std::snprintf(text, sizeof(text), "%s: turret ready", name);
+				snprintf(text, sizeof(text), "%s: turret ready", name);
 				notify(text);
 			}
 			return false;

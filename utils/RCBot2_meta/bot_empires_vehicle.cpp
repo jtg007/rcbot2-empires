@@ -66,7 +66,7 @@ bool ReadTurretArray(edict_t* turret, const char* name, T (&values)[N], bool wri
 	{
 		SendProp* child = array->GetDataTable()->GetProp(i);
 		char expected[4];
-		std::snprintf(expected, sizeof(expected), "%03u", static_cast<unsigned>(i));
+		snprintf(expected, sizeof(expected), "%03u", static_cast<unsigned>(i));
 		if (child == nullptr || child->GetName() == nullptr || std::strcmp(child->GetName(), expected) != 0 ||
 			child->GetType() != DPT_Int || child->GetOffset() != static_cast<int>(i * sizeof(T)))
 			return false;
@@ -265,7 +265,7 @@ void HandleWagesChat(edict_t* speaker, const char* text, bool testBotSpeaker)
 
 	// SourceMod target by #userid: a plain name can match several players (expert 14.11.).
 	char target[32];
-	std::snprintf(target, sizeof(target), "#%d", speakerId);
+	snprintf(target, sizeof(target), "#%d", speakerId);
 	const bool givePlugin = g_pCVar != nullptr && g_pCVar->FindCommandBase("sm_give") != nullptr;
 
 	char* to = reinterpret_cast<char*>(speaker->GetUnknown() != nullptr ? speaker->GetUnknown()->GetBaseEntity() : nullptr);
@@ -283,7 +283,7 @@ void HandleWagesChat(edict_t* speaker, const char* text, bool testBotSpeaker)
 		if (givePlugin)
 		{
 			char command[96];
-			std::snprintf(command, sizeof(command), "say !give %s\n", target);
+			snprintf(command, sizeof(command), "say !give %s\n", target);
 			helpers->ClientCommand(e, command);
 		}
 		else
@@ -535,7 +535,7 @@ bool SafeHeading(const Vector& origin, float yaw, float lookAhead)
 	const Vector dir = YawDir(yaw);
 	const Vector side(-dir.y, dir.x, 0.0f);
 	const float refZ = origin.z;
-	const float pushLook = std::max(lookAhead, 350.0f);
+	const float pushLook = (std::max)(lookAhead, 350.0f);
 	if (PushAgainst(origin + dir * pushLook, yaw) ||
 		PushAgainst(origin + dir * pushLook + side * 100.0f, yaw) ||
 		PushAgainst(origin + dir * pushLook - side * 100.0f, yaw))
@@ -685,7 +685,7 @@ Vector NearestOnVehicle(edict_t* vehicle, const Vector& p)
 	VectorITransform(p, toWorld, local);
 	const Vector mins = c->OBBMins(), maxs = c->OBBMaxs();
 	for (int i = 0; i < 3; ++i)
-		local[i] = std::max(mins[i], std::min(maxs[i], local[i]));
+		local[i] = (std::max)(mins[i], (std::min)(maxs[i], local[i]));
 	Vector out;
 	VectorTransform(local, toWorld, out);
 	return out;
@@ -749,7 +749,7 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 		if ((id >= 12 && id <= 22) || (id >= 27 && id <= 39))
 		{
 			v.weaponHeavyPresent = true;
-			v.weaponHeavyTotal += std::max(0, ammo[i]) + std::max(0, clips[i]);
+			v.weaponHeavyTotal += (std::max)(0, ammo[i]) + (std::max)(0, clips[i]);
 			if (ammo[i] > 0 || clips[i] > 0)
 				v.weaponHeavyLeft = true;
 		}
@@ -757,7 +757,7 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 			v.weaponArmour |= button;
 		if (used < sizeof(v.weaponSummary))
 		{
-			const int n = std::snprintf(v.weaponSummary + used, sizeof(v.weaponSummary) - used, "%s%d:%s:%d/%d",
+			const int n = snprintf(v.weaponSummary + used, sizeof(v.weaponSummary) - used, "%s%d:%s:%d/%d",
 				used ? "," : "", id, button == IN_ATTACK ? "a1" : "a2", ammo[i], clips[i]);
 			if (n > 0)
 				used += static_cast<std::size_t>(n);
@@ -955,7 +955,7 @@ std::vector<Vector> RepairPadEntrances(edict_t* station, float z, char* why, siz
 				edict_t* he = n != nullptr ? n->GetEdict() : nullptr;
 				cls = he != nullptr && he->GetClassName() != nullptr ? he->GetClassName() : "?";
 			}
-			const int n = std::snprintf(why + used, whySize - used, "side%d yaw=%.0f ext=%.0f reach=%.0f ss=%d hit=%s %s; ",
+			const int n = snprintf(why + used, whySize - used, "side%d yaw=%.0f ext=%.0f reach=%.0f ss=%d hit=%s %s; ",
 				k, NormalizeYaw(yaw + 90.0f * k), extent[k], reached, hit.startsolid ? 1 : 0, cls,
 				isOpen ? "OPEN" : "closed");
 			if (n > 0)
@@ -1042,7 +1042,7 @@ bool FindFactoryStandSpot(edict_t* factory, const Vector& near, Vector& spot, in
 				enginetrace->ClipRayToEntity(ray, MASK_SOLID, factory->GetUnknown(), &hit);
 				if (hit.startsolid)
 				{
-					start.z = std::min(start.z + (end.z - start.z) * hit.fractionleftsolid, start.z) - 2.0f;
+					start.z = (std::min)(start.z + (end.z - start.z) * hit.fractionleftsolid, start.z) - 2.0f;
 					continue;
 				}
 				if (hit.fraction >= 1.0f)
@@ -1078,7 +1078,7 @@ bool FindFactoryStandSpot(edict_t* factory, const Vector& near, Vector& spot, in
 			}
 		}
 	if (why != nullptr && whySize > 0)
-		std::snprintf(why, whySize, "surfaces=%d blocked=%d not_factory=%d bounds=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)",
+		snprintf(why, whySize, "surfaces=%d blocked=%d not_factory=%d bounds=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)",
 			surfaces, blocked, notFactory, mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
 	return candidates > 0;
 }
@@ -1402,7 +1402,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			// 11 vs 11 on rainbowroad with a limit of 2: most bots walked (user).
 			const int limit = rcbot_empires_vehicle_drivers.GetInt() >= 0 ? rcbot_empires_vehicle_drivers.GetInt() :
-				std::max(2, (teamBots * 2 + 2) / 5);
+				(std::max)(2, (teamBots * 2 + 2) / 5);
 			if (drivers >= limit)
 				return;
 		}
@@ -1450,7 +1450,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			s_emptyAt[i] = at;
 			float baseDistance = 1.0e9f;
 			for (const Vector& p : basePoints)
-				baseDistance = std::min(baseDistance, (p - at).Length2D());
+				baseDistance = (std::min)(baseDistance, (p - at).Length2D());
 			if (driver >= 0 || now - s_emptySince[i] < kEmptyFor || baseDistance >= kBaseRadius)
 			{
 				if (now >= v.nextEmptyLog)
@@ -1628,7 +1628,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		++v.failures;
 		if (v.failures >= 2 && !v.billNye)
 			v.wantJeep = true;
-		resetEmpiresVehicle("stage-timeout", 10.0f * std::min(v.failures, 6));
+		resetEmpiresVehicle("stage-timeout", 10.0f * (std::min)(v.failures, 6));
 		return;
 	}
 
@@ -1758,46 +1758,46 @@ void CBotEmpires::tickEmpiresVehicle()
 				// the player's view: look toward the enemy side first.
 				m_vViewAngles.x = 0.0f;
 			}
-			std::snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n",
+			snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n",
 				jeep ? (nf ? 0 : 8) : (nf ? 2 : 10));
 			break;
 		case 1:
 			// Cannon (weapon 12, mode 1 = IN_ATTACK). NF light tank slot 0 is the
 			// cannon, BE AFV slot 1 (scripts/vehicle_*.txt weapon_slot order).
 			if (!jeep)
-				std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
+				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
 			break;
 		case 2:
 			// Machine gun (weapon 0, mode 0 = IN_ATTACK2) in the other slot.
 			if (!jeep)
-				std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 %d\n", nf ? 1 : 0,
+				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 %d\n", nf ? 1 : 0,
 					rcbot_empires_vehicle_debug_mixed.GetBool() ? 1 : 0);
 			break;
 		case 3:
-			std::snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n");
+			snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n");
 			break;
 		case 4:
 			// Plain armor on every side so one hit side is not the hull at once
 			// (script max: NF light tank 2, BE AFV 3, jeeps 1).
 			if (jeep)
-				std::snprintf(command, sizeof(command), "emp_vehicle_armor_levels 0 0 0 0\n");
+				snprintf(command, sizeof(command), "emp_vehicle_armor_levels 0 0 0 0\n");
 			else
-				std::snprintf(command, sizeof(command), "emp_vehicle_armor_levels 2 2 2 2\n");
+				snprintf(command, sizeof(command), "emp_vehicle_armor_levels 2 2 2 2\n");
 			break;
 		case 5:
-			std::snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n",
+			snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n",
 				jeep ? (nf ? 1 : 0) : 13);
 			break;
 		case 6:
 			if (!v.buyInPlace)
-				std::snprintf(command, sizeof(command), "emp_vehicle_factory %d\n", v.factoryIndex);
+				snprintf(command, sizeof(command), "emp_vehicle_factory %d\n", v.factoryIndex);
 			break;
 		case 7:
 			// Diagnostic: production purchases never spawned a vehicle (run 103144).
 			LogEmpiresFactoryProbe("buy", userId, m_pEdict, v.factoryIndex);
 			LogEmpiresVehicleEcon("before", userId, getTeam(), m_pEdict);
 			v.factoryProbeAt = now + 1.0f;
-			std::snprintf(command, sizeof(command), "emp_vehicle_build\n");
+			snprintf(command, sizeof(command), "emp_vehicle_build\n");
 			break;
 		default:
 			setStage(EmpiresVehicleStage::WAIT_SPAWN, 5.0f);
@@ -1878,7 +1878,7 @@ void CBotEmpires::tickEmpiresVehicle()
 						(CBotGlobals::entityOrigin(e) - me).Length() > 700.0f)
 						continue;
 					const size_t used = std::strlen(list);
-					std::snprintf(list + used, sizeof(list) - used, " %d:%s:t%d", i, e->GetClassName(),
+					snprintf(list + used, sizeof(list) - used, " %d:%s:t%d", i, e->GetClassName(),
 						EmpiresVehicleReadInt(this, e, "m_iTeamNum", -9));
 					++n;
 				}
@@ -2027,7 +2027,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		float total = 0.0f;
 		ReadVehicleHealth(hurt, total);
 		for (int k = 0; k < 4; ++k)
-			total += std::max(0, ReadArmorSide(hurt, k));
+			total += (std::max)(0, ReadArmorSide(hurt, k));
 		if (v.assistSide < 0)
 		{
 			v.assistSide = r.side >= 0 ? r.side : 0;
@@ -2039,7 +2039,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.assistLastRise = now;
 			// A side takes ~27 s (126 armor at ~4.7/s); 60 s cut the job after
 			// two sides (run 120808). Keep going while it mends.
-			v.stageUntil = std::max(v.stageUntil, now + 20.0f);
+			v.stageUntil = (std::max)(v.stageUntil, now + 20.0f);
 		}
 		v.assistLastTotal = total;
 		matrix3x4_t toWorld;
@@ -2049,7 +2049,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		const float hx = (maxs.x - mins.x) * 0.5f, hy = (maxs.y - mins.y) * 0.5f;
 		Vector me;
 		VectorITransform(getOrigin(), toWorld, me);
-		const float rx = (me.x - mid.x) / std::max(1.0f, hx), ry = (me.y - mid.y) / std::max(1.0f, hy);
+		const float rx = (me.x - mid.x) / (std::max)(1.0f, hx), ry = (me.y - mid.y) / (std::max)(1.0f, hy);
 		const int mySide = std::fabs(rx) > std::fabs(ry) ? (rx < 0.0f ? 2 : 3) : (ry > 0.0f ? 0 : 1);
 		const int side = v.assistSide;
 		auto corner = [&](int a, int b) {
@@ -2155,7 +2155,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					engine->IndexOfEdict(hurt), side, v.assistSide);
 			}
 			if (total <= v.assistLastTotal + 0.5f)
-				v.assistLastRise = std::max(v.assistLastRise, now - 2.0f); // walking is not "no progress"
+				v.assistLastRise = (std::max)(v.assistLastRise, now - 2.0f); // walking is not "no progress"
 		}
 		else
 		{
@@ -2233,7 +2233,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 		const Vector aim = EntityCenter(target);
 		VectorAngles(aim - getEyePosition(), v.view);
-		v.view.x -= std::min(25.0f, distanceFrom(aim) / 40.0f); // small lob
+		v.view.x -= (std::min)(25.0f, distanceFrom(aim) / 40.0f); // small lob
 		v.view.z = 0.0f;
 		if (now < v.nextAction)
 			return;
@@ -2679,7 +2679,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	int worstSide = -1;
 	float bestArmor = -1.0f;
 	int bestSide = -1;
-	float total = std::max(0.0f, health);
+	float total = (std::max)(0.0f, health);
 	for (int k = 0; k < 4; ++k)
 	{
 		armor[k] = ReadArmorSide(vehicle, k);
@@ -2770,7 +2770,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			// 16000 units, the request expired at 10000).
 			const RepairRequest& req = s_repairRequest[team];
 			if (req.vehicle == v.vehicleIndex && req.engineerUserId >= 0 && now <= req.claimUntil)
-				v.lastHealthRise = std::max(v.lastHealthRise, now - 20.0f);
+				v.lastHealthRise = (std::max)(v.lastHealthRise, now - 20.0f);
 			// The hull may stop short of the highest value seen (run 220710:
 			// 140/150, healed while waiting): a long plateau high up counts too.
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
@@ -2939,7 +2939,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			if (slot != nullptr)
 			{
-				slot->until = std::max(slot->until, now + 5.0f);
+				slot->until = (std::max)(slot->until, now + 5.0f);
 				ammoWait = slot->engineerUserId >= 0 && now <= slot->claimUntil;
 			}
 		}
@@ -2950,7 +2950,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			driveTo = origin;
 			arrive = 400.0f;
 			// Waiting counts as progress (trip timeout, no-pad abort after 30 s).
-			v.lastHealthRise = std::max(v.lastHealthRise, now - 20.0f);
+			v.lastHealthRise = (std::max)(v.lastHealthRise, now - 20.0f);
 		}
 		else if (v.parkValid)
 		{
@@ -3090,7 +3090,7 @@ void CBotEmpires::tickEmpiresVehicle()
 						const float along = (origin.x - pad.x) * axis.x + (origin.y - pad.y) * axis.y;
 						if (along > 150.0f)
 						{
-							driveTo = pad + axis * std::max(0.0f, along - 350.0f);
+							driveTo = pad + axis * (std::max)(0.0f, along - 350.0f);
 							driveTo.z = pad.z;
 						}
 					}
@@ -3107,24 +3107,24 @@ void CBotEmpires::tickEmpiresVehicle()
 				// (run 214852: pool unchanged, armor 14 -> 140; RE vehicle-driving.md).
 				switch (v.refitStep)
 				{
-				case 0: std::snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", chassis); break;
+				case 0: snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", chassis); break;
 				case 1:
 					if (!jeep)
-						std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
+						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
 					break;
 				case 2:
 					if (!jeep)
-						std::snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 0\n", nf ? 1 : 0);
+						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 0\n", nf ? 1 : 0);
 					break;
-				case 3: std::snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n"); break;
+				case 3: snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n"); break;
 				case 4:
-					std::snprintf(command, sizeof(command), jeep ? "emp_vehicle_armor_levels 0 0 0 0\n" :
+					snprintf(command, sizeof(command), jeep ? "emp_vehicle_armor_levels 0 0 0 0\n" :
 						"emp_vehicle_armor_levels 2 2 2 2\n");
 					break;
 				case 5:
-					std::snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n", jeep ? (nf ? 1 : 0) : 13);
+					snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n", jeep ? (nf ? 1 : 0) : 13);
 					break;
-				case 6: std::snprintf(command, sizeof(command), "emp_vehicle_build\n"); break;
+				case 6: snprintf(command, sizeof(command), "emp_vehicle_build\n"); break;
 				default: break;
 				}
 				if (command[0] != '\0')
@@ -3207,7 +3207,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 		if (arrived && s_repairRequest[team].vehicle == v.vehicleIndex)
 		{
-			s_repairRequest[team].until = std::max(s_repairRequest[team].until, now + 5.0f);
+			s_repairRequest[team].until = (std::max)(s_repairRequest[team].until, now + 5.0f);
 			s_repairRequest[team].armorDamaged = worstSide >= 0 && worstArmor < 0.95f;
 			s_repairRequest[team].side = worstSide;
 		}
@@ -3240,7 +3240,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			trace_t ground;
 			enginetrace->TraceRay(down, MASK_SOLID, &worldOnly, &ground);
 			if (ground.fraction < 1.0f && !ground.startsolid)
-				v.waterDepth = std::max(0.0f, std::min(160.0f, centre.z - ground.endpos.z - 16.0f));
+				v.waterDepth = (std::max)(0.0f, (std::min)(160.0f, centre.z - ground.endpos.z - 16.0f));
 		}
 		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f water_depth=%.0f\n", userId,
 			v.vehicleIndex, chassis, v.width, v.waterDepth);
@@ -3329,7 +3329,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				seg.z = 0.0f;
 				Vector toP = p - origin;
 				toP.z = 0.0f;
-				if (Dist2D(origin, p) < std::max(160.0f, v.width) ||
+				if (Dist2D(origin, p) < (std::max)(160.0f, v.width) ||
 					(DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f))
 					++v.routeIndex;
 				else
@@ -3337,9 +3337,9 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			// Off the route: plan again soon.
 			if (Dist2D(origin, v.route[v.routeIndex]) > 1200.0f)
-				v.nextReplan = std::min(v.nextReplan, now + 0.5f);
+				v.nextReplan = (std::min)(v.nextReplan, now + 0.5f);
 			// Look ahead along the route as far as the body has a clear line.
-			const float look = std::max(350.0f, std::min(1400.0f, 300.0f + speed * 0.7f));
+			const float look = (std::max)(350.0f, (std::min)(1400.0f, 300.0f + speed * 0.7f));
 			std::size_t pick = v.routeIndex;
 			float along = Dist2D(origin, v.route[v.routeIndex]);
 			for (std::size_t k = v.routeIndex + 1; k < v.route.size(); ++k)
@@ -3360,7 +3360,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				const float turn = std::fabs(NormalizeYaw(YawTo(v.route[pick], v.route[pick + 1]) -
 					YawTo(origin, v.route[pick])));
 				if (turn > 50.0f && Dist2D(origin, v.route[pick]) < 200.0f + speed * 0.8f)
-					throttle = std::min(throttle, speed > 450.0f ? 0.0f : 0.6f);
+					throttle = (std::min)(throttle, speed > 450.0f ? 0.0f : 0.6f);
 			}
 		}
 	}
@@ -3380,9 +3380,9 @@ void CBotEmpires::tickEmpiresVehicle()
 	// (run 202056, four Bill Nye falls).
 	const bool shortLook = v.billNye && targetIsVehicle && v.ramming && Dist2D(origin, targetAt) < 450.0f;
 	const float lookAhead = shortLook ? 200.0f :
-		ram ? std::max(200.0f, std::min(1400.0f, speed * 0.9f)) :
-		std::max(260.0f, std::min(1500.0f, speed * 1.1f + 200.0f));
-	const float rearLook = std::max(220.0f, std::min(600.0f, speed * 0.6f));
+		ram ? (std::max)(200.0f, (std::min)(1400.0f, speed * 0.9f)) :
+		(std::max)(260.0f, (std::min)(1500.0f, speed * 1.1f + 200.0f));
+	const float rearLook = (std::max)(220.0f, (std::min)(600.0f, speed * 0.6f));
 	const bool rearSafe = SafeHeading(origin, heading + 180.0f, rearLook);
 	static const float kOffsets[] = {0, 15, -15, 30, -30, 50, -50, 75, -75, 100, -100, 135, -135, 180};
 	float chosen = desired;
@@ -3417,8 +3417,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		// DropDistance returns 2*range when no drop was found (runs 125334: 3 false alarms at 1900 u/s).
 		// Run 125647: 4 of 8 at 226-257 u/s with 150 to the edge would have stopped in time.
 		if (speed > 350.0f && drop <= 1500.0f && drop < brake &&
-			!SafeHeading(origin, velYaw + 45.0f, std::max(200.0f, drop)) &&
-			!SafeHeading(origin, velYaw - 45.0f, std::max(200.0f, drop)))
+			!SafeHeading(origin, velYaw + 45.0f, (std::max)(200.0f, drop)) &&
+			!SafeHeading(origin, velYaw - 45.0f, (std::max)(200.0f, drop)))
 			bailReason = "A";
 		else if (!GroundAt(origin + velDir * (v.width * 0.5f + 40.0f), origin.z) && !GroundAt(origin, origin.z))
 			bailReason = "B";
@@ -3433,7 +3433,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 	// Circling into an edge: turn the other way round the target.
 	if (v.fightMove && (!found || std::fabs(NormalizeYaw(chosen - desired)) > 60.0f))
-		v.fightSwitch = std::min(v.fightSwitch, now);
+		v.fightSwitch = (std::min)(v.fightSwitch, now);
 	// Fighting with a weakened side: present the strongest side to the target.
 	// Sides relative to the hull: 0 front, 1 rear, 2 left (+90), 3 right (-90).
 	bool facing = false;
@@ -3451,7 +3451,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	const float err = NormalizeYaw(chosen - heading); // + = turn left
 
 	float forward = kMaxMove * throttle;
-	float side = std::max(-1.0f, std::min(1.0f, -err / 30.0f)) * kMaxMove;
+	float side = (std::max)(-1.0f, (std::min)(1.0f, -err / 30.0f)) * kMaxMove;
 	if (std::fabs(err) > 70.0f)
 		forward = kMaxMove * 0.4f;
 	// Too fast for the turn: brake first (run 213421 swung through ±140° at 800 u/s).
@@ -3540,7 +3540,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	// crossed it at 350 u/s and swung into the station walls).
 	if (v.retreating && v.padInside)
 	{
-		forward = std::min(forward, kMaxMove * (goalDistance < 500.0f ? 0.3f : 0.5f));
+		forward = (std::min)(forward, kMaxMove * (goalDistance < 500.0f ? 0.3f : 0.5f));
 		if (goalDistance < 350.0f && forwardSpeed > 120.0f)
 			forward = -kMaxMove * 0.6f;
 	}
@@ -3978,7 +3978,7 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors)
 		if (hp == nullptr || *hp <= 0)
 			continue;
 		const int before = *hp;
-		*hp = std::max(1, static_cast<int>(before * factor));
+		*hp = (std::max)(1, static_cast<int>(before * factor));
 		float total = -1.0f;
 		ReadEntityFloat(e, "m_flTotalHealth", total);
 		int armor[4] = {-1, -1, -1, -1};
@@ -3989,7 +3989,7 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors)
 			{
 				if (sideFactors != nullptr && sides[k] > 0.0f)
 				{
-					sides[k] = std::max(1.0f, std::floor(sides[k] * sideFactors[k]));
+					sides[k] = (std::max)(1.0f, std::floor(sides[k] * sideFactors[k]));
 					mirror[k] = static_cast<int>(sides[k]);
 				}
 				armor[k] = static_cast<int>(sides[k]);
@@ -4106,7 +4106,7 @@ int EmpiresVehicleDebugCrate(float distance)
 		if (crate == nullptr)
 			return -1;
 		char buf[64];
-		std::snprintf(buf, sizeof(buf), "%d", team);
+		snprintf(buf, sizeof(buf), "%d", team);
 		servertools->SetKeyValue(crate, "TeamNum", buf);
 		servertools->SetKeyValue(crate, "origin", spot + Vector(0, 0, 16));
 		servertools->DispatchSpawn(crate);

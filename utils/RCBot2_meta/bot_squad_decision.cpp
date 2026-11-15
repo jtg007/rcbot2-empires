@@ -234,12 +234,12 @@ bool ComputeCohesion(const SquadCanonicalSnapshot& canonical,
 		}
 		else
 		{
-			boundsMin.x = std::min(boundsMin.x, member.origin.x);
-			boundsMin.y = std::min(boundsMin.y, member.origin.y);
-			boundsMin.z = std::min(boundsMin.z, member.origin.z);
-			boundsMax.x = std::max(boundsMax.x, member.origin.x);
-			boundsMax.y = std::max(boundsMax.y, member.origin.y);
-			boundsMax.z = std::max(boundsMax.z, member.origin.z);
+			boundsMin.x = (std::min)(boundsMin.x, member.origin.x);
+			boundsMin.y = (std::min)(boundsMin.y, member.origin.y);
+			boundsMin.z = (std::min)(boundsMin.z, member.origin.z);
+			boundsMax.x = (std::max)(boundsMax.x, member.origin.x);
+			boundsMax.y = (std::max)(boundsMax.y, member.origin.y);
+			boundsMax.z = (std::max)(boundsMax.z, member.origin.z);
 		}
 	}
 
@@ -300,8 +300,8 @@ bool ComputeCohesion(const SquadCanonicalSnapshot& canonical,
 		}
 		else
 		{
-			minDistance = std::min(minDistance, distanceToCentroid);
-			maxDistance = std::max(maxDistance, distanceToCentroid);
+			minDistance = (std::min)(minDistance, distanceToCentroid);
+			maxDistance = (std::max)(maxDistance, distanceToCentroid);
 		}
 		distanceSum += distanceToCentroid;
 	}

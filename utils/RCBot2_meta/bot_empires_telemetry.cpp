@@ -74,7 +74,7 @@ namespace
 					if (*p < 0x20)
 					{
 						char escaped[8] = {};
-						std::snprintf(escaped, sizeof(escaped), "\\u%04x", *p);
+						snprintf(escaped, sizeof(escaped), "\\u%04x", *p);
 						result += escaped;
 					}
 					else
@@ -90,7 +90,7 @@ namespace
 	std::string number(const double value)
 	{
 		char buffer[64] = {};
-		std::snprintf(buffer, sizeof(buffer), "%.6f", value);
+		snprintf(buffer, sizeof(buffer), "%.6f", value);
 		return buffer;
 	}
 
@@ -161,8 +161,8 @@ namespace
 		const ICollideable* collideable = bot->getEdict()->GetCollideable();
 		const Vector mins = collideable->OBBMins();
 		const Vector maxs = collideable->OBBMaxs();
-		return std::max(std::max(std::fabs(mins.x), std::fabs(maxs.x)),
-			std::max(std::fabs(mins.y), std::fabs(maxs.y)));
+		return (std::max)(std::max(std::fabs(mins.x), std::fabs(maxs.x)),
+			(std::max)(std::fabs(mins.y), std::fabs(maxs.y)));
 	}
 
 	bool worldHullClear(const CBot* bot, const Vector& from, const Vector& to)
@@ -591,7 +591,7 @@ namespace
 			observation.attemptId = attempt.GetAttemptId();
 			observation.timestampMs = sessionMilliseconds();
 			observation.result = experienceResult(result, reason);
-			observation.traversalSeconds = std::max(0.0,
+			observation.traversalSeconds = (std::max)(0.0,
 				static_cast<double>(attempt.GetEndTime()) -
 				static_cast<double>(attempt.GetStartTime()));
 			observation.progressUnits = attempt.GetProgressCount();
@@ -710,7 +710,7 @@ namespace
 			observation.attemptGeneration = attempt.GetProgressCount();
 			observation.timestampMs = sessionMilliseconds();
 			observation.durationSeconds = attempt.GetEndTime() > 0.0f ?
-				std::max(0.0, static_cast<double>(attempt.GetEndTime()) -
+				(std::max)(0.0, static_cast<double>(attempt.GetEndTime()) -
 					static_cast<double>(attempt.GetStartTime())) : 0.0;
 			observation.progressUnits = attempt.GetProgressCount();
 			const bool providerHasStableNodeIds =
@@ -830,7 +830,7 @@ namespace
 					signal == RCBotNavigationExperience::Signal::CAPTURE_ROUTE_EXHAUSTED ?
 						1 : 2;
 				if (it->second.pendingNavigationSignals[index] <
-					std::numeric_limits<std::uint64_t>::max())
+					(std::numeric_limits<std::uint64_t>::max)())
 					++it->second.pendingNavigationSignals[index];
 				pending = true;
 			}
@@ -886,7 +886,7 @@ namespace
 				m_loggedLearnedEdges.erase(m_loggedLearnedEdges.begin());
 			m_loggedLearnedEdges.insert(key);
 			++m_learnedEdgesWithPenalty;
-			m_maxObservedPenalty = std::max(m_maxObservedPenalty, cost.penalty);
+			m_maxObservedPenalty = (std::max)(m_maxObservedPenalty, cost.penalty);
 			m_totalObservedPenalty += cost.penalty;
 			++m_nonzeroPenaltyObservations;
 			BotState state;
@@ -1454,7 +1454,7 @@ namespace
 				observation.allyThreat = observation.otherIntersectsCorridor;
 				const float relativeClosing = dot2d(observer.velocity -
 					other.velocity, direction);
-				observation.closingSpeed = std::max(0.0f, relativeClosing);
+				observation.closingSpeed = (std::max)(0.0f, relativeClosing);
 				const float otherDesiredLength = other.desiredDirection.Length2D();
 				if (otherDesiredLength > 0.01f)
 				{
@@ -1614,7 +1614,7 @@ namespace
 				RCBotLocalYielding::StateCount() > 0)
 				RCBotLocalYielding::Reset();
 			std::vector<LocalConflictBot> bots;
-			const int maxClients = std::min(CBotGlobals::maxClients(),
+			const int maxClients = (std::min)(CBotGlobals::maxClients(),
 				static_cast<int>(RCBOT_MAXPLAYERS));
 			for (int slot = 1; slot <= maxClients; ++slot)
 			{
@@ -1817,8 +1817,8 @@ namespace
 			const std::int64_t toNode)
 		{
 			if (provider == RCBotNavigation::Provider::WAYPOINT &&
-				fromNode <= std::numeric_limits<int>::max() &&
-				toNode <= std::numeric_limits<int>::max())
+				fromNode <= (std::numeric_limits<int>::max)() &&
+				toNode <= (std::numeric_limits<int>::max)())
 				return waypointTransitionTraversal(static_cast<int>(fromNode),
 					static_cast<int>(toNode));
 			return RCBotNavigationExperience::Traversal::UNKNOWN;
@@ -1982,7 +1982,7 @@ namespace
 			if (local != nullptr)
 				std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", local);
 			if (stamp[0] == '\0')
-				std::snprintf(stamp, sizeof(stamp), "unknown-%lld",
+				snprintf(stamp, sizeof(stamp), "unknown-%lld",
 					static_cast<long long>(now));
 			return stamp;
 		}

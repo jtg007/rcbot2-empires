@@ -122,7 +122,7 @@ bool PathFollower::IsPotentiallyTraversable(CBot *bot, const Vector &from,
 	// Match the useful part of Valve locomotion's step test: recheck the
 	// segment above the step height, but never turn this into a detour search.
 	Vector stepMins = hullMins;
-	stepMins.z = std::max(stepMins.z, kPlayerStepHeight + 0.1f);
+	stepMins.z = (std::max)(stepMins.z, kPlayerStepHeight + 0.1f);
 	trace_t stepped;
 	TracePlayerHull(bot, from, to, stepMins, hullMaxs, &stepped);
 	return !stepped.startsolid && !stepped.allsolid && stepped.fraction >= 1.0f;
@@ -138,7 +138,7 @@ bool PathFollower::HasPotentialGap(CBot *bot, const Vector &from,
 
 	const Vector delta = to - from;
 	const float distance = delta.Length2D();
-	const int sampleCount = std::max(1, std::min(32,
+	const int sampleCount = (std::max)(1, (std::min)(32,
 		static_cast<int>(std::ceil(distance / 32.0f))));
 	float firstGround = 0.0f;
 	bool firstGroundKnown = false;
@@ -209,12 +209,12 @@ Vector PathFollower::Avoid(CBot *bot, const Vector &goal) const
 		return goal;
 
 	const float halfWidth = 0.5f * (hullMaxs.x - hullMins.x);
-	const float sensorHalf = std::max(4.0f, halfWidth * 0.25f);
+	const float sensorHalf = (std::max)(4.0f, halfWidth * 0.25f);
 	const float sensorOffset = halfWidth + 2.0f;
 	Vector sensorMins(-sensorHalf, -sensorHalf,
-		std::max(hullMins.z, kPlayerStepHeight + 0.1f));
+		(std::max)(hullMins.z, kPlayerStepHeight + 0.1f));
 	Vector sensorMaxs(sensorHalf, sensorHalf,
-		std::min(hullMaxs.z, 36.0f));
+		(std::min)(hullMaxs.z, 36.0f));
 	if (sensorMaxs.z <= sensorMins.z)
 		sensorMaxs.z = hullMaxs.z;
 

@@ -67,8 +67,8 @@ constexpr float kCommanderWalkRange = 2500.0f; // after a stuck drive, walk only
 bool CommanderDriveGoal(const Vector& at, const Vector& back, float cvDistance, Vector& result)
 {
 	// Leave room for the vehicle's arrival radius before the walk-range limit.
-	const float maxStop = std::min(cvDistance, kCommanderWalkRange - 400.0f);
-	const float firstStop = std::min(kCommanderDriveStop, cvDistance * 0.5f);
+	const float maxStop = (std::min)(cvDistance, kCommanderWalkRange - 400.0f);
+	const float firstStop = (std::min)(kCommanderDriveStop, cvDistance * 0.5f);
 	const float angles[] = {0.0f, 0.5235988f, -0.5235988f, 1.0471976f, -1.0471976f,
 		1.5707963f, -1.5707963f, 2.0943951f, -2.0943951f, 2.6179939f, -2.6179939f, 3.1415927f};
 	for (float angle : angles)
@@ -316,11 +316,11 @@ float PadAxisFree(const Vector& at, float axisYaw)
 		enginetrace->TraceRay(ray, MASK_SOLID, &filter, &hit);
 		if (hit.startsolid)
 			return 0.0f;
-		free = std::min(free, 1150.0f * hit.fraction);
+		free = (std::min)(free, 1150.0f * hit.fraction);
 		ray.Init(outside + Vector(0, 0, 40), outside - Vector(0, 0, 300));
 		enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
 		if (hit.fraction >= 1.0f)
-			free = std::min(free, 600.0f);
+			free = (std::min)(free, 600.0f);
 	}
 	return free;
 }
@@ -452,7 +452,7 @@ bool BlocksLane(const Vector& at, float yaw, const Vector& mins, const Vector& m
 	for (const Lane& lane : lanes)
 	{
 		const float len = (lane.b - lane.a).Length2D();
-		const int steps = std::max(1, int(len / 50.0f));
+		const int steps = (std::max)(1, int(len / 50.0f));
 		for (int k = 0; k <= steps; ++k)
 		{
 			const Vector p = lane.a + (lane.b - lane.a) * (float(k) / steps);
@@ -901,7 +901,7 @@ void CBotEmpires::tickCommanderEconomy()
 					nearestRefinery = d;
 			}
 		if (nearestRefinery >= 0.0f)
-			zone = std::max(kCommanderZoneMin, std::min(kCommanderZoneMax, nearestRefinery + kCommanderZoneMargin));
+			zone = (std::max)(kCommanderZoneMin, (std::min)(kCommanderZoneMax, nearestRefinery + kCommanderZoneMargin));
 	}
 
 	// --- Boomtanking (user 2026-11-12): enemy infantry inside the base zone -> drive the CV
@@ -1171,7 +1171,7 @@ void CBotEmpires::tickCommanderEconomy()
 					else
 					{
 						char researchCommand[48];
-						std::snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
+						snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
 						helpers->ClientCommand(m_pEdict, researchCommand);
 						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
 					}
@@ -1266,7 +1266,7 @@ void CBotEmpires::tickCommanderEconomy()
 		const float vehicleDistance = (origin - vehicleOrigin).Length();
 		float nearestFriend = 1.0e9f;
 		for (const Vector& friendOrigin : friends)
-			nearestFriend = std::min(nearestFriend, (origin - friendOrigin).Length());
+			nearestFriend = (std::min)(nearestFriend, (origin - friendOrigin).Length());
 		const bool inReach = vehicleDistance < kNearVehicleRange || nearestFriend < kNearVehicleRange;
 		if (!inReach || nearestFriend < kHullClearance)
 			continue;
@@ -1365,7 +1365,7 @@ void CBotEmpires::tickCommanderEconomy()
 	if (type == Refinery)
 	{
 		state.verifyResIndex = refinerySites.front().resIndex;
-		std::snprintf(command, sizeof(command), "emp_build 0 %d 0\n", state.verifyResIndex);
+		snprintf(command, sizeof(command), "emp_build 0 %d 0\n", state.verifyResIndex);
 	}
 	else
 	{
@@ -1476,7 +1476,7 @@ void CBotEmpires::tickCommanderEconomy()
 			RCBOT_DIAG("[RCBOT2] commander-econ lane-check type=%d lanes=%zu checked=%zu ring=%d%s\n", int(type),
 				lanes.size(), checked, usedRing, laneFree ? "" : " all-block");
 		const float yaw = yawAt(Vector(at.x, at.y, at.z), false);
-		std::snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g %.1f\n", int(type),
+		snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g %.1f\n", int(type),
 			double(at.x), double(at.y), double(at.z), double(yaw));
 	}
 	state.verifyBefore = allBuildings;

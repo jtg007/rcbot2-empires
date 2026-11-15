@@ -385,7 +385,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	const float turn = 120.0f * 3.14159265f / 180.0f; // relative to where it stands now (expert review)
 	side = Vector(side.x * std::cos(turn) - side.y * std::sin(turn), side.x * std::sin(turn) + side.y * std::cos(turn), 0.0f);
 	ICollideable* hull = vehicle->GetCollideable();
-	const float reach = (hull != nullptr ? std::max(hull->OBBMaxs().Length2D(), hull->OBBMins().Length2D()) : 150.0f) + 70.0f;
+	const float reach = (hull != nullptr ? (std::max)(hull->OBBMaxs().Length2D(), hull->OBBMins().Length2D()) : 150.0f) + 70.0f;
 	m_vAmmoCrateStand = at + side * reach;
 	Vector onMesh;
 	if (RCBotNavMesh::ClosestPointOnMesh(m_vAmmoCrateStand, 150.0f, onMesh))

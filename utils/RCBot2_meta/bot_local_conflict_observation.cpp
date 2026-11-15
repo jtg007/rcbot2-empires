@@ -173,7 +173,7 @@ namespace RCBotLocalAvoidance
 		if (m_count < kMaxEpisodes)
 			return static_cast<int>(m_count++);
 		int oldest = -1;
-		double oldestTime = std::numeric_limits<double>::max();
+		double oldestTime = (std::numeric_limits<double>::max)();
 		for (std::size_t i = 0; i < m_count; ++i)
 		{
 			if (m_episodes[i].active)
@@ -197,12 +197,12 @@ namespace RCBotLocalAvoidance
 	{
 		if (episode.lastObservation.observerWantsMovement)
 			episode.observerWantedDuration += static_cast<float>(
-				std::max(0.0, now - episode.lastSampleTime));
+				(std::max)(0.0, now - episode.lastSampleTime));
 		episode.active = false;
 		episode.lifecycle = lifecycle;
 		episode.endTime = now;
 		episode.duration = static_cast<float>(
-			std::max(0.0, now - episode.startTime));
+			(std::max)(0.0, now - episode.startTime));
 		episode.progressAfter = episode.lastObservation.observerRemainingDistance;
 	}
 
@@ -229,8 +229,8 @@ namespace RCBotLocalAvoidance
 		const ConflictType type = Classify(input);
 		if (type == ConflictType::UNKNOWN)
 			return updates;
-		const int lowBot = std::min(input.observerBot, input.otherBot);
-		const int highBot = std::max(input.observerBot, input.otherBot);
+		const int lowBot = (std::min)(input.observerBot, input.otherBot);
+		const int highBot = (std::max)(input.observerBot, input.otherBot);
 		const std::uint32_t context = ContextKey(input);
 		const int activeIndex = findActive(lowBot, highBot, type, context);
 		if (activeIndex >= 0)
@@ -238,14 +238,14 @@ namespace RCBotLocalAvoidance
 			LocalConflictEpisode& episode = m_episodes[activeIndex];
 			if (episode.lastObservation.observerWantsMovement)
 				episode.observerWantedDuration += static_cast<float>(
-					std::max(0.0, now - episode.lastSampleTime));
+					(std::max)(0.0, now - episode.lastSampleTime));
 			episode.lastSampleTime = now;
 			episode.lastScanGeneration = scanGeneration;
 			episode.duration = static_cast<float>(
-				std::max(0.0, now - episode.startTime));
+				(std::max)(0.0, now - episode.startTime));
 			episode.lastObservation = input;
-			episode.minDistance = std::min(episode.minDistance, input.distance);
-			episode.maxClosingSpeed = std::max(episode.maxClosingSpeed,
+			episode.minDistance = (std::min)(episode.minDistance, input.distance);
+			episode.maxClosingSpeed = (std::max)(episode.maxClosingSpeed,
 				input.closingSpeed);
 			episode.progressDuring = input.observerRemainingDistance;
 			++episode.samples;
@@ -355,7 +355,7 @@ namespace RCBotLocalAvoidance
 				return updates;
 			episode.stuckCorrelated = true;
 			episode.lifecycle = Lifecycle::ESCALATED_TO_NO_PROGRESS;
-			episode.lastSampleTime = std::max(episode.lastSampleTime, now);
+			episode.lastSampleTime = (std::max)(episode.lastSampleTime, now);
 			updates.push_back({Lifecycle::ESCALATED_TO_NO_PROGRESS, episode});
 		return updates;
 	}

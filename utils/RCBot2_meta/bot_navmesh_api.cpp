@@ -112,7 +112,7 @@ Vector InsetPortalPoint(const CNavArea *area, const Vector &portalPoint,
 	// ComputeClosestPointInPortal deliberately returns a point on the shared
 	// edge. Move only one generation step into the destination area so a
 	// player hull does not have to turn while straddling that edge.
-	const float inset = std::min(maxInset, 0.5f * distance);
+	const float inset = (std::min)(maxInset, 0.5f * distance);
 	Vector point = portalPoint + towardCenter * (inset / distance);
 	point.z = area->GetZ(point);
 	if (area->Contains(point))
@@ -192,7 +192,7 @@ bool BlockEdgeNearestOnPath(const Vector &position, const std::vector<unsigned i
 {
 	if (!IsLoaded())
 		return false;
-	float best = std::numeric_limits<float>::max();
+	float best = (std::numeric_limits<float>::max)();
 	std::size_t bestIndex = areaIds.size();
 	for (std::size_t i = 0; i + 1 < areaIds.size(); ++i)
 	{
@@ -233,8 +233,8 @@ static bool SegmentCrossesBox(const Vector &a, const Vector &b, const Vector &mi
 		float ta = (mins[axis] - a[axis]) / d, tb = (maxs[axis] - a[axis]) / d;
 		if (ta > tb)
 			std::swap(ta, tb);
-		t0 = std::max(t0, ta);
-		t1 = std::min(t1, tb);
+		t0 = (std::max)(t0, ta);
+		t1 = (std::min)(t1, tb);
 		if (t0 > t1)
 			return false;
 	}
@@ -262,9 +262,9 @@ int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &ma
 			continue;
 		const Vector &nw = area->GetCorner(NORTH_WEST);
 		const Vector &se = area->GetCorner(SOUTH_EAST);
-		const float topZ = std::max(nw.z, se.z) + 20.0f;
+		const float topZ = (std::max)(nw.z, se.z) + 20.0f;
 		if (se.x < mins.x || nw.x > maxs.x || se.y < mins.y || nw.y > maxs.y ||
-			topZ < mins.z || std::min(nw.z, se.z) > maxs.z)
+			topZ < mins.z || (std::min)(nw.z, se.z) > maxs.z)
 			continue;
 		for (int dir = 0; dir < NUM_DIRECTIONS; ++dir)
 			for (int k = 0; k < area->GetAdjacentCount(static_cast<NavDirType>(dir)); ++k)
@@ -417,7 +417,7 @@ int AddLaddersFromBsp()
 	if (filesystem == nullptr || gpGlobals == nullptr || TheNavMesh == nullptr)
 		return -1;
 	char name[256];
-	std::snprintf(name, sizeof(name), "maps/%s.bsp", STRING(gpGlobals->mapname));
+	snprintf(name, sizeof(name), "maps/%s.bsp", STRING(gpGlobals->mapname));
 	FileHandle_t file = filesystem->Open(name, "rb", "GAME");
 	if (file == nullptr)
 		return -1;
@@ -787,8 +787,8 @@ bool SegmentHitsBox(const Vector& a, const Vector& b, const BuildingBox& box,
 		float t1 = (high - a[axis]) / delta;
 		if (t0 > t1)
 			std::swap(t0, t1);
-		tMin = std::max(tMin, t0);
-		tMax = std::min(tMax, t1);
+		tMin = (std::max)(tMin, t0);
+		tMax = (std::min)(tMax, t1);
 		if (tMin > tMax)
 			return false;
 	}
@@ -842,7 +842,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 			// Spawn floors can sit above the baked mesh. Find the lowest clear
 			// hull up to the spawn height, retaining ground level outside.
 			const float ceiling = InPaddedBox(from, box, 0.0f) ?
-				std::max(planeZ, std::min(planeZ + 128.0f, from.z + kDetourFloorClearance)) : planeZ;
+				(std::max)(planeZ, (std::min)(planeZ + 128.0f, from.z + kDetourFloorClearance)) : planeZ;
 			for (float z = planeZ; z <= ceiling + 0.1f; z += 4.0f)
 			{
 				cellZ[y * width + x] = z;
@@ -868,7 +868,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 
 	// A bot that has just spawned is still falling; at that height its hull
 	// overlaps the barracks model. Start from the first clear height below.
-	Vector actualEntry(entry.x, entry.y, std::max(entry.z, from.z + kDetourFloorClearance));
+	Vector actualEntry(entry.x, entry.y, (std::max)(entry.z, from.z + kDetourFloorClearance));
 	const auto entrySolid = [&](const Vector& point)
 	{
 		for (const BuildingBox& other : boxes)
@@ -880,7 +880,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		actualEntry.z -= 4.0f;
 
 	int startCell = -1;
-	float startDistance = std::numeric_limits<float>::max();
+	float startDistance = (std::numeric_limits<float>::max)();
 	for (int y = 0; y < height; ++y)
 		for (int x = 0; x < width; ++x)
 		{
@@ -905,7 +905,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		return false;
 	}
 
-	std::vector<float> cost(width * height, std::numeric_limits<float>::max());
+	std::vector<float> cost(width * height, (std::numeric_limits<float>::max)());
 	std::vector<int> parent(width * height, -1);
 	using QueueEntry = std::pair<float, int>;
 	std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> open;
@@ -953,7 +953,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	std::vector<QueueEntry> exits;
 	for (int cell = 0; cell < width * height; ++cell)
 	{
-		if (cost[cell] == std::numeric_limits<float>::max())
+		if (cost[cell] == (std::numeric_limits<float>::max)())
 			continue;
 		const Vector point = cellPoint(cell % width, cell / width);
 		if (!InPaddedBox(point, box, 48.0f))
@@ -968,7 +968,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		float nearest = kDetourCell * 2.0f;
 		for (int cell = 0; cell < width * height; ++cell)
 		{
-			if (cost[cell] == std::numeric_limits<float>::max())
+			if (cost[cell] == (std::numeric_limits<float>::max)())
 				continue;
 			const float distance = (cellPoint(cell % width, cell / width) - targetAtPlane).Length();
 			if (distance < nearest)
@@ -1018,7 +1018,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &filter, &hit);
 		if (hit.startsolid || hit.fraction < 1.0f)
 			return false;
-		const int steps = std::max(1, static_cast<int>((end - start).Length() / 8.0f));
+		const int steps = (std::max)(1, static_cast<int>((end - start).Length() / 8.0f));
 		for (int i = 0; i <= steps; ++i)
 		{
 			const Vector sample = start + (end - start) * (static_cast<float>(i) / steps);
@@ -1219,7 +1219,7 @@ void EnsureNavComponents()
 				if (s_areaComponent.emplace(next, components).second)
 					stack.push_back(next);
 		}
-		largest = std::max(largest, size);
+		largest = (std::max)(largest, size);
 		if (size < 5)
 			++small;
 		++components;
@@ -1543,17 +1543,17 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 		float halfWidth = 0.0f;
 		current->ComputePortal(next, direction, &center, &halfWidth);
 		Vector point = center;
-		const float room = std::max(0.0f, halfWidth - margin);
+		const float room = (std::max)(0.0f, halfWidth - margin);
 		if (direction == NORTH || direction == SOUTH)
-			point.x = std::max(center.x - room, std::min(center.x + room, previous.x));
+			point.x = (std::max)(center.x - room, (std::min)(center.x + room, previous.x));
 		else
-			point.y = std::max(center.y - room, std::min(center.y + room, previous.y));
+			point.y = (std::max)(center.y - room, (std::min)(center.y + room, previous.y));
 		point.z = current->GetZ(point);
 		AppendPoint(path, point);
 		previous = point;
 	}
 	AppendPoint(path, path.walkGoal);
-	g_detourHalf = std::max(16.0f, width * 0.5f);
+	g_detourHalf = (std::max)(16.0f, width * 0.5f);
 	ApplyBuildingDetours(path, true);
 	g_detourHalf = 16.0f;
 	for (std::size_t i = 1; i < path.points.size(); ++i)

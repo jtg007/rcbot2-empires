@@ -356,14 +356,14 @@ inline std::int64_t QuantizedCell(const double x, const double y,
 	{
 		const double cell = std::floor(value / cellSize + 0.5);
 		if (!std::isfinite(cell) || cell < -1048575.0 || cell > 1048575.0)
-			return std::numeric_limits<std::int64_t>::min();
+			return (std::numeric_limits<std::int64_t>::min)();
 		return static_cast<std::int64_t>(cell);
 	};
 	const std::int64_t coordinates[] = { quantize(x), quantize(y), quantize(z) };
 	std::uint64_t packed = 0;
 	for (int i = 0; i < 3; ++i)
 	{
-		if (coordinates[i] == std::numeric_limits<std::int64_t>::min())
+		if (coordinates[i] == (std::numeric_limits<std::int64_t>::min)())
 			return -1;
 		const std::uint64_t value = coordinates[i] < 0 ?
 			static_cast<std::uint64_t>(-coordinates[i] * 2 - 1) :
@@ -378,18 +378,18 @@ class Store
 public:
 	explicit Store(const Limits& limits = Limits()) : m_limits(limits)
 	{
-		m_limits.maxEntries = std::max<std::size_t>(1,
-			std::min<std::size_t>(m_limits.maxEntries, 1024));
-		m_limits.maxHotspots = std::max<std::size_t>(1,
-			std::min<std::size_t>(m_limits.maxHotspots, 64));
-		m_limits.maxBotIdentitiesPerEntry = std::max<std::size_t>(2,
-			std::min<std::size_t>(m_limits.maxBotIdentitiesPerEntry, 128));
-		m_limits.maxRecentResultsPerEntry = std::max<std::size_t>(1,
-			std::min<std::size_t>(m_limits.maxRecentResultsPerEntry, 32));
-		m_limits.maxTransitionEntries = std::max<std::size_t>(1,
-			std::min<std::size_t>(m_limits.maxTransitionEntries, 4096));
-		m_limits.maxTransitionRecentResultsPerEntry = std::max<std::size_t>(1,
-			std::min<std::size_t>(m_limits.maxTransitionRecentResultsPerEntry, 64));
+		m_limits.maxEntries = (std::max<std::size_t>)(1,
+			(std::min<std::size_t>)(m_limits.maxEntries, 1024));
+		m_limits.maxHotspots = (std::max<std::size_t>)(1,
+			(std::min<std::size_t>)(m_limits.maxHotspots, 64));
+		m_limits.maxBotIdentitiesPerEntry = (std::max<std::size_t>)(2,
+			(std::min<std::size_t>)(m_limits.maxBotIdentitiesPerEntry, 128));
+		m_limits.maxRecentResultsPerEntry = (std::max<std::size_t>)(1,
+			(std::min<std::size_t>)(m_limits.maxRecentResultsPerEntry, 32));
+		m_limits.maxTransitionEntries = (std::max<std::size_t>)(1,
+			(std::min<std::size_t>)(m_limits.maxTransitionEntries, 4096));
+		m_limits.maxTransitionRecentResultsPerEntry = (std::max<std::size_t>)(1,
+			(std::min<std::size_t>)(m_limits.maxTransitionRecentResultsPerEntry, 64));
 	}
 
 	void reset(const std::string& mapIdentity,
@@ -459,7 +459,7 @@ public:
 		const std::size_t providerIndex = providerIndexFor(observation.key.provider);
 		m_providerDistribution[providerIndex] = saturatedAdd(
 			m_providerDistribution[providerIndex], 1);
-		entry.lastSeenMs = std::max(entry.lastSeenMs, observation.timestampMs);
+		entry.lastSeenMs = (std::max)(entry.lastSeenMs, observation.timestampMs);
 		entry.totalTraversalMs = saturatedAdd(entry.totalTraversalMs,
 			static_cast<std::uint64_t>(std::llround(observation.traversalSeconds * 1000.0)));
 		entry.totalProgressMilliUnits = saturatedAdd(entry.totalProgressMilliUnits,
@@ -540,7 +540,7 @@ public:
 			m_transitionTotalObservations, 1);
 		m_transitionResultCounts[resultIndex] = saturatedAdd(
 			m_transitionResultCounts[resultIndex], 1);
-		entry.lastSeenMs = std::max(entry.lastSeenMs, observation.timestampMs);
+		entry.lastSeenMs = (std::max)(entry.lastSeenMs, observation.timestampMs);
 		entry.totalDurationMs = saturatedAdd(entry.totalDurationMs,
 			static_cast<std::uint64_t>(std::llround(
 				observation.durationSeconds * 1000.0)));
@@ -611,19 +611,19 @@ public:
 		const double failureRatio = attempts > 0.0 ?
 			static_cast<double>(result.failures) / attempts : 0.0;
 		const double sampleConfidence = policy.minAttempts == 0 ? 1.0 :
-			std::min(1.0, attempts /
+			(std::min)(1.0, attempts /
 				(static_cast<double>(policy.minAttempts) * 2.0));
-		const double successRatio = std::min(1.0,
+		const double successRatio = (std::min)(1.0,
 			static_cast<double>(result.successes) / attempts);
-		const double recoveryWeight = std::max(0.0,
-			std::min(1.0, policy.successRecoveryWeight));
-		const double recovery = std::max(0.0,
+		const double recoveryWeight = (std::max)(0.0,
+			(std::min)(1.0, policy.successRecoveryWeight));
+		const double recovery = (std::max)(0.0,
 			1.0 - recoveryWeight * successRatio);
-		result.confidence = std::max(0.0, std::min(1.0,
+		result.confidence = (std::max)(0.0, (std::min)(1.0,
 			failureRatio * sampleConfidence * recovery));
-		const double cap = std::max(0.0, policy.maxPenalty);
-		const double scale = std::max(0.0, policy.penaltyScale);
-		result.penalty = std::max(0.0, std::min(cap,
+		const double cap = (std::max)(0.0, policy.maxPenalty);
+		const double scale = (std::max)(0.0, policy.penaltyScale);
+		result.penalty = (std::max)(0.0, (std::min)(cap,
 			cap * scale * result.confidence));
 		result.eligible = result.penalty > 0.0;
 		return result;
@@ -769,8 +769,8 @@ private:
 	static std::uint64_t saturatedAdd(const std::uint64_t left,
 		const std::uint64_t right)
 	{
-		return right > std::numeric_limits<std::uint64_t>::max() - left ?
-			std::numeric_limits<std::uint64_t>::max() : left + right;
+		return right > (std::numeric_limits<std::uint64_t>::max)() - left ?
+			(std::numeric_limits<std::uint64_t>::max)() : left + right;
 	}
 
 	static std::size_t providerIndexFor(const Provider provider)
@@ -1050,7 +1050,7 @@ private:
 				if (ch < 0x20)
 				{
 					char escaped[8] = {};
-					std::snprintf(escaped, sizeof(escaped), "\\u%04x", ch);
+					snprintf(escaped, sizeof(escaped), "\\u%04x", ch);
 					out += escaped;
 				}
 				else out += static_cast<char>(ch);

@@ -13,7 +13,7 @@ std::string Number(const double value)
 		return "null";
 
 	char buffer[64] = {};
-	std::snprintf(buffer, sizeof(buffer), "%.6f", value);
+	snprintf(buffer, sizeof(buffer), "%.6f", value);
 	return buffer;
 }
 

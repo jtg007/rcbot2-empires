@@ -209,7 +209,7 @@ bool CBotEmpires::handleEmpiresRevive()
 	if (now >= m_flReviveSent + 1.5f)
 	{
 		char command[96];
-		std::snprintf(command, sizeof(command), "emp_revive %d %d %d %d\n", m_iReviveTarget, static_cast<int>(at.x),
+		snprintf(command, sizeof(command), "emp_revive %d %d %d %d\n", m_iReviveTarget, static_cast<int>(at.x),
 			static_cast<int>(at.y), static_cast<int>(at.z + 8.0f));
 		helpers->ClientCommand(m_pEdict, command);
 		m_flReviveSent = now;

@@ -704,7 +704,7 @@ void CDODBot :: seeFriendlyKill ( edict_t *pTeamMate, edict_t *pDied, CWeapon *p
 			else
 				m_fCurrentDanger -= 20.0f;
 
-			m_fCurrentDanger = std::max<float>(m_fCurrentDanger, 0);
+			m_fCurrentDanger = (std::max<float>)(m_fCurrentDanger, 0);
 
 			if (pclass == DOD_CLASS_MACHINEGUNNER && pWeapon->isDeployable())
 			{

@@ -224,7 +224,7 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 	}
 	list += "\n";
 	char command[96];
-	std::snprintf(command, sizeof(command), "emp_unit_order %d %.0f %.0f %.0f\n", kAttackLocation,
+	snprintf(command, sizeof(command), "emp_unit_order %d %.0f %.0f %.0f\n", kAttackLocation,
 		bestSpot.x, bestSpot.y, bestSpot.z);
 	helpers->ClientCommand(m_pEdict, list.c_str());
 	helpers->ClientCommand(m_pEdict, command);

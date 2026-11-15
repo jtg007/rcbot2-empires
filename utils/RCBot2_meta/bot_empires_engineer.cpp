@@ -106,7 +106,7 @@ namespace
 
 			++count;
 			if (highestIndex != nullptr)
-				*highestIndex = std::max(*highestIndex, engine->IndexOfEdict(pEdict));
+				*highestIndex = (std::max)(*highestIndex, engine->IndexOfEdict(pEdict));
 		}
 		return count;
 	}
@@ -2638,7 +2638,7 @@ void CBotEmpires::handleEmpiresEngineerRepairAction()
 		if (m_flEmpiresEngineerRepairApproachLast <= 0.0f ||
 			viewHitDistance < m_flEmpiresEngineerRepairApproachLast - 1.0f)
 			m_flEmpiresEngineerRepairActionDeadline =
-				std::max(m_flEmpiresEngineerRepairActionDeadline, now + 3.0f);
+				(std::max)(m_flEmpiresEngineerRepairActionDeadline, now + 3.0f);
 		m_flEmpiresEngineerRepairApproachLast = viewHitDistance;
 	}
 	else

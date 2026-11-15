@@ -154,7 +154,7 @@ namespace
 			return nullptr;
 
 		edict_t* nearest = nullptr;
-		float nearestDistance = std::numeric_limits<float>::max();
+		float nearestDistance = (std::numeric_limits<float>::max)();
 		for (CBaseEntity* entity = servertools->FirstEntity(); entity != nullptr;
 			entity = servertools->NextEntity(entity))
 		{
@@ -1968,7 +1968,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 			target = byUserId(std::atoi(arg(6)));
 		const int type = std::atoi(arg(1));
 		char command[160];
-		std::snprintf(command, sizeof(command), "emp_unit_order_list %d\n", engine->IndexOfEdict(unit));
+		snprintf(command, sizeof(command), "emp_unit_order_list %d\n", engine->IndexOfEdict(unit));
 		helpers->ClientCommand(commander, command);
 		if (target != nullptr && engine->IndexOfEdict(target) <= gpGlobals->maxClients &&
 			CClassInterface::getTeam(target) != CClassInterface::getTeam(commander) &&
@@ -1980,9 +1980,9 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 			reinterpret_cast<unsigned char*>(target->GetUnknown()->GetBaseEntity())[0x14ec] = 1;
 		}
 		if (target != nullptr)
-			std::snprintf(command, sizeof(command), "emp_unit_order %d %d\n", type, engine->IndexOfEdict(target)); // entity form: 2 args (0x650114)
+			snprintf(command, sizeof(command), "emp_unit_order %d %d\n", type, engine->IndexOfEdict(target)); // entity form: 2 args (0x650114)
 		else
-			std::snprintf(command, sizeof(command), "emp_unit_order %d %s %s %s\n", type, arg(3), arg(4), arg(5));
+			snprintf(command, sizeof(command), "emp_unit_order %d %s %s %s\n", type, arg(3), arg(4), arg(5));
 		helpers->ClientCommand(commander, command);
 		int commandType = -999;
 		ServerClass* sc = unit->GetNetworkable() != nullptr ? unit->GetNetworkable()->GetServerClass() : nullptr;
@@ -2262,7 +2262,7 @@ CBotCommandInline EmpiresScoutBuildingVisibilityScanCommand(
 		int nearestVisibleWaypoint = -1;
 		float nearestVisibleDistance = 1.0e30f;
 		Vector nearestVisibleSource = vec3_origin;
-		const int waypointCount = std::min(CWaypoints::numWaypoints(),
+		const int waypointCount = (std::min)(CWaypoints::numWaypoints(),
 			CWaypoints::MAX_WAYPOINTS);
 		for (int waypointIndex = 0; waypointIndex < waypointCount; ++waypointIndex)
 		{
@@ -3399,7 +3399,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 				if (other == nullptr || other == base || !other->inUse() || other->getEdict() == nullptr)
 					continue;
 				char setpos[160];
-				std::snprintf(setpos, sizeof(setpos), "setpos %s %s %s\n", args[1], args[2], args[3]);
+				snprintf(setpos, sizeof(setpos), "setpos %s %s %s\n", args[1], args[2], args[3]);
 				helpers->ClientCommand(other->getEdict(), setpos);
 				const Vector o = CBotGlobals::entityOrigin(other->getEdict());
 				Msg("[RCBOT2] commander-build helper slot=%d pos=(%.0f %.0f %.0f)\n", slot, o.x, o.y, o.z);
@@ -3494,9 +3494,9 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		const auto before = listBuildings();
 		char command[160];
 		if (type == 0 && resIndex >= 0)
-			std::snprintf(command, sizeof(command), "emp_build 0 %d 0\n", resIndex);
+			snprintf(command, sizeof(command), "emp_build 0 %d 0\n", resIndex);
 		else
-			std::snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g 0\n", type, double(pos.x), double(pos.y), double(pos.z));
+			snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g 0\n", type, double(pos.x), double(pos.y), double(pos.z));
 		helpers->ClientCommand(bot->getEdict(), command);
 		const auto after = listBuildings();
 		for (const int index : after)

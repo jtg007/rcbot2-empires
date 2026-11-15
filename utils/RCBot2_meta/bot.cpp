@@ -1048,7 +1048,7 @@ bool CBot::requestNavigation(const Vector& goalOrigin,
 	task->setNavigationPolicy(policy);
 
 	char detail[256];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"policy=%s goal=(%.1f %.1f %.1f) goal_id=%d",
 		RCBotNavigation::NavigationPolicyName(policy), goalOrigin.x,
 		goalOrigin.y, goalOrigin.z, goalId);
@@ -1118,7 +1118,7 @@ bool CBot::beginNavigationIntent(const RCBotNavigation::Provider provider,
 	m_navigationMoveConflictLogged = false;
 
 	char detail[320];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"intent_id=%llu provider=%s goal=(%.1f %.1f %.1f) owner=%s",
 		static_cast<unsigned long long>(m_navigationIntent.id),
 		navigationProviderName(provider), goalOrigin.x, goalOrigin.y,
@@ -1128,7 +1128,7 @@ bool CBot::beginNavigationIntent(const RCBotNavigation::Provider provider,
 	EmpiresAnalysis::RecordPathEvent(this, "NAV_MOVE_OWNER_ACQUIRE", goalId,
 		detail);
 	char selectDetail[384];
-	std::snprintf(selectDetail, sizeof(selectDetail),
+	snprintf(selectDetail, sizeof(selectDetail),
 		"intent_id=%llu policy=%s provider=%s owner=%s goal=(%.1f %.1f %.1f)",
 		static_cast<unsigned long long>(m_navigationIntent.id),
 		RCBotNavigation::NavigationPolicyName(policy),
@@ -1188,7 +1188,7 @@ bool CBot::setNavigationIntentState(
 
 	m_navigationIntent.state = state;
 	char detail[256];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"intent_id=%llu state=%s reason=%s",
 		static_cast<unsigned long long>(m_navigationIntent.id),
 		navigationIntentStateName(state), reason != nullptr ? reason : "unspecified");
@@ -1223,7 +1223,7 @@ bool CBot::setNavigationMoveTarget(const std::uint64_t intentId,
 			!m_navigationMoveConflictLogged)
 		{
 			char detail[256];
-			std::snprintf(detail, sizeof(detail),
+			snprintf(detail, sizeof(detail),
 				"intent_id=%llu provider=%s attempt_id=%llu expected_provider=%s expected_attempt_id=%llu reason=%s",
 				static_cast<unsigned long long>(intentId),
 				navigationProviderName(provider),
@@ -1297,7 +1297,7 @@ bool CBot::finishNavigationIntent(
 	const RCBotNavigation::ProviderFailureRecord& localExplorerFailure =
 		m_navigationIntent.failureReasonPerProvider[2];
 	char detail[768];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"intent_id=%llu state=%s result=%s reason=%s policy=%s provider=%s attempt_id=%llu providers_attempted=%u provider_switch_count=%u waypoint_failure=%s/%s navmesh_failure=%s/%s local_explorer_failure=%s/%s",
 		static_cast<unsigned long long>(intentId),
 		navigationIntentStateName(state), navigationResultName(result),
@@ -1323,7 +1323,7 @@ bool CBot::finishNavigationIntent(
 	if (result == RCBotNavigation::Result::COMPLETE)
 	{
 		char completeDetail[384];
-		std::snprintf(completeDetail, sizeof(completeDetail),
+		snprintf(completeDetail, sizeof(completeDetail),
 			"intent_id=%llu provider=%s attempt_id=%llu providers_attempted=%u provider_switch_count=%u",
 			static_cast<unsigned long long>(intentId),
 			navigationProviderName(provider),
@@ -1344,7 +1344,7 @@ bool CBot::finishNavigationIntent(
 	if (m_navigationMovementOwned)
 	{
 		char ownerDetail[192];
-		std::snprintf(ownerDetail, sizeof(ownerDetail),
+		snprintf(ownerDetail, sizeof(ownerDetail),
 			"intent_id=%llu result=%s reason=%s",
 			static_cast<unsigned long long>(intentId),
 			navigationResultName(result), reason != nullptr ? reason : "unspecified");
@@ -1393,7 +1393,7 @@ RCBotNavigation::FailureDisposition CBot::handleNavigationProviderFailure(
 		result);
 
 	char failDetail[512];
-	std::snprintf(failDetail, sizeof(failDetail),
+	snprintf(failDetail, sizeof(failDetail),
 		"intent_id=%llu policy=%s provider=%s classification=%s reason=%s result=%s providers_attempted=%u provider_switch_count=%u detail=%s",
 		static_cast<unsigned long long>(intentId),
 		RCBotNavigation::NavigationPolicyName(m_navigationIntent.policy),
@@ -1442,7 +1442,7 @@ RCBotNavigation::FailureDisposition CBot::handleNavigationProviderFailure(
 	if (next == RCBotNavigation::Provider::UNKNOWN)
 	{
 		char exhaustedDetail[512];
-		std::snprintf(exhaustedDetail, sizeof(exhaustedDetail),
+		snprintf(exhaustedDetail, sizeof(exhaustedDetail),
 			"intent_id=%llu provider=%s classification=%s reason=%s result=%s policy=%s providers_attempted=%u provider_switch_count=%u",
 			static_cast<unsigned long long>(intentId),
 			navigationProviderName(provider),
@@ -1463,7 +1463,7 @@ RCBotNavigation::FailureDisposition CBot::handleNavigationProviderFailure(
 	const RCBotNavigation::Provider oldProvider = m_navigationIntent.provider;
 	const RCBotNavigation::IntentOwner oldOwner = m_navigationIntent.owner;
 	char releaseDetail[256];
-	std::snprintf(releaseDetail, sizeof(releaseDetail),
+	snprintf(releaseDetail, sizeof(releaseDetail),
 		"intent_id=%llu provider=%s owner=%s reason=%s",
 		static_cast<unsigned long long>(intentId),
 		navigationProviderName(oldProvider), navigationOwnerName(oldOwner),
@@ -1481,7 +1481,7 @@ RCBotNavigation::FailureDisposition CBot::handleNavigationProviderFailure(
 	m_navigationMoveConflictLogged = false;
 
 	char fallbackDetail[512];
-	std::snprintf(fallbackDetail, sizeof(fallbackDetail),
+	snprintf(fallbackDetail, sizeof(fallbackDetail),
 		"intent_id=%llu from=%s to=%s policy=%s classification=%s reason=%s providers_attempted=%u provider_switch_count=%u",
 		static_cast<unsigned long long>(intentId),
 		navigationProviderName(oldProvider), navigationProviderName(next),
@@ -1544,7 +1544,7 @@ void CBot::rejectNavigationMoveWriter()
 		return;
 
 	char detail[192];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"intent_id=%llu owner=%s writer=legacy-setMoveTo action=REJECT",
 		static_cast<unsigned long long>(m_navigationIntent.id),
 		navigationOwnerName(m_navigationIntent.owner));
@@ -1583,7 +1583,7 @@ bool CBot::beginNavigationAttempt(
 	if (m_navigationAttempt.IsCooldownBlocked(key, now))
 	{
 		char detail[256];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"provider=%s goal_sig=%llu segment=%d->%d blocked_until=%.3f",
 			navigationProviderName(provider),
 			static_cast<unsigned long long>(goalSignature),
@@ -1606,7 +1606,7 @@ bool CBot::beginNavigationAttempt(
 		"navigation-attempt-started");
 
 	char detail[384];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"attempt_id=%llu provider=%s goal_sig=%llu segment=%d->%d start=(%.1f %.1f %.1f) timeout=%.1f",
 		static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 		navigationProviderName(provider),
@@ -1644,7 +1644,7 @@ RCBotNavigation::Observation CBot::observeNavigationAttempt(
 		EmpiresAnalysis::RecordRecoveryEpisodeProgress(this,
 			"navigation-progress");
 		char detail[384];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"attempt_id=%llu provider=%s segment=%d->%d remaining=%.1f best=%.1f position=(%.1f %.1f %.1f)",
 			static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 			navigationProviderName(key.provider), key.segment.currentWaypoint,
@@ -1658,7 +1658,7 @@ RCBotNavigation::Observation CBot::observeNavigationAttempt(
 	else if (observation == RCBotNavigation::Observation::NO_PROGRESS)
 	{
 		char detail[384];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"attempt_id=%llu provider=%s elapsed=%.1f remaining=%.1f best=%.1f position=(%.1f %.1f %.1f)",
 			static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 			navigationProviderName(key.provider),
@@ -1721,7 +1721,7 @@ bool CBot::beginWaypointNavigationAttempt(const int goalWaypointId,
 	if (m_navigationAttempt.IsCooldownBlocked(key, now))
 	{
 		char detail[256];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"goal_sig=%llu segment=%d->%d blocked_until=%.3f",
 			static_cast<unsigned long long>(goalSignature),
 			key.segment.currentWaypoint, key.segment.nextWaypoint,
@@ -1745,7 +1745,7 @@ bool CBot::beginWaypointNavigationAttempt(const int goalWaypointId,
 		"waypoint-attempt-started");
 
 	char detail[384];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"attempt_id=%llu provider=WAYPOINT goal_sig=%llu segment=%d->%d start=(%.1f %.1f %.1f) timeout=%.1f",
 		static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 		static_cast<unsigned long long>(goalSignature),
@@ -1790,7 +1790,7 @@ RCBotNavigation::Observation CBot::observeWaypointNavigationAttempt(
 		beforeSegment != key.segment)
 	{
 		char detail[320];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"attempt_id=%llu segment=%d->%d remaining=%.1f best=%.1f position=(%.1f %.1f %.1f)",
 			static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 			key.segment.currentWaypoint, key.segment.nextWaypoint,
@@ -1823,7 +1823,7 @@ RCBotNavigation::Observation CBot::observeWaypointNavigationAttempt(
 	else if (observation == RCBotNavigation::Observation::NO_PROGRESS)
 	{
 		char detail[320];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"attempt_id=%llu elapsed=%.1f remaining=%.1f best=%.1f position=(%.1f %.1f %.1f)",
 			static_cast<unsigned long long>(m_navigationAttempt.GetAttemptId()),
 			engine->Time() - m_navigationAttempt.GetLastProgressTime(),
@@ -1861,7 +1861,7 @@ bool CBot::finishNavigationAttemptOnly(const RCBotNavigation::Result result,
 		m_navigationAttempt, result, reason);
 
 	char detail[384];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"attempt_id=%llu result=%s reason=%s duration=%.1f progress_count=%u failures=%u segment=%d->%d",
 		static_cast<unsigned long long>(attemptId),
 		navigationResultName(result), reason != nullptr ? reason : "unspecified",
@@ -1877,7 +1877,7 @@ bool CBot::finishNavigationAttemptOnly(const RCBotNavigation::Result result,
 		result == RCBotNavigation::Result::UNREACHABLE)
 	{
 		char cooldown[160];
-		std::snprintf(cooldown, sizeof(cooldown),
+		snprintf(cooldown, sizeof(cooldown),
 			"attempt_id=%llu until=%.3f result=%s",
 			static_cast<unsigned long long>(attemptId),
 			m_navigationAttempt.GetCooldownUntil(), navigationResultName(result));
@@ -2289,7 +2289,7 @@ void CBot :: think ()
 			* fLerpTimeDelta
 		> fMaxDifferenceAdjusted
 			? 0.0f
-			: std::min(std::max(0.0f, m_fEnemyAimLerp + fLerpTimeDelta), 1.0f);
+			: (std::min)(std::max(0.0f, m_fEnemyAimLerp + fLerpTimeDelta), 1.0f);
 
 		m_vEnemyAimLerpVelocity = vEnemyAimLerpVelocity;
 	}
@@ -4563,9 +4563,9 @@ void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int bot
 	};
 	if (szName != nullptr && *szName != '\0')
 	{
-		std::snprintf(name, sizeof(name), "%s", szName);
+		snprintf(name, sizeof(name), "%s", szName);
 		for (int n = 2; n < 100 && taken(name); ++n)
-			std::snprintf(name, sizeof(name), "%s (%d)", szName, n);
+			snprintf(name, sizeof(name), "%s (%d)", szName, n);
 	}
 	else
 	{
@@ -4574,13 +4574,13 @@ void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int bot
 			CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES;
 		char base[32];
 		if (empires)
-			std::snprintf(base, sizeof(base), "%s%s%s", team == 2 ? "NF " : team == 3 ? "BE " : "",
+			snprintf(base, sizeof(base), "%s%s%s", team == 2 ? "NF " : team == 3 ? "BE " : "",
 				botClass >= 0 && botClass <= 3 ? kClasses[botClass] : "Bot", "");
 		else
-			std::snprintf(base, sizeof(base), "RCBot");
+			snprintf(base, sizeof(base), "RCBot");
 		for (int n = 1; n < 100; ++n)
 		{
-			std::snprintf(name, sizeof(name), "%s %d", base, n);
+			snprintf(name, sizeof(name), "%s %d", base, n);
 			if (!taken(name))
 				break;
 		}
@@ -4748,7 +4748,7 @@ bool CBots::createEmpiresBootstrapBot()
 		}
 
 		char command[64];
-		std::snprintf(command, sizeof(command), "kickid %d\n", userId);
+		snprintf(command, sizeof(command), "kickid %d\n", userId);
 		engine->ServerCommand(command);
 		return false;
 	}
@@ -4785,7 +4785,7 @@ bool CBots::removeEmpiresBootstrapBot()
 		char command[64];
 		// kickid expects the engine userid, not the edict index. The two values
 		// happened to differ in the controlled test (index 1, userid 2).
-		std::snprintf(command, sizeof(command), "kickid %d\n", userId);
+		snprintf(command, sizeof(command), "kickid %d\n", userId);
 		engine->ServerCommand(command);
 		return true;
 	}
@@ -4855,7 +4855,7 @@ bool CBots::createEmpiresControllerProbe()
 		if (userId > 0)
 		{
 			char command[64];
-			std::snprintf(command, sizeof(command), "kickid %d\n", userId);
+			snprintf(command, sizeof(command), "kickid %d\n", userId);
 			engine->ServerCommand(command);
 		}
 		return false;
@@ -4892,7 +4892,7 @@ bool CBots::removeEmpiresControllerProbe()
 		}
 
 		char command[64];
-		std::snprintf(command, sizeof(command), "kickid %d\n", userId);
+		snprintf(command, sizeof(command), "kickid %d\n", userId);
 		engine->ServerCommand(command);
 		return true;
 	}

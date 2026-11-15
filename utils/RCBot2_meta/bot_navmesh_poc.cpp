@@ -354,7 +354,7 @@ void RunCollisionProbeSegment(const char *label, const Vector &from,
 		PrintCollisionProbeTrace(label, "ClipRayToEntity", from, to,
 			entityTrace, probe.entity);
 		anyEntityHit = anyEntityHit || entityTrace.DidHit();
-		earliestFraction = std::min(earliestFraction, entityTrace.fraction);
+		earliestFraction = (std::min)(earliestFraction, entityTrace.fraction);
 
 		trace_t collideableTrace{};
 		enginetrace->ClipRayToCollideable(ray, MASK_ALL,
@@ -362,7 +362,7 @@ void RunCollisionProbeSegment(const char *label, const Vector &from,
 		PrintCollisionProbeTrace(label, "ClipRayToCollideable", from, to,
 			collideableTrace, probe.entity);
 		anyEntityHit = anyEntityHit || collideableTrace.DidHit();
-		earliestFraction = std::min(earliestFraction,
+		earliestFraction = (std::min)(earliestFraction,
 			collideableTrace.fraction);
 	}
 	Msg("[RCBOT2] NavMesh collision-probe label=%s method=both-entities "
@@ -528,7 +528,7 @@ bool ResolveCollisionMapperHull(const Vector &requestedPosition,
 
 	edict_t *bestPlayer = nullptr;
 	IPlayerInfo *bestInfo = nullptr;
-	float bestScore = std::numeric_limits<float>::max();
+	float bestScore = (std::numeric_limits<float>::max)();
 
 	if (requestedPlayerIndex > 0 &&
 		requestedPlayerIndex <= gpGlobals->maxClients)
@@ -874,7 +874,7 @@ CollisionMapperEdgeEvaluation EvaluateCollisionMapperEdge(
 		{
 			parentBlocked = parentBlocked || parentPointTrace.startsolid ||
 				parentPointTrace.allsolid || parentPointTrace.fraction < 1.0f;
-			result.horizontalParentFraction = std::min(
+			result.horizontalParentFraction = (std::min)(
 				result.horizontalParentFraction, parentPointTrace.fraction);
 		}
 
@@ -885,13 +885,13 @@ CollisionMapperEdgeEvaluation EvaluateCollisionMapperEdge(
 
 		const Vector &previousFeet = surfaceFeet[surfaceFeet.size() - 2];
 		const float localDelta = std::fabs(feet.z - previousFeet.z);
-		result.maxLocalGroundDelta = std::max(result.maxLocalGroundDelta,
+		result.maxLocalGroundDelta = (std::max)(result.maxLocalGroundDelta,
 			localDelta);
 		trace_t parentSurfaceTrace;
 		if (ClipCollisionMapperHullToEntity(previousFeet, feet, hullMins,
 			hullMaxs, parentBuilding, &parentSurfaceTrace))
 		{
-			result.rawParentFraction = std::min(result.rawParentFraction,
+			result.rawParentFraction = (std::min)(result.rawParentFraction,
 				parentSurfaceTrace.fraction);
 			const bool rawBlocked = parentSurfaceTrace.startsolid ||
 				parentSurfaceTrace.allsolid || parentSurfaceTrace.fraction < 1.0f;
@@ -909,7 +909,7 @@ CollisionMapperEdgeEvaluation EvaluateCollisionMapperEdge(
 		if (ClipCollisionMapperHullToEntity(horizontalFrom, horizontalTo,
 			hullMins, hullMaxs, parentBuilding, &parentHorizontalTrace))
 		{
-			result.horizontalParentFraction = std::min(
+			result.horizontalParentFraction = (std::min)(
 				result.horizontalParentFraction, parentHorizontalTrace.fraction);
 			parentBlocked = parentBlocked || parentHorizontalTrace.startsolid ||
 				parentHorizontalTrace.allsolid ||
@@ -920,7 +920,7 @@ CollisionMapperEdgeEvaluation EvaluateCollisionMapperEdge(
 		if (TraceCollisionMapperWorldHull(previousFeet, feet, hullMins,
 			hullMaxs, &worldSurfaceTrace))
 		{
-			result.rawWorldFraction = std::min(result.rawWorldFraction,
+			result.rawWorldFraction = (std::min)(result.rawWorldFraction,
 				worldSurfaceTrace.fraction);
 			const bool rawWorldBlocked = worldSurfaceTrace.startsolid ||
 				worldSurfaceTrace.allsolid || worldSurfaceTrace.fraction < 1.0f;
@@ -931,7 +931,7 @@ CollisionMapperEdgeEvaluation EvaluateCollisionMapperEdge(
 		if (TraceCollisionMapperWorldWallHull(horizontalFrom, horizontalTo,
 			hullMins, hullMaxs, &worldHorizontalTrace))
 		{
-			result.horizontalWorldFraction = std::min(
+			result.horizontalWorldFraction = (std::min)(
 				result.horizontalWorldFraction, worldHorizontalTrace.fraction);
 			// A brush floor can still report startsolid for a resting hull even
 			// after the small vertical lift. Only a clean hit from a non-solid
@@ -1101,7 +1101,7 @@ float CollisionMapperDistanceToPortal(
 	const std::vector<CollisionMapperPortalSample> &portalSamples,
 	const int cellIndex)
 {
-	float best = std::numeric_limits<float>::max();
+	float best = (std::numeric_limits<float>::max)();
 	if (cellIndex < 0 || cellIndex >= static_cast<int>(cells.size()))
 		return best;
 	for (const CollisionMapperPortalSample &sample : portalSamples)
@@ -1110,7 +1110,7 @@ float CollisionMapperDistanceToPortal(
 			continue;
 		const float dx = cells[cellIndex].feet.x - sample.feet.x;
 		const float dy = cells[cellIndex].feet.y - sample.feet.y;
-		best = std::min(best, std::sqrt(dx * dx + dy * dy));
+		best = (std::min)(best, std::sqrt(dx * dx + dy * dy));
 	}
 	return best;
 }
@@ -1402,7 +1402,7 @@ const CollisionMapper3DTopologyFloor *FindCollisionMapper3DTopologyFloor(
 	const float tolerance)
 {
 	const CollisionMapper3DTopologyFloor *best = nullptr;
-	float bestDistance = std::numeric_limits<float>::max();
+	float bestDistance = (std::numeric_limits<float>::max)();
 	for (const CollisionMapper3DTopologyFloor &floor : sample.floors)
 	{
 		if (!floor.free)
@@ -1750,10 +1750,10 @@ void RunCollisionMapper3DTopology(const Vector &lowerPoint,
 		sizeof(referenceLevels[0]);
 	const float baseResolution = 8.0f;
 	const float padding = 40.0f;
-	const float minX = std::min(lowerPoint.x, upperPoint.x) - padding;
-	const float maxX = std::max(lowerPoint.x, upperPoint.x) + padding;
-	const float minY = std::min(lowerPoint.y, upperPoint.y) - padding;
-	const float maxY = std::max(lowerPoint.y, upperPoint.y) + padding;
+	const float minX = (std::min)(lowerPoint.x, upperPoint.x) - padding;
+	const float maxX = (std::max)(lowerPoint.x, upperPoint.x) + padding;
+	const float minY = (std::min)(lowerPoint.y, upperPoint.y) - padding;
+	const float maxY = (std::max)(lowerPoint.y, upperPoint.y) + padding;
 	const float alignedMinX = std::floor(minX / baseResolution) *
 		baseResolution;
 	const float alignedMinY = std::floor(minY / baseResolution) *
@@ -1892,8 +1892,8 @@ void RunCollisionMapper3DTopology(const Vector &lowerPoint,
 
 	int startNode = -1;
 	int targetNode = -1;
-	float startDistance = std::numeric_limits<float>::max();
-	float targetDistance = std::numeric_limits<float>::max();
+	float startDistance = (std::numeric_limits<float>::max)();
+	float targetDistance = (std::numeric_limits<float>::max)();
 	for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
 	{
 		const float startDX = nodes[i].feet.x - lowerPoint.x;
@@ -2022,12 +2022,12 @@ void RunCollisionMapper3DTopology(const Vector &lowerPoint,
 		Msg("[RCBOT2] NavMesh collision-3d reachable_component nodes=%d "
 			"lower=%d upper=%d\n", reachable, reachableLower, reachableUpper);
 
-		float nearestGap = std::numeric_limits<float>::max();
+		float nearestGap = (std::numeric_limits<float>::max)();
 		int gapFrom = -1;
 		int gapTo = -1;
 		for (int pass = 0; pass < 2 && gapFrom < 0; ++pass)
 		{
-			nearestGap = std::numeric_limits<float>::max();
+			nearestGap = (std::numeric_limits<float>::max)();
 			for (int from = 0; from < static_cast<int>(nodes.size()); ++from)
 			{
 				if (!visited[from])
@@ -2100,11 +2100,11 @@ void RunCollisionMapperAdaptiveBoundary(
 	constexpr int kCoarseRadius = 12;
 	std::vector<int> refinementCells;
 	std::vector<char> refinementMask(cells.size(), 0);
-	for (int y = std::max(0, frontierY - kCoarseRadius);
-		y <= std::min(height - 1, frontierY + kCoarseRadius); ++y)
+	for (int y = (std::max)(0, frontierY - kCoarseRadius);
+		y <= (std::min)(height - 1, frontierY + kCoarseRadius); ++y)
 	{
-		for (int x = std::max(0, frontierX - kCoarseRadius);
-			x <= std::min(width - 1, frontierX + kCoarseRadius); ++x)
+		for (int x = (std::max)(0, frontierX - kCoarseRadius);
+			x <= (std::min)(width - 1, frontierX + kCoarseRadius); ++x)
 		{
 			const int index = y * width + x;
 			bool boundary = index == frontierEdge.from ||
@@ -2479,10 +2479,10 @@ void RunCollisionMapperAdaptiveBoundary(
 			std::reverse(localPath.begin(), localPath.end());
 		}
 		bool frontierCrossed = false;
-		float nearestFrontierDistance = std::numeric_limits<float>::max();
+		float nearestFrontierDistance = (std::numeric_limits<float>::max)();
 		for (const int pathNode : localPath)
 		{
-			nearestFrontierDistance = std::min(nearestFrontierDistance,
+			nearestFrontierDistance = (std::min)(nearestFrontierDistance,
 				(nodes[pathNode].feet - frontierMid).Length2D());
 		}
 		for (std::size_t index = 1; index < localPath.size(); ++index)
@@ -2582,12 +2582,12 @@ void RunCollisionMapperAdaptiveBoundary(
 					wallEvidence[endpointIndices[endpointIndex]].point;
 				int nearbyFree = 0;
 				float nearestFreeDistance =
-					std::numeric_limits<float>::max();
+					(std::numeric_limits<float>::max)();
 				std::vector<float> endpointLevels;
 				for (const CollisionMapperAdaptiveNode &node : nodes)
 				{
 					const float distance = (node.feet - endpoint).Length2D();
-					nearestFreeDistance = std::min(nearestFreeDistance, distance);
+					nearestFreeDistance = (std::min)(nearestFreeDistance, distance);
 					if (distance > resolution * 2.5f)
 						continue;
 					++nearbyFree;
@@ -2852,7 +2852,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	auto FindCollisionMapperCellNear = [&cells](const Vector &point)
 	{
 		int bestIndex = -1;
-		float bestDistance = std::numeric_limits<float>::max();
+		float bestDistance = (std::numeric_limits<float>::max)();
 		for (std::size_t index = 0; index < cells.size(); ++index)
 		{
 			const float dx = cells[index].sample.x - point.x;
@@ -3220,7 +3220,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 		if (!sample.valid)
 			continue;
 		++validPortalSampleCount;
-		float bestDistance = std::numeric_limits<float>::max();
+		float bestDistance = (std::numeric_limits<float>::max)();
 		for (std::size_t index = 0; index < cells.size(); ++index)
 		{
 			const CollisionMapperCell &cell = cells[index];
@@ -3256,7 +3256,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	}
 
 	int spawnCell = -1;
-	float spawnDistance = std::numeric_limits<float>::max();
+	float spawnDistance = (std::numeric_limits<float>::max)();
 	for (std::size_t index = 0; index < cells.size(); ++index)
 	{
 		if (cells[index].state != CollisionMapperCellState::FREE)
@@ -3311,16 +3311,16 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	// The distribution scopes are emitted explicitly instead of deriving them
 	// from the entity AABB for reachability decisions.
 	int reachableGroundCount = 0;
-	float reachableGroundMin = std::numeric_limits<float>::max();
-	float reachableGroundMax = -std::numeric_limits<float>::max();
+	float reachableGroundMin = (std::numeric_limits<float>::max)();
+	float reachableGroundMax = -(std::numeric_limits<float>::max)();
 	float reachableGroundSum = 0.0f;
 	int interiorGroundCount = 0;
-	float interiorGroundMin = std::numeric_limits<float>::max();
-	float interiorGroundMax = -std::numeric_limits<float>::max();
+	float interiorGroundMin = (std::numeric_limits<float>::max)();
+	float interiorGroundMax = -(std::numeric_limits<float>::max)();
 	float interiorGroundSum = 0.0f;
 	int exteriorGroundCount = 0;
-	float exteriorGroundMin = std::numeric_limits<float>::max();
-	float exteriorGroundMax = -std::numeric_limits<float>::max();
+	float exteriorGroundMin = (std::numeric_limits<float>::max)();
+	float exteriorGroundMax = -(std::numeric_limits<float>::max)();
 	float exteriorGroundSum = 0.0f;
 	for (std::size_t index = 0; index < cells.size(); ++index)
 	{
@@ -3330,22 +3330,22 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 		if (predecessor[index] != -1)
 		{
 			++reachableGroundCount;
-			reachableGroundMin = std::min(reachableGroundMin, cell.feet.z);
-			reachableGroundMax = std::max(reachableGroundMax, cell.feet.z);
+			reachableGroundMin = (std::min)(reachableGroundMin, cell.feet.z);
+			reachableGroundMax = (std::max)(reachableGroundMax, cell.feet.z);
 			reachableGroundSum += cell.feet.z;
 		}
 		if (cell.insideBuildingBounds)
 		{
 			++interiorGroundCount;
-			interiorGroundMin = std::min(interiorGroundMin, cell.feet.z);
-			interiorGroundMax = std::max(interiorGroundMax, cell.feet.z);
+			interiorGroundMin = (std::min)(interiorGroundMin, cell.feet.z);
+			interiorGroundMax = (std::max)(interiorGroundMax, cell.feet.z);
 			interiorGroundSum += cell.feet.z;
 		}
 		else
 		{
 			++exteriorGroundCount;
-			exteriorGroundMin = std::min(exteriorGroundMin, cell.feet.z);
-			exteriorGroundMax = std::max(exteriorGroundMax, cell.feet.z);
+			exteriorGroundMin = (std::min)(exteriorGroundMin, cell.feet.z);
+			exteriorGroundMax = (std::max)(exteriorGroundMax, cell.feet.z);
 			exteriorGroundSum += cell.feet.z;
 		}
 	}
@@ -3428,7 +3428,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	std::vector<int> portalPath;
 	int reachedPortalSample = -1;
 	int reachedPortalCell = -1;
-	float reachedPortalPathLength = std::numeric_limits<float>::max();
+	float reachedPortalPathLength = (std::numeric_limits<float>::max)();
 	for (CollisionMapperPortalSample &sample : portalSamples)
 	{
 		if (!sample.valid || sample.gridCell < 0)
@@ -3575,7 +3575,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	}
 	std::vector<int> portalPath8;
 	int reachedPortalSample8 = -1;
-	float reachedPortalPathLength8 = std::numeric_limits<float>::max();
+	float reachedPortalPathLength8 = (std::numeric_limits<float>::max)();
 	for (const CollisionMapperPortalSample &sample : portalSamples)
 	{
 		if (!sample.valid || sample.gridCell < 0)
@@ -3610,17 +3610,17 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	}
 
 	int nearestReachableCell = -1;
-	float nearestReachablePortalDistance = std::numeric_limits<float>::max();
+	float nearestReachablePortalDistance = (std::numeric_limits<float>::max)();
 	auto DistanceToMappedPortal = [&cells, &portalSamples](const int index)
 	{
-		float best = std::numeric_limits<float>::max();
+		float best = (std::numeric_limits<float>::max)();
 		for (const CollisionMapperPortalSample &sample : portalSamples)
 		{
 			if (!sample.valid || sample.gridCell < 0)
 				continue;
 			const float dx = cells[index].feet.x - sample.feet.x;
 			const float dy = cells[index].feet.y - sample.feet.y;
-			best = std::min(best, std::sqrt(dx * dx + dy * dy));
+			best = (std::min)(best, std::sqrt(dx * dx + dy * dy));
 		}
 		return best;
 	};
@@ -3645,11 +3645,11 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 	}
 
 	const CollisionMapperEdge *frontierWallEdge = nullptr;
-	float frontierWallDistance = std::numeric_limits<float>::max();
+	float frontierWallDistance = (std::numeric_limits<float>::max)();
 	const CollisionMapperEdge *frontierWorldEdge = nullptr;
-	float frontierWorldDistance = std::numeric_limits<float>::max();
+	float frontierWorldDistance = (std::numeric_limits<float>::max)();
 	const CollisionMapperEdge *frontierNoGroundEdge = nullptr;
-	float frontierNoGroundDistance = std::numeric_limits<float>::max();
+	float frontierNoGroundDistance = (std::numeric_limits<float>::max)();
 	for (const CollisionMapperEdge &edge : edges)
 	{
 		if (edge.clear)
@@ -3682,7 +3682,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 
 	int frontierNonFreeCell = -1;
 	int frontierNonFreeNeighbor = -1;
-	float frontierNonFreeDistance = std::numeric_limits<float>::max();
+	float frontierNonFreeDistance = (std::numeric_limits<float>::max)();
 	for (std::size_t index = 0; index < cells.size(); ++index)
 	{
 		if (predecessor[index] == -1 ||
@@ -3712,7 +3712,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 
 	int nearestCrossReachable = -1;
 	int nearestCrossPortalSide = -1;
-	float nearestCrossDistance = std::numeric_limits<float>::max();
+	float nearestCrossDistance = (std::numeric_limits<float>::max)();
 	for (std::size_t reachableIndex = 0; reachableIndex < cells.size();
 		reachableIndex++)
 	{
@@ -3725,7 +3725,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 			if (predecessor[portalSideIndex] != -1 ||
 				cells[portalSideIndex].state != CollisionMapperCellState::FREE ||
 				DistanceToMappedPortal(static_cast<int>(portalSideIndex)) ==
-					std::numeric_limits<float>::max())
+					(std::numeric_limits<float>::max)())
 				continue;
 			const float dx = cells[reachableIndex].feet.x -
 				cells[portalSideIndex].feet.x;
@@ -3853,7 +3853,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 			const Vector endpoint = (cells[endpointEdge.from].feet +
 				cells[endpointEdge.to].feet) * 0.5f;
 			int centerCell = -1;
-			float centerDistance = std::numeric_limits<float>::max();
+			float centerDistance = (std::numeric_limits<float>::max)();
 			for (std::size_t index = 0; index < cells.size(); ++index)
 			{
 				const float distance = (cells[index].feet - endpoint).Length2D();
@@ -3874,11 +3874,11 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 			int localNoGround = 0;
 			int localInvalid = 0;
 			std::vector<int> localCells;
-			for (int y = std::max(0, centerY - kWallEndRadiusCells);
-				y <= std::min(height - 1, centerY + kWallEndRadiusCells); ++y)
+			for (int y = (std::max)(0, centerY - kWallEndRadiusCells);
+				y <= (std::min)(height - 1, centerY + kWallEndRadiusCells); ++y)
 			{
-				for (int x = std::max(0, centerX - kWallEndRadiusCells);
-					x <= std::min(width - 1, centerX + kWallEndRadiusCells); ++x)
+				for (int x = (std::max)(0, centerX - kWallEndRadiusCells);
+					x <= (std::min)(width - 1, centerX + kWallEndRadiusCells); ++x)
 				{
 					const int index = y * width + x;
 					localMask[index] = 1;
@@ -3953,7 +3953,7 @@ void RunCollisionMapper(const Vector &requestedStart, const Vector &portal,
 				localPending.pop();
 				if (predecessor[current] == -1 &&
 					DistanceToMappedPortal(current) !=
-						std::numeric_limits<float>::max())
+						(std::numeric_limits<float>::max)())
 				{
 					localTarget = current;
 					break;
@@ -4718,7 +4718,7 @@ struct LocalDetourResult
 float DistanceSquaredToAreaXY(const Vector &point, const CNavArea *area)
 {
 	if (area == nullptr)
-		return std::numeric_limits<float>::max();
+		return (std::numeric_limits<float>::max)();
 
 	Extent extent;
 	area->GetExtent(&extent);
@@ -4748,7 +4748,7 @@ bool GroundPointWithinLocalCorridor(const Vector &point,
 		return false;
 
 	const float slackSquared = kCorridorSlack * kCorridorSlack;
-	float bestDistance = std::numeric_limits<float>::max();
+	float bestDistance = (std::numeric_limits<float>::max)();
 	CNavArea *bestArea = nullptr;
 	Vector bestSample = vec3_origin;
 	for (CNavArea *area : areas)
@@ -4758,8 +4758,8 @@ bool GroundPointWithinLocalCorridor(const Vector &point,
 		Extent extent;
 		area->GetExtent(&extent);
 		Vector sample = point;
-		sample.x = std::max(extent.lo.x, std::min(extent.hi.x, sample.x));
-		sample.y = std::max(extent.lo.y, std::min(extent.hi.y, sample.y));
+		sample.x = (std::max)(extent.lo.x, (std::min)(extent.hi.x, sample.x));
+		sample.y = (std::max)(extent.lo.y, (std::min)(extent.hi.y, sample.y));
 		const float distance = (sample - point).Length2D();
 		if (distance * distance > slackSquared || distance * distance >= bestDistance)
 			continue;
@@ -4804,8 +4804,8 @@ bool SegmentIntersectsRectangleXY(const Vector &from, const Vector &to,
 		float farValue = (rectMax[axis] - origin[axis]) / delta[axis];
 		if (nearValue > farValue)
 			std::swap(nearValue, farValue);
-		tMin = std::max(tMin, nearValue);
-		tMax = std::min(tMax, farValue);
+		tMin = (std::max)(tMin, nearValue);
+		tMax = (std::min)(tMax, farValue);
 		if (tMin > tMax)
 			return false;
 	}
@@ -5033,9 +5033,9 @@ LocalDetourResult BuildLocalDetour(const Vector &start, const Vector &desired,
 
 	std::vector<CNavArea *> corridorAreas;
 	const std::size_t firstAreaIndex =
-		std::min(segmentIndex, areaIds.size() - 1);
+		(std::min)(segmentIndex, areaIds.size() - 1);
 	const std::size_t secondAreaIndex =
-		std::min(segmentIndex + 1, areaIds.size() - 1);
+		(std::min)(segmentIndex + 1, areaIds.size() - 1);
 	CNavArea *firstArea = TheNavMesh->GetNavAreaByID(areaIds[firstAreaIndex]);
 	CNavArea *secondArea = TheNavMesh->GetNavAreaByID(areaIds[secondAreaIndex]);
 	if (firstArea != nullptr)
@@ -5045,12 +5045,12 @@ LocalDetourResult BuildLocalDetour(const Vector &start, const Vector &desired,
 	if (corridorAreas.empty())
 		return result;
 
-	const float corridorMinX = std::min(start.x, desired.x) - kCorridorSlack;
-	const float corridorMaxX = std::max(start.x, desired.x) + kCorridorSlack;
-	const float corridorMinY = std::min(start.y, desired.y) - kCorridorSlack;
-	const float corridorMaxY = std::max(start.y, desired.y) + kCorridorSlack;
-	const float corridorMinZ = std::min(start.z, desired.z);
-	const float corridorMaxZ = std::max(start.z, desired.z) + 72.0f;
+	const float corridorMinX = (std::min)(start.x, desired.x) - kCorridorSlack;
+	const float corridorMaxX = (std::max)(start.x, desired.x) + kCorridorSlack;
+	const float corridorMinY = (std::min)(start.y, desired.y) - kCorridorSlack;
+	const float corridorMaxY = (std::max)(start.y, desired.y) + kCorridorSlack;
+	const float corridorMinZ = (std::min)(start.z, desired.z);
+	const float corridorMaxZ = (std::max)(start.z, desired.z) + 72.0f;
 
 	std::vector<InflatedBuilding> buildings;
 	for (const BuildingCandidate &building : s_buildingRegistry.Active())
@@ -5159,7 +5159,7 @@ LocalDetourResult BuildLocalDetour(const Vector &start, const Vector &desired,
 			return distance > other.distance;
 		}
 	};
-	const float infinity = std::numeric_limits<float>::max();
+	const float infinity = (std::numeric_limits<float>::max)();
 	std::vector<float> distances(candidates.size(), infinity);
 	std::vector<int> previous(candidates.size(), -1);
 	std::priority_queue<QueueNode> open;
@@ -5445,13 +5445,13 @@ CON_COMMAND(rcbot_navmesh_entity_sweep,
 
 	const Vector moveTarget = path.points.size() > 1 ? path.points[1] : target;
 	const Vector sweepMin(
-		std::min(from.x, moveTarget.x) + hullMins.x,
-		std::min(from.y, moveTarget.y) + hullMins.y,
-		std::min(from.z, moveTarget.z) + hullMins.z);
+		(std::min)(from.x, moveTarget.x) + hullMins.x,
+		(std::min)(from.y, moveTarget.y) + hullMins.y,
+		(std::min)(from.z, moveTarget.z) + hullMins.z);
 	const Vector sweepMax(
-		std::max(from.x, moveTarget.x) + hullMaxs.x,
-		std::max(from.y, moveTarget.y) + hullMaxs.y,
-		std::max(from.z, moveTarget.z) + hullMaxs.z);
+		(std::max)(from.x, moveTarget.x) + hullMaxs.x,
+		(std::max)(from.y, moveTarget.y) + hullMaxs.y,
+		(std::max)(from.z, moveTarget.z) + hullMaxs.z);
 
 	CNavArea *currentArea = TheNavMesh != nullptr ?
 		TheNavMesh->GetNearestNavArea(from) : nullptr;

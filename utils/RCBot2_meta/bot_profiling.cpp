@@ -111,7 +111,7 @@ void CProfileTimer::Stop()
     end_cycle = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     m_last = end_cycle - start_cycle;
 
-    m_max = std::max(m_last, m_max);
+    m_max = (std::max)(m_last, m_max);
 
     if (m_iInvoked == 0 || m_last < m_min)
         m_min = m_last;
@@ -166,7 +166,7 @@ void CProfileTimers::updateAndDisplay()
 
             for (const CProfileTimer& m_Timer : m_Timers)
             {
-                highest = std::max<double>(static_cast<double>(m_Timer.getOverall()), highest);
+                highest = (std::max<double>)(static_cast<double>(m_Timer.getOverall()), highest);
             }
 
             // Next update in 1 second

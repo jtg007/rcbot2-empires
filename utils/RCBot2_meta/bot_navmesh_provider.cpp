@@ -79,7 +79,7 @@ void ExtendPathToGoal(CBot* bot, const Vector& goal, RCBotNavMesh::Path& path)
 	SkipSelfAndPlayers skip(bot->getEdict()->GetIServerEntity());
 	// Ground under the goal, at most a step below the end point's height.
 	Ray_t down;
-	down.Init(Vector(goal.x, goal.y, std::max(goal.z, last.z) + kStepHeight),
+	down.Init(Vector(goal.x, goal.y, (std::max)(goal.z, last.z) + kStepHeight),
 		Vector(goal.x, goal.y, last.z - kStepHeight - 8.0f), Vector(-16, -16, 0), Vector(16, 16, 2));
 	trace_t ground;
 	enginetrace->TraceRay(down, MASK_PLAYERSOLID, &skip, &ground);
@@ -502,7 +502,7 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 		path.points.empty())
 	{
 		char detail[256];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"path_result=%s start=(%.1f %.1f %.1f) goal=(%.1f %.1f %.1f)",
 			RCBotNavMesh::PathResultName(pathResult), start.x, start.y,
 			start.z, goal.x, goal.y, goal.z);
@@ -517,7 +517,7 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 	ExtendPathToGoal(bot, goal, path);
 
 	char pathDetail[320];
-	std::snprintf(pathDetail, sizeof(pathDetail),
+	snprintf(pathDetail, sizeof(pathDetail),
 		"provider=NAVMESH result=SUCCESS points=%zu areas=%zu length=%.1f start_area=%d goal_area=%d",
 		path.points.size(), path.areaIds.size(), path.length,
 		path.startAreaId, path.goalAreaId);

@@ -62,7 +62,7 @@ namespace RCBotEmpiresSquadJoin
 		{
 			if (squad.id <= 0)
 				continue;
-			highestSquadId = std::max(highestSquadId, squad.id);
+			highestSquadId = (std::max)(highestSquadId, squad.id);
 			if (!squad.humanOwned && squad.members < kEmpiresSquadCapacity)
 				return { Status::JOIN, squad.id };
 		}

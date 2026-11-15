@@ -159,7 +159,7 @@ namespace
 		if (bot == nullptr || event == nullptr)
 			return;
 		char detail[768];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"parent_order_id=%llu parent_generation=%llu child_order_id=%llu child_generation=%llu squad_generation=%llu decision_revision=%llu formation_generation=%llu member_id=%llu slot_id=%llu claim_key=%u:%llu:%llu navigation_intent_id=%llu navigation_attempt_id=%llu provider=%s terminal=%s child_outcome=%s target=(%.1f %.1f %.1f)",
 			static_cast<unsigned long long>(request.parentOrder.orderId),
 			static_cast<unsigned long long>(request.parentOrder.generation),
@@ -379,7 +379,7 @@ namespace
 
 			++count;
 			if (highestIndex != nullptr)
-				*highestIndex = std::max(*highestIndex, engine->IndexOfEdict(pEdict));
+				*highestIndex = (std::max)(*highestIndex, engine->IndexOfEdict(pEdict));
 		}
 		return count;
 	}
@@ -443,7 +443,7 @@ namespace
 		spawnConfig.parseFile(spawnFile);
 
 		char key[128] = {};
-		std::snprintf(key, sizeof(key), "%s_%s", mapName,
+		snprintf(key, sizeof(key), "%s_%s", mapName,
 			team == EMP_TEAM_NF ? "nf" : "be");
 		int configuredId = -1;
 		if (!spawnConfig.getInt(key, &configuredId) || configuredId < 0)
@@ -1594,7 +1594,7 @@ void CBotEmpires::enemyFound(edict_t* pEnemy)
 		getDesiredClass() == EMP_CLASS_SCOUT ?
 			(scoutReconPriority ? "scout-quiet-target" : "scout-combat-target") :
 			"shared-combat-priority",
-		std::max(0.0f, m_flEmpiresReactionUntil - engine->Time()));
+		(std::max)(0.0f, m_flEmpiresReactionUntil - engine->Time()));
 
 	// A bot only sees its own visibility set.  Share this one verified sighting
 	// with active Empires teammates through the existing last-enemy memory so a
@@ -6473,7 +6473,7 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 		if (m_iEmpiresSkillsSent[i] == wanted[i])
 			continue;
 		char command[64];
-		std::snprintf(command, sizeof(command), "changeskill %d %d\n", i + 1, wanted[i]);
+		snprintf(command, sizeof(command), "changeskill %d %d\n", i + 1, wanted[i]);
 		helpers->ClientCommand(m_pEdict, command);
 		m_iEmpiresSkillsSent[i] = wanted[i];
 		changed = true;
@@ -7219,7 +7219,7 @@ bool CBotEmpires::readEmpiresEntityHandleProperty(const edict_t* pEdict,
 			return false;
 		SendProp* child = table->GetProp(element);
 		char expected[16];
-		std::snprintf(expected, sizeof(expected), "%03d", element);
+		snprintf(expected, sizeof(expected), "%03d", element);
 		if (child == nullptr || child->GetName() == nullptr || std::strcmp(child->GetName(), expected) != 0 ||
 			child->GetType() != DPT_Int || child->GetOffset() < 0)
 			return false;
@@ -7267,7 +7267,7 @@ bool CBotEmpires::findEmpiresVehicleFactory(const int team,
 		return false;
 	}
 
-	float bestDistance = std::numeric_limits<float>::max();
+	float bestDistance = (std::numeric_limits<float>::max)();
 	for (CBaseEntity* pEntity = servertools->FirstEntity(); pEntity != nullptr;
 		pEntity = servertools->NextEntity(pEntity))
 	{
@@ -7346,7 +7346,7 @@ bool CBotEmpires::findEmpiresTutorialExit(const int team,
 
 	const char* targetName = team == EMP_TEAM_NF ?
 		"leave_tutorial_nf" : "leave_tutorial_imp";
-	float bestDistance = std::numeric_limits<float>::max();
+	float bestDistance = (std::numeric_limits<float>::max)();
 	for (CBaseEntity* pEntity = servertools->FirstEntity();
 		pEntity != nullptr; pEntity = servertools->NextEntity(pEntity))
 	{
@@ -7397,7 +7397,7 @@ bool CBotEmpires::findEmpiresVehicle(const int team, edict_t*& vehicle,
 		return false;
 	}
 
-	float bestDistance = std::numeric_limits<float>::max();
+	float bestDistance = (std::numeric_limits<float>::max)();
 	for (CBaseEntity* pEntity = servertools->FirstEntity(); pEntity != nullptr;
 		pEntity = servertools->NextEntity(pEntity))
 	{
@@ -7606,10 +7606,10 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	const Vector eyeOffset = getEyePosition() - getOrigin();
 	const ICollideable* collide = building->GetCollideable();
 	const float outer = (collide != nullptr ?
-		std::max(collide->OBBMins().Length2D(), collide->OBBMaxs().Length2D()) : 1000.0f) + 200.0f;
+		(std::max)(collide->OBBMins().Length2D(), collide->OBBMaxs().Length2D()) : 1000.0f) + 200.0f;
 	CBaseEntity* const buildingEntity = building->GetUnknown()->GetBaseEntity();
 	CCommanderEntryTraceFilter filter(m_pEdict->GetUnknown());
-	float spotCost = std::numeric_limits<float>::max();
+	float spotCost = (std::numeric_limits<float>::max)();
 	int noSurface = 0, noGround = 0, blocked = 0, noAim = 0;
 	for (int i = 0; i < 32; ++i)
 	{
@@ -7661,7 +7661,7 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 			}
 		}
 	}
-	if (spotCost == std::numeric_limits<float>::max())
+	if (spotCost == (std::numeric_limits<float>::max)())
 	{
 		RCBOT_DIAG("[RCBOT2] build-assign result=REJECT reason=no-standing-spot building=%d no_surface=%d no_ground=%d blocked=%d no_aim=%d\n",
 			engine->IndexOfEdict(building), noSurface, noGround, blocked, noAim);
@@ -7918,7 +7918,7 @@ bool CBotEmpires::requestCommanderVehicleEntryOnce()
 	const Vector center = CBotGlobals::entityOrigin(target);
 	const Vector eyeOffset = getEyePosition() - getOrigin();
 	Vector standSpot = vec3_origin;
-	float standCost = std::numeric_limits<float>::max();
+	float standCost = (std::numeric_limits<float>::max)();
 	for (int i = 0; i < 16; ++i)
 	{
 		const float angle = i * (6.28318530718f / 16.0f);
@@ -7945,7 +7945,7 @@ bool CBotEmpires::requestCommanderVehicleEntryOnce()
 			standSpot = ground.endpos;
 		}
 	}
-	if (standCost == std::numeric_limits<float>::max())
+	if (standCost == (std::numeric_limits<float>::max)())
 	{
 		RCBOT_DIAG("[RCBOT2] commander-entry result=REJECT reason=no-standing-spot vehicle=%d\n",
 			engine->IndexOfEdict(target));
@@ -8277,7 +8277,7 @@ void CBotEmpires::handleEmpiresVehicleAction()
 	const float distanceToFactory = (factoryOrigin - getOrigin()).Length();
 	const float distanceToTutorialExit = inTutorialPhase ?
 		(m_vEmpiresVehicleActionTutorialExitOrigin - getOrigin()).Length() :
-		std::numeric_limits<float>::max();
+		(std::numeric_limits<float>::max)();
 	const bool tutorialTeleportObserved = inTutorialPhase &&
 		((getOrigin() - m_vEmpiresVehicleActionTutorialEntryOrigin).Length() >=
 			kEmpiresVehicleTutorialTeleportDistance) &&
@@ -8458,38 +8458,38 @@ void CBotEmpires::handleEmpiresVehicleAction()
 		switch (m_iEmpiresVehicleActionPurchaseStep)
 		{
 		case 0:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_factory %d\n",
 				m_iEmpiresVehicleActionFactoryIndex);
 			commandName = "emp_vehicle_factory";
 			break;
 		case 1:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_chassis 0\n");
 			commandName = "emp_vehicle_chassis";
 			break;
 		case 2:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_weapon 0 0 0 0 0 0 0 0 0\n");
 			commandName = "emp_vehicle_weapon";
 			break;
 		case 3:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_armor 0 0\n");
 			commandName = "emp_vehicle_armor";
 			break;
 		case 4:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_armor_levels 0 0 0 0\n");
 			commandName = "emp_vehicle_armor_levels";
 			break;
 		case 5:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_engine 0 0\n");
 			commandName = "emp_vehicle_engine";
 			break;
 		case 6:
-			std::snprintf(command, sizeof(command),
+			snprintf(command, sizeof(command),
 				"emp_vehicle_build\n");
 			commandName = "emp_vehicle_build";
 			break;
@@ -9641,7 +9641,7 @@ bool CBotEmpires::observeEmpiresScoutSkillsOnce(const int scoutUserId)
 	for (int slot = 0; slot < 4; ++slot)
 	{
 		char propertyName[32] = {};
-		std::snprintf(propertyName, sizeof(propertyName), "m_iSkill%d", slot + 1);
+		snprintf(propertyName, sizeof(propertyName), "m_iSkill%d", slot + 1);
 		skillKnown[slot] = pScout->readEmpiresEntityIntProperty(
 			pScout->m_pEdict, propertyName, skills[slot]);
 	}
@@ -9875,7 +9875,7 @@ bool CBotEmpires::requestEmpiresSquadLeadActuation(const int issuerUserId,
 	}
 
 	char command[64] = {};
-	std::snprintf(command, sizeof(command), "emp_make_lead %d\n",
+	snprintf(command, sizeof(command), "emp_make_lead %d\n",
 		request.target.identity.entIndex);
 	edict_t* pIssuerEdict = CBotGlobals::playerByUserId(issuerUserId);
 	if (pIssuerEdict == nullptr || pIssuerEdict->IsFree())
@@ -10924,7 +10924,7 @@ void CBotEmpires::observeEmpiresSquadGameplay()
 		const bool positionChanged =
 			(m_iEmpiresSquadPositionObserved == 0) != positionIsLeader;
 		char detail[192] = {};
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"source=public-sendprop;position=%d;position_is_leader=%d;explicit_leader_known=%d;explicit_leader=%d;encoding_match=%d",
 			position, positionIsLeader ? 1 : 0,
 			explicitLeaderKnown ? 1 : 0, explicitLeader ? 1 : 0,
@@ -11041,7 +11041,7 @@ void CBotEmpires::observeEmpiresSquadGameplay()
 	}
 
 	char command[64] = {};
-	std::snprintf(command, sizeof(command), "emp_squad_join %d\n", selectedSquad);
+	snprintf(command, sizeof(command), "emp_squad_join %d\n", selectedSquad);
 	helpers->ClientCommand(m_pEdict, command);
 	++m_iEmpiresSquadJoinAttempts;
 	m_flEmpiresNextSquadActionTime = engine->Time() + 5.0f;
@@ -11681,7 +11681,7 @@ bool CBotEmpires::handleEmpiresSquadGoal()
 		"squad-goal-shared");
 	const char* role = currentUserId == pGoal->leaderUserId ? "leader" : "follower";
 	char detail[512] = {};
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"role=%s;leader_userid=%d;squad=%d;generation=%d;waypoint=%d;shared-goal;spacing=96",
 		role, pGoal->leaderUserId, squad, pGoal->generation, pGoal->waypoint);
 	EmpiresAnalysis::RecordBotEvent(this, "SQUAD_GOAL_SHARED", nullptr, detail);
@@ -11970,8 +11970,8 @@ bool CBotEmpires::damageEmpiresEngineerRepairFixture(const int damage,
 		return false;
 	}
 
-	const int targetHealth = std::max(1,
-		std::min(maxHealth - 1, healthBefore - damage));
+	const int targetHealth = (std::max)(1,
+		(std::min)(maxHealth - 1, healthBefore - damage));
 	if (!writeEmpiresEntityIntProperty(pBuildingEdict, "m_iHealth", targetHealth))
 		return false;
 	int healthAfter = -1;
@@ -12224,7 +12224,7 @@ bool CBotEmpires::scanEmpiresEngineerRepairVisibilityAllBuildings()
 				if (distance <= kObservedEngineerTraceWindow)
 				{
 					++inTraceWaypoints;
-					nearestInTraceDistance = std::min(nearestInTraceDistance, distance);
+					nearestInTraceDistance = (std::min)(nearestInTraceDistance, distance);
 				}
 
 				if (logger != nullptr)
@@ -13238,7 +13238,7 @@ bool CBotEmpires::requestBootstrapTeam(const int requestedTeam)
 	}
 
 	char command[32];
-	std::snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
+	snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
 	helpers->ClientCommand(pCurrentEdict, command);
 
 	m_bTeamCommandPending = true;
@@ -13389,7 +13389,7 @@ bool CBotEmpires::requestBootstrapClass(const int requestedClass)
 	}
 
 	char command[32];
-	std::snprintf(command, sizeof(command), "changeclass %d\n", requestedClass);
+	snprintf(command, sizeof(command), "changeclass %d\n", requestedClass);
 	helpers->ClientCommand(pCurrentEdict, command);
 
 	m_bClassCommandPending = true;
@@ -13570,7 +13570,7 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 			return 1 << 19;
 		int best = 1 << 19;
 		for (const int foreign : foreignPoints)
-			best = std::min(best, std::abs(foreign - id));
+			best = (std::min)(best, std::abs(foreign - id));
 		return best;
 	};
 
@@ -13728,7 +13728,7 @@ bool CBotEmpires::requestBootstrapSpawn()
 		static_cast<void*>(pSpawnEdict), before.health, before.dead ? 1 : 0, before.alive ? 1 : 0, spawnId);
 
 	char command[64];
-	std::snprintf(command, sizeof(command), "emp_spawn_select %d\n", spawnId);
+	snprintf(command, sizeof(command), "emp_spawn_select %d\n", spawnId);
 	helpers->ClientCommand(const_cast<edict_t*>(before.edict), command);
 
 	m_bSpawnCommandPending = true;
@@ -21295,7 +21295,7 @@ bool CBotEmpires::requestControllerProbeTeam(const int requestedTeam)
 	}
 
 	char command[32];
-	std::snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
+	snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
 	logger->Log(LogLevel::INFO,
 		"Empires controller probe jointeam before index=%d userid=%d team_before=%d requested_team=%d command=%s timer_observation=not_started",
 		before.index, before.userId, before.team, requestedTeam, command);
@@ -21684,7 +21684,7 @@ bool CBotEmpires::startGame()
 		}
 
 		char command[32];
-		std::snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
+		snprintf(command, sizeof(command), "jointeam %d\n", requestedTeam);
 		logger->Log(LogLevel::INFO,
 			"Empires normal bot lifecycle=team-requested index=%d requested_team=%d team_before=%d command=%s",
 			engine->IndexOfEdict(m_pEdict), requestedTeam, currentTeam, command);
@@ -21803,7 +21803,7 @@ bool CBotEmpires::startGame()
 			}
 
 			char command[64];
-			std::snprintf(command, sizeof(command), "emp_spawn_select %d\n", spawnId);
+			snprintf(command, sizeof(command), "emp_spawn_select %d\n", spawnId);
 			logger->Log(LogLevel::INFO,
 				"Empires normal spawn request index=%d userid=%d team=%d class=%d spawn_id=%d spawn_edict=%p command=%s",
 				engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict),
@@ -21935,7 +21935,7 @@ bool CBotEmpires::startGame()
 	}
 
 	char command[32];
-	std::snprintf(command, sizeof(command), "changeclass %d\n", requestedClass);
+	snprintf(command, sizeof(command), "changeclass %d\n", requestedClass);
 	logger->Log(LogLevel::INFO,
 		"Empires normal bot lifecycle=class-requested index=%d team=%d requested_class=%d class_before=%d class_property=%s class_desired_known=%d class_desired=%d command=%s dead=%d",
 		engine->IndexOfEdict(m_pEdict), currentTeam, requestedClass, currentClass,
@@ -21953,16 +21953,16 @@ bool CBotEmpires::startGame()
 	if (loadout != nullptr && !m_bNormalLoadoutRequested)
 	{
 		char loadoutCommand[32];
-		std::snprintf(loadoutCommand, sizeof(loadoutCommand),
+		snprintf(loadoutCommand, sizeof(loadoutCommand),
 			"changesidearm %d\n", loadout->sidearm);
 		helpers->ClientCommand(m_pEdict, loadoutCommand);
-		std::snprintf(loadoutCommand, sizeof(loadoutCommand),
+		snprintf(loadoutCommand, sizeof(loadoutCommand),
 			"changeprimary %d\n", loadout->primary);
 		helpers->ClientCommand(m_pEdict, loadoutCommand);
-		std::snprintf(loadoutCommand, sizeof(loadoutCommand),
+		snprintf(loadoutCommand, sizeof(loadoutCommand),
 			"changegrenade %d\n", loadout->grenade);
 		helpers->ClientCommand(m_pEdict, loadoutCommand);
-		std::snprintf(loadoutCommand, sizeof(loadoutCommand),
+		snprintf(loadoutCommand, sizeof(loadoutCommand),
 			"changeequipment %d\n", loadout->equipment);
 		helpers->ClientCommand(m_pEdict, loadoutCommand);
 		m_bNormalLoadoutRequested = true;

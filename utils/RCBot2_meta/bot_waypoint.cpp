@@ -305,7 +305,7 @@ bool CWaypointNavigator :: randomDangerPath (Vector *vec)
 		if ( pNext == pOnRouteTo )
 			fBelief *= static_cast<float>(pWpt->numPaths());
 
-		fMaxDanger = std::max(fBelief, fMaxDanger);
+		fMaxDanger = (std::max)(fBelief, fMaxDanger);
 
 		fTotal += fBelief;
 	}
@@ -658,13 +658,13 @@ void CWaypointNavigator :: beliefOne (const int iWptIndex, const BotBelief iBeli
 	{
 		if ( m_fBelief[iWptIndex] > 0)
 			m_fBelief[iWptIndex] *= bot_belief_fade.GetFloat();
-		m_fBelief[iWptIndex] = std::max<float>(m_fBelief[iWptIndex], 0);
+		m_fBelief[iWptIndex] = (std::max<float>)(m_fBelief[iWptIndex], 0);
 	}
 	else // danger	
 	{
 		if ( m_fBelief[iWptIndex] < MAX_BELIEF )
 			m_fBelief[iWptIndex] += 2048.0f / fDist;
-		m_fBelief[iWptIndex] = std::min(m_fBelief[iWptIndex], MAX_BELIEF);
+		m_fBelief[iWptIndex] = (std::min)(m_fBelief[iWptIndex], MAX_BELIEF);
 	}
 
 	m_bBeliefChanged = true;
@@ -711,7 +711,7 @@ void CWaypointNavigator :: belief (const Vector& vOrigin, const Vector& vOther, 
 		{
 			if ( m_fBelief[iWptIndex] > 0)
 				m_fBelief[iWptIndex] *= bot_belief_fade.GetFloat();//(fStrength / (vOrigin-pWpt->getOrigin()).Length())*fBelief;
-			m_fBelief[iWptIndex] = std::max<float>(m_fBelief[iWptIndex], 0);
+			m_fBelief[iWptIndex] = (std::max<float>)(m_fBelief[iWptIndex], 0);
 
 			//debugoverlay->AddTextOverlayRGB(pWpt->getOrigin(),0,5.0f,0.0,150,0,200,"Safety");
 		}
@@ -719,7 +719,7 @@ void CWaypointNavigator :: belief (const Vector& vOrigin, const Vector& vOther, 
 		{
 			if ( m_fBelief[iWptIndex] < MAX_BELIEF )
 				m_fBelief[iWptIndex] += fStrength / (vOrigin-pWpt->getOrigin()).Length()*fBelief;
-			m_fBelief[iWptIndex] = std::min(m_fBelief[iWptIndex], MAX_BELIEF);
+			m_fBelief[iWptIndex] = (std::min)(m_fBelief[iWptIndex], MAX_BELIEF);
 
 			//debugoverlay->AddTextOverlayRGB(pWpt->getOrigin(),0,5.0f,255,0,0,200,"Danger %0.2f",m_fBelief[iWptIndex]);
 		}
@@ -744,7 +744,7 @@ void CWaypointNavigator :: belief (const Vector& vOrigin, const Vector& vOther, 
 		{
 			if ( m_fBelief[iWptIndex] < MAX_BELIEF )
 				m_fBelief[iWptIndex] += fStrength / (vOrigin-pWpt->getOrigin()).Length()*fBelief*0.5f;
-			m_fBelief[iWptIndex] = std::min(m_fBelief[iWptIndex], MAX_BELIEF);
+			m_fBelief[iWptIndex] = (std::min)(m_fBelief[iWptIndex], MAX_BELIEF);
 
 			//debugoverlay->AddTextOverlayRGB(pWpt->getOrigin(),1,5.0f,255,0,0,200,"Danger INV %0.2f",m_fBelief[iWptIndex]);
 		}
@@ -918,7 +918,7 @@ bool CWaypointNavigator::graphCanReachAnchor(const int iStart,
 {
 	static constexpr int kMaxGraphExpansions = 1024;
 	iGoal = -1;
-	fGraphCost = std::numeric_limits<float>::max();
+	fGraphCost = (std::numeric_limits<float>::max)();
 	iExpansions = 0;
 
 	if (m_pBot == nullptr || !CWaypoints::validWaypointIndex(iStart))
@@ -1067,7 +1067,7 @@ RouteAnchorStatus CWaypointNavigator::resolveRouteAnchors(const Vector& vFrom,
 	if (EmpiresAnalysis::IsActive())
 	{
 		char detail[256];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"start_candidates=%d goal_candidates=%d max_candidates=%d radius=%.1f",
 			static_cast<int>(startCandidates.size()),
 			static_cast<int>(goalCandidates.size()), kMaxAnchorCandidates,
@@ -1081,7 +1081,7 @@ RouteAnchorStatus CWaypointNavigator::resolveRouteAnchors(const Vector& vFrom,
 	if (goalCandidates.empty())
 		return RouteAnchorStatus::NO_GOAL_ANCHOR;
 
-	float bestScore = std::numeric_limits<float>::max();
+	float bestScore = (std::numeric_limits<float>::max)();
 	int bestGraphExpansions = 0;
 	int totalGraphExpansions = 0;
 	float bestGraphCost = 0.0f;
@@ -1125,7 +1125,7 @@ RouteAnchorStatus CWaypointNavigator::resolveRouteAnchors(const Vector& vFrom,
 		if (EmpiresAnalysis::IsActive())
 		{
 			char detail[256];
-			std::snprintf(detail, sizeof(detail),
+			snprintf(detail, sizeof(detail),
 				"status=NO_REACHABLE_ANCHOR goal_request=%d start_candidates=%d goal_candidates=%d graph_pairs=%d graph_searches=%d graph_expansions=%d failed_goals=%d failed_edge=%d->%d",
 				iGoalId, static_cast<int>(startCandidates.size()),
 				static_cast<int>(goalCandidates.size()),
@@ -1143,7 +1143,7 @@ RouteAnchorStatus CWaypointNavigator::resolveRouteAnchors(const Vector& vFrom,
 	if (EmpiresAnalysis::IsActive())
 	{
 		char detail[384];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"start=%d goal=%d start_candidates=%d goal_candidates=%d graph_pairs=%d graph_searches=%d graph_cost=%.1f graph_expansions=%d graph_expansions_total=%d score=%.1f failed_goals=%d failed_edge=%d->%d",
 			m_iResolvedStartAnchor, m_iResolvedGoalAnchor,
 			static_cast<int>(startCandidates.size()),
@@ -1180,7 +1180,7 @@ bool CWaypointNavigator::excludeUnapproachableStartAnchor(const int goalId,
 		now, lifetime))
 		return false;
 	char detail[256];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"anchor=%d goal_id=%d expires_at=%.3f retries=%u reason=%s",
 		m_iResolvedStartAnchor, goalId, now + lifetime,
 		static_cast<unsigned int>(m_failedStartAnchors.FailureCount(goalKey, now)),
@@ -1207,7 +1207,7 @@ RouteAnchorStatus CWaypointNavigator::prepareRouteAnchors(const Vector& vFrom,
 		if (EmpiresAnalysis::IsActive())
 		{
 			char startDetail[256];
-			std::snprintf(startDetail, sizeof(startDetail),
+			snprintf(startDetail, sizeof(startDetail),
 				"intent_id=%llu provider=WAYPOINT goal=(%.1f %.1f %.1f) test_fixture=forced-structural-waypoint-failure",
 				static_cast<unsigned long long>(m_pBot != nullptr ?
 					m_pBot->getNavigationIntent().id : 0),
@@ -1238,7 +1238,7 @@ RouteAnchorStatus CWaypointNavigator::prepareRouteAnchors(const Vector& vFrom,
 		EmpiresAnalysis::IsActive())
 	{
 		char detail[192];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"status=%s goal_request=%d failed_goals=%d failed_edge=%d->%d",
 			routeAnchorStatusName(m_anchorStatus), iGoalId,
 			static_cast<int>(m_iFailedGoals.size()),
@@ -1443,8 +1443,8 @@ bool CWaypointNavigator :: workRoute (const Vector& vFrom,
 		succ = nullptr;
 		int bestBaseSucc = -1;
 		int bestEffectiveSucc = -1;
-		float bestBaseEdgeCost = std::numeric_limits<float>::max();
-		float bestEffectiveEdgeCost = std::numeric_limits<float>::max();
+		float bestBaseEdgeCost = (std::numeric_limits<float>::max)();
+		float bestEffectiveEdgeCost = (std::numeric_limits<float>::max)();
 		float bestEffectivePenalty = 0.0f;
 
 		for ( int iPath = 0; iPath < iMaxPaths; iPath ++ )
@@ -2994,11 +2994,11 @@ int CWaypoints :: addWaypoint ( CClient *pClient, const char *type1, const char 
 			{
 				const float rangeToOrigin = (rcbot2utils::GetEntityOrigin(pEdict) - vWptOrigin).Length();
 				const float rangeToCenter = (rcbot2utils::GetWorldSpaceCenter(pEdict) - vWptOrigin).Length(); // for brush entities
-				const float fDistance = std::min(rangeToOrigin, rangeToCenter); // select the smallest between the two distances
+				const float fDistance = (std::min)(rangeToOrigin, rangeToCenter); // select the smallest between the two distances
 
 				if (fDistance <= maxRange)
 				{
-					fMaxDistance = std::max(fDistance, fMaxDistance);
+					fMaxDistance = (std::max)(fDistance, fMaxDistance);
 
 					pCurrentMod->addWaypointFlags(pClient->getPlayer(), pEdict, &iFlags, &iArea, &fMaxDistance);
 				}
@@ -3011,7 +3011,7 @@ int CWaypoints :: addWaypoint ( CClient *pClient, const char *type1, const char 
 					if (rcbot2utils::PointIsWithinTrigger(pEdict, vWptOrigin) || rcbot2utils::PointIsWithinTrigger(pEdict, vWptTop))
 					{
 						// Waypoint origin collides with a entity bound
-						fMaxDistance = std::max(fDistance, fMaxDistance);
+						fMaxDistance = (std::max)(fDistance, fMaxDistance);
 
 						pCurrentMod->addWaypointFlags(pClient->getPlayer(), pEdict, &iFlags, &iArea, &fMaxDistance);
 					}

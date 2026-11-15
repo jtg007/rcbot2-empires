@@ -225,7 +225,7 @@ int CDODMod::getHighestScore ()
 		{
 			const int score = static_cast<short>(getScore(edict));
 
-			highest = std::max(score, highest);
+			highest = (std::max)(score, highest);
 		}
 	}
 

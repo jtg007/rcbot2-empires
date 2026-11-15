@@ -152,9 +152,9 @@ float getGrenadeZ ( edict_t *pShooter, edict_t *pTarget, const Vector& vOrigin, 
 	// do a quick traceline to check which angle to choose (minimum angle = straight)
 
 	if (CBotGlobals::isShotVisible(pShooter,vOrigin,vTarget,pTarget))
-		angles.x = -std::min(fAngle1,fAngle2);
+		angles.x = -(std::min)(fAngle1,fAngle2);
 	else
-		angles.x = -std::max(fAngle1,fAngle2);
+		angles.x = -(std::max)(fAngle1,fAngle2);
 
 	AngleVectors(angles,&vForward);
 	
@@ -2307,7 +2307,7 @@ void CFindPathTask :: execute ( CBot *pBot, CBotSchedule *pSchedule )
 			if (anchorStatus != RouteAnchorStatus::READY)
 			{
 				char detail[128];
-				std::snprintf(detail, sizeof(detail), "anchor-resolution-%s",
+				snprintf(detail, sizeof(detail), "anchor-resolution-%s",
 					routeAnchorStatusName(anchorStatus));
 			EmpiresAnalysis::RecordPathEvent(pBot, "PATH_FAILURE",
 				m_iWaypointId, detail);
@@ -5238,7 +5238,7 @@ void CBotTF2DemomanPipeEnemy :: execute (CBot *pBot, CBotSchedule *pSchedule)
 
 		m_fHoldAttackTime = pBot->distanceFrom(m_vEnemy)/512.0f - 1.0f;
 
-		m_fHoldAttackTime = std::max(m_fHoldAttackTime, 0.0f);
+		m_fHoldAttackTime = (std::max)(m_fHoldAttackTime, 0.0f);
 
 		/*
 		if ( sv_gravity )

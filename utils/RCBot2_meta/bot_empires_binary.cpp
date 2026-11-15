@@ -53,7 +53,7 @@ bool EmpiresBinaryOffsetsTrusted()
 			char gameDir[512];
 			engine->GetGameDir(gameDir, sizeof(gameDir));
 			char path[600];
-			std::snprintf(path, sizeof(path), "%s/bin/server_srv.so", gameDir);
+			snprintf(path, sizeof(path), "%s/bin/server_srv.so", gameDir);
 			if (ReadFileCrc(path, size, crc))
 			{
 				for (const KnownBinary& k : kKnownBinaries)

@@ -34,7 +34,7 @@ Status Execute(Attempt& attempt, const EmpiresSpatial::SearchResult& search,
 	if (validity == EmpiresNativePlacement::Result::Unavailable) return attempt.status = Status::CommandContextFailure;
 	if (validity != EmpiresNativePlacement::Result::Valid) return attempt.status = Status::NativeBuildRejected;
 	char command[160];
-	const int size = std::snprintf(command, sizeof(command), "emp_build 1 %.9g %.9g %.9g 0\n", double(origin.x), double(origin.y), double(origin.z));
+	const int size = snprintf(command, sizeof(command), "emp_build 1 %.9g %.9g %.9g 0\n", double(origin.x), double(origin.y), double(origin.z));
 	if (size <= 0 || static_cast<unsigned>(size) >= sizeof(command)) return attempt.status = Status::CommandContextFailure;
 	if (!send(command)) return attempt.status = Status::CommandContextFailure;
 	++attempt.requests;

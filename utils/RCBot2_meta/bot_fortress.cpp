@@ -577,7 +577,7 @@ float CBotFortress :: getHealFactor ( edict_t *pPlayer )
 		fFactor += (static_cast<float>(CClassInterface::getTF2Score(pPlayer)) / static_cast<float>(iHighestScore)) / 2;
 
 		if ( (fLastCalledMedic = m_fCallMedicTime[ENTINDEX(pPlayer)-1]) > 0 )
-			fFactor += std::max(0.0f,1.0f-((engine->Time() - fLastCalledMedic)/5));
+			fFactor += (std::max)(0.0f,1.0f-((engine->Time() - fLastCalledMedic)/5));
 		if ( ((m_fLastCalledMedicTime + 5.0f) > engine->Time()) && ( m_pLastCalledMedic == pPlayer ) )
 			fFactor += 0.5f;
 
@@ -5426,7 +5426,7 @@ void CBotTF2 :: getTasks ( unsigned iIgnore )
 	if ((m_iClass == TF_CLASS_DEMOMAN) && (m_iTrapType == TF_TRAP_TYPE_NONE) && canDeployStickies())
 	{
 		ADD_UTILITY(BOT_UTIL_DEMO_STICKYTRAP_LASTENEMY, m_pLastEnemy != nullptr,
-			randomFloat(std::min(fDefendFlagUtility, fGetFlagUtility), std::max(fDefendFlagUtility, fGetFlagUtility)))
+			randomFloat(std::min(fDefendFlagUtility, fGetFlagUtility), (std::max)(fDefendFlagUtility, fGetFlagUtility)))
 
 		ADD_UTILITY(BOT_UTIL_DEMO_STICKYTRAP_FLAG,
 			CTeamFortress2Mod::isMapType(TF_MAP_CTF) && !bHasFlag &&
@@ -5970,7 +5970,7 @@ bool CBotTF2 :: executeAction ( CBotUtility *util )//eBotAction id, CWaypoint *p
 						// chance of going to point
 						fprob = (fTime - (engine->Time() - CTeamFortress2Mod::m_ObjectiveResource.getLastCaptureTime(m_iCurrentDefendArea)))/fTime;
 
-						fprob = std::max(fprob, rcbot_tf2_protect_cap_percent.GetFloat());
+						fprob = (std::max)(fprob, rcbot_tf2_protect_cap_percent.GetFloat());
 					}
 				}
 				

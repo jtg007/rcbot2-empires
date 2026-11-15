@@ -1157,7 +1157,7 @@ int CTeamFortress2Mod ::getHighestScore ()
 		{
 			const short score = static_cast<short>(CClassInterface::getTF2Score(edict));
 
-			highest = std::max(score, highest);
+			highest = (std::max)(score, highest);
 		}
 	}
 

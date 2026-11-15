@@ -58,8 +58,8 @@ namespace
 		LocalConflictEpisode episode;
 		episode.active = true;
 		episode.episodeId = id;
-		episode.lowBot = std::min(observation.observerBot, observation.otherBot);
-		episode.highBot = std::max(observation.observerBot, observation.otherBot);
+		episode.lowBot = (std::min)(observation.observerBot, observation.otherBot);
+		episode.highBot = (std::max)(observation.observerBot, observation.otherBot);
 		episode.team = observation.team;
 		episode.type = type;
 		episode.startTime = 0.0;

@@ -27,7 +27,7 @@ struct Correlation
 inline std::string FormatCorrelation(const Correlation& value)
 {
 	char buffer[512];
-	std::snprintf(buffer, sizeof(buffer),
+	snprintf(buffer, sizeof(buffer),
 		"curtime=%.3f;life_generation=%llu;capture_generation=%llu;"
 		"capture_attempt=%llu;owner_userid=%d;owner_team=%d;"
 		"capture_point=%d;target_index=%d;target_userid=%d;target_team=%d",
@@ -44,7 +44,7 @@ inline std::string FormatDecision(const char* phase, const char* decision,
 	const char* reason, const char* callerOutcome)
 {
 	char buffer[256];
-	std::snprintf(buffer, sizeof(buffer),
+	snprintf(buffer, sizeof(buffer),
 		"decision_phase=%s;decision=%s;decision_reason=%s;caller_outcome=%s",
 		phase != nullptr ? phase : "unknown",
 		decision != nullptr ? decision : "unknown",
@@ -58,7 +58,7 @@ inline std::string FormatRetryAccounting(const bool latchBefore,
 	const int retryAfter, const bool combatResume, const bool consumeRetry)
 {
 	char buffer[256];
-	std::snprintf(buffer, sizeof(buffer),
+	snprintf(buffer, sizeof(buffer),
 		"combat_latch_before=%d;capture_valid_before=%d;retry_before=%d;"
 		"retry_after=%d;combat_resume=%d;consume_retry=%d",
 		latchBefore ? 1 : 0, objectiveValidBefore ? 1 : 0, retryBefore,

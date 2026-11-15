@@ -615,7 +615,7 @@ void CBotEmpires::recordEmpiresStartAnchorRecoveryEvent(const char* eventName,
 		displacement, duration, reentryWaypoint,
 		routeAnchorStatusName(anchorStatus));
 	char detail[512];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"start-anchor-recovery;event=%s;point=%d;userid=%d;attempt=%d;reason=%s;start=(%.1f %.1f %.1f);end=(%.1f %.1f %.1f);displacement=%.1f;duration=%.1f;reentry_waypoint=%d;anchor=%s",
 		eventName, m_iEmpiresCaptureApproachPoint,
 		engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1,
@@ -1553,7 +1553,7 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 	const float distance = empiresNavGoalDistance2D(origin, threat.origin);
 	// The walk ends up to ~64 short of the spot, so fire anywhere past the range itself.
 	const float inner = threat.range + 30.0f;
-	const float outer = std::min(threat.range + 450.0f, maxReach(origin.z) - 20.0f);
+	const float outer = (std::min)(threat.range + 450.0f, maxReach(origin.z) - 20.0f);
 	if (distance >= threat.range + 5.0f && distance <= outer &&
 		(m_iEmpiresTurretMortarFails == 0 ||
 		 origin.DistToSqr(m_vEmpiresTurretFailedMortarSpot) > 64.0f * 64.0f))
@@ -1617,7 +1617,7 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 		const Vector& spot = sample.origin;
 		const float distance = empiresNavGoalDistance2D(spot, threat.origin);
 		if (distance >= inner &&
-			distance <= std::min(threat.range + 450.0f, maxReach(spot.z) - 20.0f) &&
+			distance <= (std::min)(threat.range + 450.0f, maxReach(spot.z) - 20.0f) &&
 			spot.DistToSqr(origin) > 64.0f * 64.0f &&
 			spot.DistToSqr(m_vEmpiresTurretLastFireSpot) > 64.0f * 64.0f &&
 			(m_iEmpiresTurretMortarFails == 0 ||
@@ -2110,8 +2110,8 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 			float reach = 40.0f;
 			if (collision != nullptr)
 			{
-				const float hx = std::max(std::fabs(collision->OBBMins().x), std::fabs(collision->OBBMaxs().x));
-				const float hy = std::max(std::fabs(collision->OBBMins().y), std::fabs(collision->OBBMaxs().y));
+				const float hx = (std::max)(std::fabs(collision->OBBMins().x), std::fabs(collision->OBBMaxs().x));
+				const float hy = (std::max)(std::fabs(collision->OBBMins().y), std::fabs(collision->OBBMaxs().y));
 				reach += std::sqrt(hx * hx + hy * hy);
 			}
 			const float baseYaw = std::atan2(origin.y - base.y, origin.x - base.x);
@@ -2197,7 +2197,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 	m_bEmpiresNavGoalActive = true;
 	m_iEmpiresNavGoalType = tier;
 	m_iEmpiresNavGoalEntity = choice.entity;
-	std::snprintf(m_szEmpiresNavGoalClass, sizeof(m_szEmpiresNavGoalClass), "%s", choice.className);
+	snprintf(m_szEmpiresNavGoalClass, sizeof(m_szEmpiresNavGoalClass), "%s", choice.className);
 	m_vEmpiresNavGoalOrigin = choice.origin;
 	m_flEmpiresNavGoalStart = now;
 	// Generous: bots run ~190 u/s; allow detours and short fights.

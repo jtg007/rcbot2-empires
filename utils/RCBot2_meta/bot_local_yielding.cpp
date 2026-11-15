@@ -135,7 +135,7 @@ namespace RCBotLocalYielding
 		BotWaitAge& age = m_waitAges[static_cast<std::size_t>(index)];
 		age.active = true;
 		age.botId = botId;
-		age.seconds = std::min(age.seconds + seconds, 60.0f);
+		age.seconds = (std::min)(age.seconds + seconds, 60.0f);
 	}
 
 	void Controller::clearWaitAge(const int botId)
@@ -227,8 +227,8 @@ namespace RCBotLocalYielding
 		pair.low.conflictEpisodeId = episode.episodeId;
 		pair.low.role = winner == low ? Role::PROCEED : Role::WAIT;
 		pair.low.startedAt = now;
-		pair.low.reevaluateAt = now + std::max(0.01f, policy.stickySeconds);
-		pair.low.maxWaitDeadline = now + std::max(policy.maxWaitSeconds,
+		pair.low.reevaluateAt = now + (std::max)(0.01f, policy.stickySeconds);
+		pair.low.maxWaitDeadline = now + (std::max)(policy.maxWaitSeconds,
 			policy.stickySeconds);
 		pair.low.waitAge = 0.0f;
 		pair.low.priorityEpoch = pair.low.priorityEpoch == 0 ? 1 :
@@ -251,8 +251,8 @@ namespace RCBotLocalYielding
 			observation.otherBot < 0 || observation.observerBot == observation.otherBot)
 			return result;
 
-		const int low = std::min(observation.observerBot, observation.otherBot);
-		const int high = std::max(observation.observerBot, observation.otherBot);
+		const int low = (std::min)(observation.observerBot, observation.otherBot);
+		const int high = (std::max)(observation.observerBot, observation.otherBot);
 		const bool lowPrecision = isPrecision(observation, low);
 		const bool highPrecision = isPrecision(observation, high);
 		if (lowPrecision && highPrecision)
@@ -326,7 +326,7 @@ namespace RCBotLocalYielding
 		}
 		else
 		{
-			pair.low.reevaluateAt = now + std::max(0.01f, policy.stickySeconds);
+			pair.low.reevaluateAt = now + (std::max)(0.01f, policy.stickySeconds);
 			pair.high.reevaluateAt = pair.low.reevaluateAt;
 			pair.low.reason = Reason::BOUNDED_REEVALUATION;
 			pair.high.reason = Reason::BOUNDED_REEVALUATION;

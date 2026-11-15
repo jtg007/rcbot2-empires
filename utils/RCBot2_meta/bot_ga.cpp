@@ -99,11 +99,11 @@ ga_nn_value CPopulation::totalFitness() const
 
 ga_nn_value CPopulation::bestFitness() const
 {
-    float fBestFitness = std::numeric_limits<float>::lowest();
+    float fBestFitness = (std::numeric_limits<float>::lowest)();
 
     for (IIndividual* const& individual : m_theIndividuals)
 	{
-        fBestFitness = std::max(fBestFitness, individual->getFitness());
+        fBestFitness = (std::max)(fBestFitness, individual->getFitness());
 	}
 
 	return fBestFitness;

@@ -56,7 +56,7 @@ struct Node
 	int supportEntity = -1;
 	int parent = -1;
 	TraversalType incoming = TraversalType::WALK;
-	float g = std::numeric_limits<float>::max();
+	float g = (std::numeric_limits<float>::max)();
 	float h = 0.0f;
 	bool open = false;
 	bool closed = false;
@@ -224,7 +224,7 @@ bool standable(Session &session, const Vector &candidate, Ground *ground)
 bool groundCorridor(Session &session, const Vector &from, const Vector &to)
 {
 	const float distance = (to - from).Length2D();
-	const int samples = std::max(1, static_cast<int>(std::ceil(distance / 16.0f)));
+	const int samples = (std::max)(1, static_cast<int>(std::ceil(distance / 16.0f)));
 	for (int sample = 1; sample < samples; ++sample)
 	{
 		const float fraction = static_cast<float>(sample) /
@@ -257,7 +257,7 @@ bool traversable(Session &session, const Vector &from, const Vector &to)
 	if (!clear && std::fabs(to.z - from.z) <= kMaxStepHeight && canProbe(session))
 	{
 		Vector liftedMins = mins;
-		liftedMins.z = std::max(liftedMins.z, kMaxStepHeight + 0.1f);
+		liftedMins.z = (std::max)(liftedMins.z, kMaxStepHeight + 0.1f);
 		trace_t liftedTrace{};
 		UTIL_TraceHull(from, to, liftedMins, maxs, MASK_PLAYERSOLID,
 			session.bot->getEdict()->GetIServerEntity(),
@@ -450,7 +450,7 @@ void endSession(Session &session, const Result result, const char *reason)
 		result != Result::LOCAL_PATH_FOUND)
 	{
 		char detail[320];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"session_id=%llu intent_id=%llu result=%s reason=%s",
 			static_cast<unsigned long long>(session.sessionId),
 			static_cast<unsigned long long>(session.intentId),
@@ -464,7 +464,7 @@ void endSession(Session &session, const Result result, const char *reason)
 	int stepUpEdges = 0;
 	int stepDownEdges = 0;
 	countPathEdges(session, walkEdges, stepUpEdges, stepDownEdges);
-	std::snprintf(stats, sizeof(stats),
+	snprintf(stats, sizeof(stats),
 		"session_id=%llu intent_id=%llu nodes=%d valid_nodes=%d edges=%d probes=%d expansions=%d frames=%d path_points=%d walk_edges=%d step_up_edges=%d step_down_edges=%d result=%s",
 		static_cast<unsigned long long>(session.sessionId),
 		static_cast<unsigned long long>(session.intentId),
@@ -478,7 +478,7 @@ void endSession(Session &session, const Result result, const char *reason)
 	finishBotMovement(session, result, reason);
 
 	char end[320];
-	std::snprintf(end, sizeof(end),
+	snprintf(end, sizeof(end),
 		"session_id=%llu intent_id=%llu result=%s reason=%s",
 		static_cast<unsigned long long>(session.sessionId),
 		static_cast<unsigned long long>(session.intentId),
@@ -551,7 +551,7 @@ void pathFound(Session &session)
 	const char *firstEdge = session.pathEdges.empty() ? "NONE" :
 		traversalTypeName(session.pathEdges.front());
 	char detail[512];
-	std::snprintf(detail, sizeof(detail),
+	snprintf(detail, sizeof(detail),
 		"session_id=%llu intent_id=%llu nodes=%d valid_nodes=%d edges=%d probes=%d expansions=%d path_points=%d walk_edges=%d step_up_edges=%d step_down_edges=%d first_edge=%s start_support=%s goal_support=%s",
 		static_cast<unsigned long long>(session.sessionId),
 		static_cast<unsigned long long>(session.intentId),
@@ -643,7 +643,7 @@ void explore(Session &session)
 	{
 		session.graphReady = true;
 		char detail[320];
-		std::snprintf(detail, sizeof(detail),
+		snprintf(detail, sizeof(detail),
 			"session_id=%llu intent_id=%llu nodes=%d probes=%d direct_goal=%s",
 			static_cast<unsigned long long>(session.sessionId),
 			static_cast<unsigned long long>(session.intentId),
@@ -839,7 +839,7 @@ bool startSession(Session &session, CBot *bot, const Vector &goal,
 		"local-explore-start");
 
 	char startDetail[384];
-	std::snprintf(startDetail, sizeof(startDetail),
+	snprintf(startDetail, sizeof(startDetail),
 		"session_id=%llu intent_id=%llu goal=(%.1f %.1f %.1f) radius=%.1f cell=%.1f max_nodes=%d max_probes=%d max_expansions=%d max_work_per_frame=%d",
 		static_cast<unsigned long long>(session.sessionId),
 		static_cast<unsigned long long>(session.intentId), goal.x, goal.y, goal.z,

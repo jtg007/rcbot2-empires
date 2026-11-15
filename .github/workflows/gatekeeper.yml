@@ -1,0 +1,52 @@
+name: Gatekeeper
+
+# Only the repository owner and Neoony may open issues, pull requests or comment.
+# Everything else is closed and locked (issues/PRs) or deleted (comments) right away.
+# Neoony is matched by numeric user id, so a renamed or look-alike account does not pass.
+# This workflow never checks out or runs code from the pull request.
+
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request_target:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+env:
+  ALLOWED_IDS: "24975075"   # Neoony
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close anything from other users
+        env:
+          ACTOR_ID: ${{ github.event.sender.id }}
+          ACTOR: ${{ github.event.sender.login }}
+          OWNER_ID: ${{ github.event.repository.owner.id }}
+          EVENT: ${{ github.event_name }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          if [ "$ACTOR_ID" = "$OWNER_ID" ] || [[ " $ALLOWED_IDS " == *" $ACTOR_ID "* ]]; then
+            echo "allowed: $ACTOR"; exit 0
+          fi
+          echo "not allowed: $ACTOR ($ACTOR_ID), event $EVENT #$NUMBER"
+          MSG="Thanks for your interest. Issues and pull requests on this repository are restricted, so this was closed automatically."
+          case "$EVENT" in
+            issues)
+              gh issue close "$NUMBER" --reason "not planned" --comment "$MSG"
+              gh api -X PUT "repos/$GH_REPO/issues/$NUMBER/lock" -f lock_reason=off-topic ;;
+            pull_request_target)
+              gh pr close "$NUMBER" --comment "$MSG"
+              gh api -X PUT "repos/$GH_REPO/issues/$NUMBER/lock" -f lock_reason=off-topic ;;
+            issue_comment)
+              gh api -X DELETE "repos/$GH_REPO/issues/comments/$COMMENT_ID" ;;
+          esac

@@ -205,8 +205,8 @@ bool ResolveTeamContext(void* player, int teamNumber, std::uintptr_t base,
 	const float levelValue = *reinterpret_cast<float*>(
 		static_cast<unsigned char*>(levelState) + kLevelValue);
 	if (!std::isfinite(levelValue) ||
-		static_cast<double>(levelValue) < std::numeric_limits<int>::min() ||
-		static_cast<double>(levelValue) > std::numeric_limits<int>::max())
+		static_cast<double>(levelValue) < (std::numeric_limits<int>::min)() ||
+		static_cast<double>(levelValue) > (std::numeric_limits<int>::max)())
 		return Reject(diagnostics, UnavailableReason::LevelUnavailable);
 
 	result.team = teamNumber;

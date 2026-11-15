@@ -330,7 +330,7 @@ namespace
 		edict_t* pBestTarget = nullptr;
 		float bestDot = 0.97f;
 		float bestDistance = 1.0e30f;
-		const int maxClients = std::min(gpGlobals->maxClients, RCBOT_MAXPLAYERS - 1);
+		const int maxClients = (std::min)(gpGlobals->maxClients, RCBOT_MAXPLAYERS - 1);
 
 		for (int index = 1; index <= maxClients; ++index)
 		{
@@ -430,7 +430,7 @@ void CEmpiresMod::updateCommanderOrders()
 	if (engine == nullptr || playerinfomanager == nullptr || gpGlobals == nullptr)
 		return;
 	int commanderUserIds[4] = { -1, -1, -1, -1 };
-	const int maxClients = std::min(gpGlobals->maxClients, RCBOT_MAXPLAYERS - 1);
+	const int maxClients = (std::min)(gpGlobals->maxClients, RCBOT_MAXPLAYERS - 1);
 	for (int index = 1; index <= maxClients; ++index)
 	{
 		edict_t* player = engine->PEntityOfEntIndex(index);
@@ -757,7 +757,7 @@ void CEmpiresMod::updateCapturePoints()
 		if (captureBoundsKnown && engine != nullptr &&
 			playerinfomanager != nullptr && gpGlobals != nullptr)
 		{
-			const int maxClients = std::min(gpGlobals->maxClients,
+			const int maxClients = (std::min)(gpGlobals->maxClients,
 				RCBOT_MAXPLAYERS - 1);
 			for (int clientIndex = 1; clientIndex <= maxClients; ++clientIndex)
 			{
@@ -834,7 +834,7 @@ void CEmpiresMod::updateCapturePoints()
 			const std::string beOccupants =
 				formatEmpiresCaptureOccupants(observation.beOccupantUserIds);
 			char state[1024] = {};
-			std::snprintf(state, sizeof(state),
+			snprintf(state, sizeof(state),
 				"origin=(%.1f,%.1f,%.1f);origin_known=%d;ground_approach=(%.1f,%.1f,%.1f);ground_approach_known=%d;nf_status=%d;nf_status_known=%d;be_status=%d;be_status_known=%d;progress=%d;progress_known=%d;team_owner=%d;team_owner_known=%d;time_to_cap=%d;time_to_neutral=%d;nf_cappable=%d;be_cappable=%d;nf_enabled=%d;be_enabled=%d;nf_occupants=%s;be_occupants=%s",
 				observation.origin.x, observation.origin.y, observation.origin.z,
 				observation.originKnown ? 1 : 0,
