@@ -140,10 +140,23 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | 🟡 | Re-customize on the repair pad | Seen in 22-bot matches after a purchase at the factory; not yet confirmed on a server without `emp_sv_debug_build_vehicles 1`. Same loadout is free (the game charges only the difference). A light tank/AFV whose MG shares a fire button with another weapon drives to the pad and refits the bot loadout |
 | 🟡 | Bill Nye mode | One scout jeep rams enemy vehicles off the road (on `emp_rainbowroad`); still falls off itself sometimes |
 
+## Download
+
+Ready-made builds (32-bit, Source SDK 2013) are made by GitHub Actions:
+
+- **[Releases](../../releases)**: `latest` always holds the newest build of `main`; tagged
+  versions (`v*`) get their own release. Download `rcbot2-empires-linux-x86.zip` or
+  `rcbot2-empires-windows-x86.zip` and unzip it into the server's `empires/` folder.
+- **[Actions](../../actions/workflows/build.yml)**: every push and pull request; the build
+  artifacts are attached to each run (GitHub login required).
+
+The Windows build compiles but is untested in game. Features that read fixed offsets from the game
+binary only know the Linux `server_srv.so` and use their fallbacks on Windows.
+
 ## Install
 
 1. Install [Metamod:Source][mms] on the Empires dedicated server.
-2. Build the plugin (see [Build](#build)).
+2. Download a build (see [Download](#download)) or build the plugin yourself (see [Build](#build)).
 3. Install the built plugin at `empires/addons/rcbot2/bin/rcbot.2.sdk2013.so` on the server, with
    `empires/addons/metamod/rcbot2.vdf`:
 

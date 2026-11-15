@@ -60,7 +60,9 @@
 #include "bot_tf2_points.h"
 
 #include <cctype>
+#ifdef __linux__
 #include <dlfcn.h>
+#endif
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -3414,6 +3416,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 			CBotGlobals::botMessage(output, 0, "commander_build result=NOT_COMMANDER");
 			return COMMAND_ACCESSED;
 		}
+#ifdef __linux__
 		if (std::strcmp(args[0], "obstruct") == 0 && args.size() >= 5)
 		{
 			// Diagnosis only: calls EmpBuildingPlacementRules::GetAllObstructions (server_srv.so 0x387ed0) like
@@ -3436,6 +3439,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 			Msg("[RCBOT2] commander-build obstruct type=%s pos=(%.0f %.0f %.0f) cv_dist=%.0f flags=0x%x\n", args[1], at.x, at.y, at.z, (at - cv).Length(), flags);
 			return COMMAND_ACCESSED;
 		}
+#endif
 		const int type = std::atoi(args[0]);
 		Vector pos = CBotGlobals::entityOrigin(vehicle);
 		int resIndex = -1;
