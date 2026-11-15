@@ -1,0 +1,190 @@
+name: Build
+
+# Builds the RCBot2 Empires plugin (Source SDK 2013, 32-bit) for Linux and Windows.
+# - every push / pull request: build both and upload them as workflow artifacts
+# - push to main: refresh the rolling "latest" release with both zips
+# - tag v*: create a versioned release with both zips
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Debian 12 (glibc 2.36) instead of the runner image, so the plugin
+          # also loads on servers with an older glibc than ubuntu-latest.
+          - name: linux
+            runner: ubuntu-latest
+            container: debian:bookworm
+          - name: windows
+            runner: windows-latest
+            container: ''
+
+    steps:
+      - name: Install toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dpkg --add-architecture i386
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            gcc g++ gcc-multilib g++-multilib libc6-dev-i386 \
+            python3 python3-pip python3-setuptools python3-wheel \
+            git ca-certificates binutils zip
+          echo "CC=gcc" >> "$GITHUB_ENV"
+          echo "CXX=g++" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-Wno-stringop-truncation" >> "$GITHUB_ENV"
+
+      - name: Set up MSVC x86 (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq delims=*" %%i in (`vswhere -latest -property installationPath`) do (
+            call "%%i\Common7\Tools\vsdevcmd.bat" -arch=x86 -host_arch=x64
+          )
+          for /f "delims== tokens=1,2" %%a in ('set') do (
+            echo>>"%GITHUB_ENV%" %%a=%%b
+          )
+
+      - name: Set up Python (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install AMBuild
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python3 -m pip install --break-system-packages git+https://github.com/alliedmodders/ambuild
+          else
+            python -m pip install git+https://github.com/alliedmodders/ambuild
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: rcbot2
+
+      # Only the SDKs this plugin needs (the repository pins many more).
+      - name: Fetch SDK submodules
+        shell: bash
+        working-directory: rcbot2
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --depth 1 \
+            hl2sdk-manifests \
+            alliedmodders/hl2sdk-sdk2013 \
+            alliedmodders/metamod-source \
+            alliedmodders/sourcemod
+
+      - name: Configure and build
+        shell: bash
+        working-directory: rcbot2
+        run: |
+          ROOT="$(pwd)"
+          PY=python3; [ "$RUNNER_OS" = "Windows" ] && PY=python
+          mkdir -p post && cd post
+          "$PY" ../configure.py \
+            -s sdk2013 \
+            --targets x86 \
+            --enable-optimize \
+            --hl2sdk-root "$ROOT/alliedmodders" \
+            --mms-path "$ROOT/alliedmodders/metamod-source" \
+            --sm-path "$ROOT/alliedmodders/sourcemod"
+          ambuild
+
+      - name: Check glibc requirement (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: rcbot2
+        run: |
+          MAXVER="2.36"
+          found=0
+          while IFS= read -r so; do
+            found=1
+            need=$(objdump -T "$so" | grep -oP 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            echo "$so -> glibc ${need:-none}"
+            if [ -n "$need" ] && [ "$(printf '%s\n%s\n' "$MAXVER" "$need" | sort -V | tail -1)" != "$MAXVER" ]; then
+              echo "::error file=$so::needs glibc $need, target is $MAXVER"; exit 1
+            fi
+          done < <(find post/package -name '*.so' -type f)
+          [ "$found" = 1 ] || { echo "::error::no .so built"; exit 1; }
+
+      - name: Package zip
+        shell: bash
+        working-directory: rcbot2/post/package
+        run: |
+          ZIP="rcbot2-empires-${{ matrix.name }}-x86.zip"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "$GITHUB_WORKSPACE/$ZIP" addons
+          else
+            zip -r "$GITHUB_WORKSPACE/$ZIP" addons
+          fi
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rcbot2-empires-${{ matrix.name }}-x86
+          path: rcbot2/post/package/
+          if-no-files-found: error
+
+      - name: Upload zip for release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Versioned release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+
+      # One rolling release that always holds the newest build from main.
+      - name: Rolling "latest" release (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          SHORT="${GITHUB_SHA::7}"
+          NOTES="Automatic build of main at ${SHORT} (run #${GITHUB_RUN_NUMBER}). Unzip into the game folder (e.g. empires/), so that addons/ merges with the existing one. Requires Metamod:Source."
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest dist/*.zip \
+            --title "Latest build (main, ${SHORT})" --notes "$NOTES" \
+            --target "$GITHUB_SHA" --prerelease
