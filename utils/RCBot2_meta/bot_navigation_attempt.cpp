@@ -179,7 +179,7 @@ namespace RCBotNavigation
 		const Vector& goalPosition)
 	{
 		constexpr std::uint64_t offset = 1469598103934665603ULL;
-		constexpr std::uint64_t prime = 1099511628211ULL;
+		static constexpr std::uint64_t prime = 1099511628211ULL;
 		std::uint64_t hash = offset;
 		auto add = [&hash](const std::uint64_t value)
 		{
