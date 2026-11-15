@@ -87,6 +87,11 @@ Check free space before long recordings and remove only recordings you created.
 
 ## 2. Needs a human player
 
+- [ ] EngiBots (`/buildengibot`, community request): purchase, limit, leash, building help and map-change cleanup
+  are measured with a bot commander (`scripts/dev_engibot.sh`). Open: turrets on the commander's order (planned:
+  an "attack location" order to an EngiBot), repairing vehicles on the pad, the `/` chat with SourceMod loaded,
+  and a test with a human commander.
+
 - [ ] Hand the CV seat to a human commander; MOVE with cancel (cancel handling is built,
   untested); guard and attack orders from a human; "Roger"/"Negative" replies.
 - [ ] Vehicle MG effect, scout binocular spotting, engineer behaviour under a human commander.

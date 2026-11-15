@@ -82,6 +82,9 @@
 #include <build_info.h>
 #include <sourcehook.h>
 
+void EmpiresEngibotFrame(); // bot_empires_engibot.cpp
+bool EmpiresIsEngibot(const edict_t* player);
+
 #ifdef SM_EXT
 #include "rcbot/entprops.h"
 
@@ -1209,6 +1212,8 @@ void RCBotPluginMeta::Hook_GameFrame(const bool simulating)
 			}
 		}
 
+		EmpiresEngibotFrame();
+
 		// Bot Quota
 		if (rcbot_bot_quota_interval.GetFloat() > 0.0) {
 			BotQuotaCheck();
@@ -1261,7 +1266,9 @@ void RCBotPluginMeta::BotQuotaCheck() {
 
 				IPlayerInfo *p = playerinfomanager->GetPlayerInfo(pEdict);
 
-				if (p != nullptr && p->IsConnected() && p->IsPlayer() && p->IsFakeClient() && !p->IsHLTV()) {
+				// EngiBots are bought by a commander on top of the quota.
+				if (p != nullptr && p->IsConnected() && p->IsPlayer() && p->IsFakeClient() && !p->IsHLTV() &&
+					!EmpiresIsEngibot(pEdict)) {
 					bot_count++;
 				}
 			}

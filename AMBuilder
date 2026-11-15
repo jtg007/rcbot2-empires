@@ -35,6 +35,7 @@ sourceFiles = [
   "utils/RCBot2_meta/bot_empires_binary.cpp",
   "utils/RCBot2_meta/bot_empires_turret_build.cpp",
   "utils/RCBot2_meta/bot_empires_ammo_crate.cpp",
+  "utils/RCBot2_meta/bot_empires_engibot.cpp",
   "utils/RCBot2_meta/bot_events.cpp",
   "utils/RCBot2_meta/bot_fortress.cpp",
   "utils/RCBot2_meta/bot_ga.cpp",

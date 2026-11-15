@@ -1881,6 +1881,18 @@ CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDIC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_wages <speaker_userid> <wages>" : test-only, sets the teammates' wages and runs the wages chat request)");
 
+bool EmpiresTestEngibotChat(int speakerUserId); // bot_empires_engibot.cpp
+
+CBotCommandInline EmpiresTestEngibotCommand("empires_test_engibot", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		const int userId = args[0] != nullptr && *args[0] != '\0' ? std::atoi(args[0]) : 2;
+		const bool said = EmpiresTestEngibotChat(userId);
+		CBotGlobals::botMessage(pEntity, 0, "empires_test_engibot speaker=%d said=%d", userId, said ? 1 : 0);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_engibot <speaker_userid>" : test-only, the speaker says /buildengibot in chat)");
+
 CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move", CMD_ACCESS_DEDICATED,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
@@ -3857,6 +3869,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresVehicleSetAmmoCommand,
 	&EmpiresVehicleCrateCommand,
 	&EmpiresTestWagesCommand,
+	&EmpiresTestEngibotCommand,
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,

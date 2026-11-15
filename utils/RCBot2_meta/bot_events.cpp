@@ -499,11 +499,15 @@ void CWeaponFireEvent :: execute ( IBotEventInterface *pEvent )
 }
 
 void EmpiresHandleWagesChatEvent(edict_t* speaker, const char* text); // bot_empires_vehicle.cpp
+void EmpiresHandleEngibotChat(edict_t* speaker, const char* text); // bot_empires_engibot.cpp
 
 void CPlayerSayEvent :: execute ( IBotEventInterface *pEvent )
 {
 	if (m_pActivator != nullptr)
+	{
 		EmpiresHandleWagesChatEvent(m_pActivator, pEvent->getString("text", nullptr));
+		EmpiresHandleEngibotChat(m_pActivator, pEvent->getString("text", nullptr));
+	}
 }
 
 void CPlayerSpawnEvent :: execute ( IBotEventInterface *pEvent )

@@ -6112,6 +6112,14 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		if (handleEmpiresTurretThreat())
 			return;
 
+		// A commander-bought EngiBot stays at the base: no revive/repair/ammo calls from across the
+		// map, no turrets of its own, capture, squad or roam.
+		if (EmpiresIsEngibot(m_pEdict))
+		{
+			tickEmpiresEngibot();
+			return;
+		}
+
 		if (handleEmpiresRevive())
 			return;
 
@@ -6366,10 +6374,10 @@ void CBotEmpires::modThink()
 	updateEmpiresEngineerSkills();
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();
-	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
+	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive() && !EmpiresIsEngibot(m_pEdict))
 	{
 		handleEmpiresRevive();
-		if (!handleEmpiresAmmoRequest())
+		if (!handleEmpiresAmmoRequest() && !EmpiresIsEngibot(m_pEdict))
 			handleEmpiresRefineryTurret();
 	}
 	if (m_vehicle.stage == EmpiresVehicleStage::DRIVING ||

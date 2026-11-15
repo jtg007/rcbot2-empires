@@ -1326,7 +1326,7 @@ public:
 	static bool controlBot ( edict_t *pEdict );
 	static bool controlBot ( const char *szOldName, const char *szName, const char *szTeam, const char *szClass );
 
-	static bool createBot (const char *szClass, const char *szTeam, const char *szName);
+	static bool createBot (const char *szClass, const char *szTeam, const char *szName, int *outSlot = nullptr);
 	static int createDefaultBot(const char* szName);
 	static bool createEmpiresBootstrapBot();
 	static bool removeEmpiresBootstrapBot();

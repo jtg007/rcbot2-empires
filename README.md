@@ -63,6 +63,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Turrets at refineries | MG turret construction works; unreachable Rainbowroad stand points are rejected and rotated, while rare placement failures remain |
 | ✅ | Skills | Repair and revive split across the team's engineers |
 | ⬜ | Walls, cameras, radar | |
+| 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. Limit per team, removed on map change, not kicked by the bot quota. Turrets on the commander's order are planned |
 
 ### Infantry
 
@@ -119,6 +120,10 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | `rcbot_empires_commander_drive_from` | 1000 | The commander drives the CV to buildings farther away than this |
 | `rcbot_empires_commander_boomtank` | 1 | Commander runs over enemies in the base: 0 off, 1 on except on rainbowroad maps, 2 everywhere |
 | `rcbot_empires_engineer_turrets` | 1 | Engineers build MG turrets at the team's refineries |
+| `rcbot_empires_engibot` | 1 | The commander can buy EngiBots with `/buildengibot` in chat |
+| `rcbot_empires_engibot_cost` | 100 | Team resources per EngiBot |
+| `rcbot_empires_engibot_limit` | 2 | EngiBots per team (0–8) |
+| `rcbot_empires_engibot_leash` | 2500 | EngiBots work within this distance of their team CV |
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, minimum 2; Bill Nye excluded) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |

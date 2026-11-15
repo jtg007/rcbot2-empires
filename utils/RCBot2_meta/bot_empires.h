@@ -423,6 +423,8 @@ void EmpiresReviveLevelReset();
 void EmpiresVehicleLevelReset();
 void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
+void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
+bool EmpiresIsEngibot(const edict_t* player);
 
 // 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one slot per vehicle (up to
 // kEmpiresAmmoRequestSlots per team); an engineer walks over and places a supply crate
@@ -754,6 +756,8 @@ public:
 	} m_commanderEconomy;
 	// An Engineer walks to one assigned building and works on it until full.
 	bool requestEmpiresBuildAssignment(edict_t* building);
+	bool tickEmpiresEngibot(); // bot_empires_engibot.cpp
+	void applyEmpiresTeamClassName(); // bot_empires_engibot.cpp
 	void tickEmpiresBuildAssignment();
 	void tickEmpiresGuardOrder();
 	float m_fEmpiresGuardNextCheck = 0.0f;

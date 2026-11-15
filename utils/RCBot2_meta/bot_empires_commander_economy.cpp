@@ -546,6 +546,8 @@ CBotEmpires* CBotEmpires::commanderSeatCandidate(int team)
 		if (bot == nullptr || !bot->inUse() || bot->getEdict() == nullptr || !bot->isAlive() ||
 			CClassInterface::getTeam(bot->getEdict()) != team)
 			continue;
+		if (EmpiresIsEngibot(bot->getEdict()))
+			continue; // bought by the commander to stay at the base
 		CBotEmpires* candidate = static_cast<CBotEmpires*>(bot);
 		if (candidate->m_iCommanderEntryStage != 0 || candidate->m_iCommanderBuildStage != 0)
 			return nullptr;
@@ -1500,6 +1502,35 @@ bool EmpiresFrontYaw(const Vector& at, int team, float& yaw)
 bool EmpiresTeamResources(int team, float& resources)
 {
 	return ReadTeamResources(team, resources);
+}
+
+// Adds delta to the team pool like emp_give_resources / InputModifyNFResources (0x647610 /
+// 0x647530: ledger +0x30 += x; their history entry at +0x44 is skipped). Not below 0.
+bool EmpiresModifyTeamResources(int team, float delta)
+{
+	if (!EmpiresBinaryOffsetsTrusted())
+		return false;
+	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)
+			continue;
+		ServerClass* serverClass = e->GetNetworkable()->GetServerClass();
+		if (serverClass == nullptr || std::strcmp(serverClass->GetName(), "CEmpTeam") != 0)
+			continue;
+		char* raw = const_cast<char*>(RawEntity(e));
+		if (raw == nullptr || *reinterpret_cast<const int*>(raw + 0x3a8) != team)
+			continue;
+		char* ledger = *reinterpret_cast<char**>(raw + 0x3b4);
+		if (ledger == nullptr)
+			return false;
+		float& pool = *reinterpret_cast<float*>(ledger + 0x30);
+		if (!(pool >= 0.0f && pool < 1.0e7f) || pool + delta < 0.0f)
+			return false;
+		pool += delta;
+		return true;
+	}
+	return false;
 }
 
 void EmpiresCommanderEconomyLevelReset()

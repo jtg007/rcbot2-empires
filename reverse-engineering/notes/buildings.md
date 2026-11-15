@@ -50,3 +50,13 @@ Measurements (emp_streetsoffire, NF CV at (-7548 -14179 -192), probe `empires_co
 - Team resources: `CEmpTeam` (ServerClass name, entities 33–36 = team 0–3) +0x3b4 → resource object, +0x30 float (confirmed via `emp_give_resources` 0x647610: NF +2000 shows up there). Team number `CTeam` +0x3a8 (`CTeam::GetTeamNumber` 0x8775d0), not +0x208. Start on emp_streetsoffire: NF 5031.
 - The factory rejection is **hull, not cost**: still rejected at 5031 and 7033 resources. Direct call to `GetAllObstructions` (probe `obstruct <type> x y z`): type 5 at the CV `0x22`, at the barracks site (-7588 -13662, 524 from the CV) `0x2`, barracks there `0x0`; type 5 at (-7548 -13179, 1003 from the CV) `0x0`. Built there: factory 523 stays, resources 5031 → 4533 (cost 500). Flag 0x2 = building hull hits something, 0x20 comes from the collision checks (`GetCollisionObstructions`/`GetGeneralCollisions`).
 - `empires_commander_place_barracks` at (-7588 -13662): barracks stays.
+
+## Changing team resources (expert 2026-11-15, static)
+
+- `CEmpParams::InputModifyNFResources` 0x647530 and `emp_give_resources` 0x647610 both do: ledger = `CEmpTeam+0x3b4`,
+  `ledger+0x30 += x` (float), then `AddToTail` on the ledger's history vector `+0x44`. The ledger is not an entity, so
+  no network change flags are needed. A plugin can subtract cost by writing `+0x30` directly (history entry skipped). The
+  history is summed into ledger `+0x3c` each period by `CResourceManager::CalculateAdjustments` 0x6785f0 and
+  networked as `CEmpTeam+0x3c0` (`CEmpTeam::Think` 0x680cf9); skipping it only hides the change from that
+  "adjustments" value, the pool `+0x30` is correct. `CUtlVector<float>::InsertBefore` 0x39fad0 would add it. `emp_give_resources` needs a server admin (`UTIL_IsCommandIssuedByServerAdmin`),
+  i.e. works from the server console.

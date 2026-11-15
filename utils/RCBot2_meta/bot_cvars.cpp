@@ -114,6 +114,10 @@ ConVar rcbot_empires_auto_commander("rcbot_empires_auto_commander", "1", 0, "if 
 ConVar rcbot_empires_commander_first("rcbot_empires_commander_first", "-1", 0, "test: building type the auto Commander builds first (0 refinery, 1 barracks, 2 radar, 3 armory, 4 repair, 5 vehicle factory), -1 normal order");
 ConVar rcbot_empires_vehicles("rcbot_empires_vehicles", "1", 0, "if 1, bots buy vehicles at their team's vehicle factory (or anywhere with emp_sv_debug_build_vehicles 1), drive them, fight and run over enemies");
 ConVar rcbot_empires_debug_log("rcbot_empires_debug_log", "0", 0, "if 1, print the bots' diagnostic [RCBOT2] lines to the server console (on in the dev harness)");
+ConVar rcbot_empires_engibot("rcbot_empires_engibot", "1", 0, "1 = the commander can buy base engineer bots with /buildengibot in chat");
+ConVar rcbot_empires_engibot_cost("rcbot_empires_engibot_cost", "100", 0, "team resources one /buildengibot costs");
+ConVar rcbot_empires_engibot_limit("rcbot_empires_engibot_limit", "2", 0, "maximum EngiBots per team (0-8)");
+ConVar rcbot_empires_engibot_leash("rcbot_empires_engibot_leash", "2500", 0, "EngiBots work only within this distance of their team CV (else their first spawn)");
 ConVar rcbot_empires_vehicle_drivers("rcbot_empires_vehicle_drivers", "-1", 0, "maximum number of bots per team that use a vehicle at the same time (Bill Nye not counted); -1 = 40% of the team bots, at least 2");
 ConVar rcbot_empires_vehicle_debug_mixed("rcbot_empires_vehicle_debug_mixed", "0", 0, "tests only: bought tanks get the MG on the cannon's fire button (mixed loadout, TODO 3.10d)");
 ConVar rcbot_empires_vehicle_debug_buy("rcbot_empires_vehicle_debug_buy", "0", 0, "tests only: with emp_sv_debug_build_vehicles 1 buy in place (also when a vehicle factory exists); 0 = only at a vehicle factory");

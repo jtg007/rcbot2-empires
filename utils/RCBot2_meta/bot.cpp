@@ -4506,7 +4506,52 @@ bool CBots::controlBot(const char* szOldName, const char* szName, const char* sz
 	return m_Bots[botIndex]->createBotFromEdict(pEdict, pBotProfile);
 }
 
-bool CBots :: createBot (const char *szClass, const char *szTeam, const char *szName)
+// createBotFromEdict renames every bot to its profile name; without profiles all are "RCBot",
+// "(1)RCBot", ... (user 2026-11-15: names to tell bots apart). An explicit name stays; otherwise
+// Empires bots get "<team> <class> <n>" (e.g. "NF Engineer 2"), others "RCBot <n>".
+void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int botClass)
+{
+	if (pEdict == nullptr || engine == nullptr || playerinfomanager == nullptr)
+		return;
+	char name[48];
+	auto taken = [pEdict](const char* candidate) {
+		for (int i = 1; i <= gpGlobals->maxClients; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			IPlayerInfo* info = e != nullptr && e != pEdict && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
+			if (info != nullptr && info->IsConnected() && info->GetName() != nullptr && std::strcmp(info->GetName(), candidate) == 0)
+				return true;
+		}
+		return false;
+	};
+	if (szName != nullptr && *szName != '\0')
+	{
+		std::snprintf(name, sizeof(name), "%s", szName);
+		for (int n = 2; n < 100 && taken(name); ++n)
+			std::snprintf(name, sizeof(name), "%s (%d)", szName, n);
+	}
+	else
+	{
+		static const char* const kClasses[] = {"Scout", "Rifleman", "Grenadier", "Engineer"};
+		const bool empires = CBotGlobals::getCurrentMod() != nullptr &&
+			CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES;
+		char base[32];
+		if (empires)
+			std::snprintf(base, sizeof(base), "%s%s%s", team == 2 ? "NF " : team == 3 ? "BE " : "",
+				botClass >= 0 && botClass <= 3 ? kClasses[botClass] : "Bot", "");
+		else
+			std::snprintf(base, sizeof(base), "RCBot");
+		for (int n = 1; n < 100; ++n)
+		{
+			std::snprintf(name, sizeof(name), "%s %d", base, n);
+			if (!taken(name))
+				break;
+		}
+	}
+	engine->SetFakeClientConVarValue(pEdict, "name", name);
+}
+
+bool CBots :: createBot (const char *szClass, const char *szTeam, const char *szName, int *outSlot)
 {
 	if (hasControlledTestOnlyBot())
 	{
@@ -4539,6 +4584,10 @@ bool CBots :: createBot (const char *szClass, const char *szTeam, const char *sz
 			return false;
 	}
 
+	// The profile is shared (the default one by every bot): restore its team/class after this
+	// bot copied them, or later bots without arguments inherit ours (bot.cpp createBotFromEdict).
+	const int profileClass = pBotProfile->m_iClass;
+	const int profileTeam = pBotProfile->m_iTeam;
 	SET_PROFILE_DATA_INT(szClass,m_iClass)
 	// Parse the team argument the mod-aware way ("red"/"blu"/"blue"/numeric)
 	// The old SET_PROFILE_DATA_INT used atoi(), which turned every team NAME into
@@ -4551,10 +4600,27 @@ bool CBots :: createBot (const char *szClass, const char *szTeam, const char *sz
 	edict_t* pEdict = g_pBotManager->CreateBot(szOVName);
 
 	if ( pEdict == nullptr)
+	{
+		pBotProfile->m_iClass = profileClass;
+		pBotProfile->m_iTeam = profileTeam;
 		return false;
+	}
 
 	const std::size_t botSlot = static_cast<std::size_t>(slotOfEdict(pEdict));
+	const int wantClass = pBotProfile->m_iClass;
+	const int wantTeam = pBotProfile->m_iTeam;
 	const bool initialized = m_Bots[botSlot]->createBotFromEdict(pEdict, pBotProfile);
+	pBotProfile->m_iClass = profileClass;
+	pBotProfile->m_iTeam = profileTeam;
+	if (initialized)
+	{
+		// A real profile keeps its name; only the shared default ("RCBot") gets a generated one.
+		const char* keepName = szName != nullptr && *szName != '\0' ? szName :
+			pBotProfile != CBotProfiles::getDefaultProfile() ? pBotProfile->m_szName : nullptr;
+		ApplyDistinctBotName(pEdict, keepName, wantTeam, wantClass);
+	}
+	if (outSlot != nullptr)
+		*outSlot = initialized ? static_cast<int>(botSlot) : -1;
 	logger->Log(LogLevel::INFO,
 		"[RCBOT2] normal bot registration slot=%zu index=%d initialized=%d in_use=%d edict=%p controller=%s playerinfo=%s",
 		botSlot, engine->IndexOfEdict(pEdict), initialized ? 1 : 0,
@@ -5329,6 +5395,8 @@ bool CBots :: needToAddBot ()
 	return false;
 }
 
+bool EmpiresIsEngibot(const edict_t* player); // bot_empires_engibot.cpp: bought by a commander, never quota-kicked
+
 bool CBots :: needToKickBot ()
 {
 	if (automaticBotsSuppressed())
@@ -5365,7 +5433,7 @@ void CBots :: kickChosenBot (const unsigned count)
 		//gather list of bots
 		for ( unsigned i = 0; i < RCBOT_MAXPLAYERS; i ++ )
 		{
-		if ( m_Bots[i]->inUse() )
+		if ( m_Bots[i]->inUse() && !EmpiresIsEngibot(m_Bots[i]->getEdict()) )
 			botList.emplace_back(m_Bots[i]);
 		}
 
@@ -5429,7 +5497,7 @@ void CBots :: kickRandomBot (const unsigned count)
 	//gather list of bots
 	for ( unsigned i = 0; i < RCBOT_MAXPLAYERS; i ++ )
 	{
-		if ( m_Bots[i]->inUse() )
+		if ( m_Bots[i]->inUse() && !EmpiresIsEngibot(m_Bots[i]->getEdict()) )
 			botList.emplace_back(m_Bots[i]->getPlayerID());
 	}
 
@@ -5468,7 +5536,7 @@ void CBots::kickChosenBotOnTeam(const int team)
 	//gather list of bots
 	for ( unsigned i = 0; i < RCBOT_MAXPLAYERS; i ++ )
 	{
-		if ( m_Bots[i]->inUse() && m_Bots[i]->getTeam() == team)
+		if ( m_Bots[i]->inUse() && !EmpiresIsEngibot(m_Bots[i]->getEdict()) && m_Bots[i]->getTeam() == team)
 			botList.emplace_back(m_Bots[i]);
 	}
 
@@ -5500,7 +5568,7 @@ void CBots::kickRandomBotOnTeam(const int team)
 	//gather list of bots
 	for (short int i = 0; i < RCBOT_MAXPLAYERS; i++)
 	{
-		if (m_Bots[i]->inUse() && m_Bots[i]->getTeam() == team)
+		if (m_Bots[i]->inUse() && !EmpiresIsEngibot(m_Bots[i]->getEdict()) && m_Bots[i]->getTeam() == team)
 		{
 			botList.emplace_back(m_Bots[i]->getPlayerID());
 		}
