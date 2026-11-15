@@ -65,6 +65,35 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ⬜ | Walls, cameras, radar | |
 | 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. Limit per team, removed on map change, not kicked by the bot quota. Turrets on the commander's order are planned |
 
+#### How EngiBots work
+
+1. **Buy one.** While you sit in the CV as commander, type `/buildengibot` or `!buildengibot` in chat. The
+   plugin checks the request, takes `rcbot_empires_engibot_cost` (default 100) from the team resources and adds
+   an engineer bot named `EngiBot NF 1`, `EngiBot BE 2` and so on. A message on your screen gives the result:
+   - `EngiBot ready (1/2), -100 resources`
+   - `Only the commander can build an EngiBot`: you are not in commander mode.
+   - `EngiBot limit reached (2/2)`: the team already has `rcbot_empires_engibot_limit` EngiBots.
+   - `Not enough resources for an EngiBot (100 needed)`
+   - `Server is full, no slot for an EngiBot`
+   - `EngiBots are disabled on this server`: `rcbot_empires_engibot 0`.
+
+   If paying fails after the bot was created, the bot is kicked again. You never get one for free.
+2. **What it does.** Every 2 seconds an EngiBot looks for the nearest damaged or unfinished building of its team
+   within `rcbot_empires_engibot_leash` (default 2500) of the team CV. It goes there and builds or repairs it.
+   With two EngiBots, each one takes a different building. Buildings you place yourself count, so you can drop a
+   barracks next to them and they finish it. With no CV, the base point is where the EngiBot first spawned.
+3. **When there is nothing to do,** it walks back to about 900 units from the CV. Each EngiBot waits on its own
+   side, so they do not stand on the commander's building spots.
+4. **What it never does.** It does not answer revive, repair or ammo calls. It does not capture flags, join
+   squads, roam, build its own turrets, enter vehicles or take the commander seat.
+5. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
+   its slot is free and the commander can buy a new one. The bot quota does not count or kick EngiBots, and bots
+   that fill the quota later do not become EngiBots.
+
+Not done yet: turrets on the commander's order, repairing vehicles on the pad, the `/` chat command while
+SourceMod is loaded, and a test with a human commander. So far everything was measured
+with a bot commander (`scripts/dev_engibot.sh`).
+
 ### Infantry
 
 | | Feature | Notes |
