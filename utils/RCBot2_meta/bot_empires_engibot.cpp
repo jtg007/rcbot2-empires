@@ -131,6 +131,22 @@ bool EmpiresIsEngibot(const edict_t* player)
 	return false;
 }
 
+namespace
+{
+// Requests from player_say, handled in the next GameFrame. Creating the fake client and sending
+// the reply inside the event (that is, inside the "say" command and every plugin's say/event
+// hooks) crashed a community server with SourceMod (jump to NULL on "!buildengibot").
+struct EngibotRequest
+{
+	int userId;
+	bool test;
+};
+EngibotRequest s_requests[8];
+int s_requestCount = 0;
+
+void HandleEngibotRequest(edict_t* speaker, int speakerId, bool test);
+} // namespace
+
 // player_say (bot_events.cpp). Only a human commander counts, a bot speaker only for the test command.
 void EmpiresHandleEngibotChat(edict_t* speaker, const char* text)
 {
@@ -143,6 +159,19 @@ void EmpiresHandleEngibotChat(edict_t* speaker, const char* text)
 	if ((!test && CBots::getBotPointer(speaker) != nullptr) || CBotGlobals::getCurrentMod() == nullptr ||
 		CBotGlobals::getCurrentMod()->getBotType() != BOTTYPE_EMPIRES)
 		return;
+	for (int i = 0; i < s_requestCount; ++i)
+		if (s_requests[i].userId == speakerId)
+			return; // already queued this frame
+	if (s_requestCount < static_cast<int>(sizeof(s_requests) / sizeof(s_requests[0])))
+		s_requests[s_requestCount++] = {speakerId, test};
+	RCBOT_DIAG("[RCBOT2] engibot request speaker=%d test=%d queued=%d\n", speakerId, test ? 1 : 0, s_requestCount);
+}
+
+namespace
+{
+void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test)
+{
+	(void)test;
 	const int team = CClassInterface::getTeam(speaker);
 	const char* reason = nullptr;
 	char reply[160];
@@ -220,6 +249,7 @@ void EmpiresHandleEngibotChat(edict_t* speaker, const char* text)
 		std::snprintf(reply, sizeof(reply), "Could not build an EngiBot (%s)", reason);
 	Reply(speaker, reply);
 }
+} // namespace
 
 // New map: the fake clients stay connected across changelevel; EngiBots belong to one match.
 void EmpiresEngibotLevelReset()
@@ -237,17 +267,20 @@ void EmpiresEngibotLevelReset()
 		t.count = 0;
 	}
 	s_testSpeaker = -1;
+	s_requestCount = 0;
 }
 
 // Test only (rcbotd empires_test_engibot <speaker userid>): the speaker says /buildengibot in
 // the real chat (player_say fires), as if a human commander typed it.
-bool EmpiresTestEngibotChat(int speakerUserId)
+bool EmpiresTestEngibotChat(int speakerUserId, char prefix)
 {
 	edict_t* speaker = PlayerByUserId(speakerUserId);
 	if (speaker == nullptr || helpers == nullptr)
 		return false;
 	s_testSpeaker = speakerUserId;
-	helpers->ClientCommand(speaker, "say /buildengibot\n");
+	char command[40];
+	std::snprintf(command, sizeof(command), "say %cbuildengibot\n", prefix == '!' ? '!' : '/');
+	helpers->ClientCommand(speaker, command);
 	return true;
 }
 
@@ -378,6 +411,12 @@ bool CBotEmpires::tickEmpiresEngibot()
 // one's distance to its anchor (diagnosis).
 void EmpiresEngibotFrame()
 {
+	// Chat requests from the last frames, now outside any event/command hook.
+	const int requests = s_requestCount;
+	s_requestCount = 0;
+	for (int i = 0; i < requests && engine != nullptr && gpGlobals != nullptr; ++i)
+		if (edict_t* speaker = PlayerByUserId(s_requests[i].userId); speaker != nullptr)
+			HandleEngibotRequest(speaker, s_requests[i].userId, s_requests[i].test);
 	static float s_next = 0.0f;
 	if (gpGlobals != nullptr && s_next - gpGlobals->curtime > 10.0f)
 		s_next = 0.0f; // new map: curtime restarted (expert 15.11.)

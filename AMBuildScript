@@ -130,6 +130,7 @@ class MMSConfig(object):
         cxx.cxxflags += ['-Wno-template-id-cdtor']
         cxx.cxxflags += ['-Wno-nonnull-compare']
         cxx.cxxflags += ['-Wno-ignored-attributes']
+        cxx.cxxflags += ['-Wno-free-nonheap-object'] # GCC 13 false positive in bot_navmesh_poc.cpp (community report)
       if cxx.family == 'clang':
         cxx.cxxflags += ['-Wno-implicit-exception-spec-mismatch']
         if cxx.version >= 'clang-3.9' or cxx.version >= 'apple-clang-10.0':

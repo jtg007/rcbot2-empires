@@ -427,6 +427,17 @@ void CBot::runPlayerMove()
 		else if (cmd.sidemove < 0.0f) cmd.buttons |= IN_MOVELEFT;
 	}
 	cmd.impulse = m_iImpulse;
+	// A NaN view angle reaches the engine as "Bad SetLocalAngles(..., -nan) on player"
+	// (community report, roll NaN). Zero the broken component instead of sending it.
+	for (int i = 0; i < 3; ++i)
+	{
+		if (!std::isfinite(m_vViewAngles[i]))
+		{
+			RCBOT_DIAG("[RCBOT2] viewangles non-finite bot=%s axis=%d angles=(%f %f %f)\n", m_szBotName, i,
+				m_vViewAngles.x, m_vViewAngles.y, m_vViewAngles.z);
+			m_vViewAngles[i] = 0.0f;
+		}
+	}
 	cmd.viewangles = m_vViewAngles;
 	cmd.weaponselect = m_iSelectWeapon;
 	cmd.tick_count = gpGlobals->tickcount;

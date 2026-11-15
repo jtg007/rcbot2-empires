@@ -90,7 +90,13 @@ Check free space before long recordings and remove only recordings you created.
 - [ ] EngiBots (`/buildengibot`, community request): purchase, limit, leash, building help and map-change cleanup
   are measured with a bot commander (`scripts/dev_engibot.sh`). Open: turrets on the commander's order (planned:
   an "attack location" order to an EngiBot), repairing vehicles on the pad, the `/` chat with SourceMod loaded,
-  and a test with a human commander.
+  and a test with a human commander. A community server crashed on `!buildengibot` with SourceMod and humans;
+  the purchase now runs in the next server frame instead of inside the chat event (not yet confirmed there).
+
+- [ ] Community test (emp_crossroads, 7 bots + 2 humans): bots ignored the human commander's guard and stop
+  orders and ran off; move orders unclear. Guard is only built for engineers so far. Also
+  `Bad SetLocalAngles(..., -nan)` about twice a minute: a NaN view angle is now zeroed before the user command
+  and logged (`viewangles non-finite`), the source is still open.
 
 - [ ] Hand the CV seat to a human commander; MOVE with cancel (cancel handling is built,
   untested); guard and attack orders from a human; "Roger"/"Negative" replies.

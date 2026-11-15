@@ -314,6 +314,20 @@ void CBotGlobals::readRCBotFolder()
 			m_szRCBotFolder = CStrings::getString(szRCBotFolder);
 		}
 	}
+
+	// Loaded by hand ("meta load") without addons/metamod/rcbot2.vdf, or the vdf has no
+	// "rcbot2path": fall back to <mod>/addons/rcbot2 instead of running without config
+	// (bot_mods.ini missing crashed the server on the first bot spawn).
+	if (m_szRCBotFolder == nullptr) {
+		char folder[256];
+		snprintf(folder, sizeof folder, "%s/addons/rcbot2", CBotGlobals::modFolder());
+		if (dirExists(folder)) {
+			logger->Log(LogLevel::WARN, "RCBot Folder -> no rcbot2path in addons/metamod/rcbot2.vdf, using %s", folder);
+			m_szRCBotFolder = CStrings::getString(folder);
+		} else {
+			logger->Log(LogLevel::ERROR, "RCBot Folder -> no rcbot2path in addons/metamod/rcbot2.vdf and %s not found; bots will not work", folder);
+		}
+	}
 }
 
 float CBotGlobals::grenadeWillLand(const Vector& vOrigin, const Vector& vEnemy, const float fProjSpeed, const float fGrenadePrimeTime, const float* fAngle)

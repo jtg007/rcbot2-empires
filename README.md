@@ -91,7 +91,9 @@ Bots that play Empires the way a team does, not generic shooter bots:
    that fill the quota later do not become EngiBots.
 
 Not done yet: turrets on the commander's order, repairing vehicles on the pad, the `/` chat command while
-SourceMod is loaded, and a test with a human commander. So far everything was measured
+SourceMod is loaded (SourceMod hides `/` chat lines, use `!buildengibot`), and a test with a human commander.
+A server crash on `!buildengibot` with SourceMod (community report) is fixed: the bot is now added in the next
+server frame instead of inside the chat event. So far everything was measured
 with a bot commander (`scripts/dev_engibot.sh`).
 
 ### Infantry
@@ -128,7 +130,21 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
 1. Install [Metamod:Source][mms] on the Empires dedicated server.
 2. Build the plugin (see [Build](#build)).
-3. Install the built plugin at `empires/addons/rcbot2/bin/rcbot.2.sdk2013.so` on the server.
+3. Install the built plugin at `empires/addons/rcbot2/bin/rcbot.2.sdk2013.so` on the server, with
+   `empires/addons/metamod/rcbot2.vdf`:
+
+   ```
+   "Metamod Plugin"
+   {
+   	"alias"		"rcbot2"
+   	"file"		"addons/rcbot2/bin/RCBot2Meta"
+   	"rcbot2path"	"addons/rcbot2/"
+   }
+   ```
+
+   If you load the plugin by hand (`meta load`), a vdf with only `"rcbot2path"` (no `"file"`) still tells
+   RCBot2 where its config lives, and Metamod ignores it. Without `rcbot2path` the plugin now falls back to
+   `addons/rcbot2` and says so in the log.
 4. Every map needs a navmesh (`empires/maps/<map>.nav`). If it is missing, load the
    map and run `sv_cheats 1; p_nav_generate` once (takes up to a minute).
 5. Add bots from the server console:
@@ -139,6 +155,10 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
    Team 2 = Northern Faction, 3 = Brenodi Empire. Class 0 Scout, 1 Rifleman,
    2 Grenadier, 3 Engineer.
+
+6. To fill the server automatically, and to switch the bots off once enough humans play, edit
+   `addons/rcbot2/config/bot_quota.ini` (one line per human count, e.g. `Humans "12" => Bots "0"`)
+   and leave `rcbot_bot_quota_interval` above 0 (default 10 s). EngiBots bought by a commander are not counted or kicked.
 
 ### Settings
 
@@ -177,6 +197,10 @@ The script prints the resulting `.so` path (by default
 `scripts/dev_build.sh` uses a cache and the sibling `rcbot2-clean` checkout;
 `RCBOT_DEPS_DIR` overrides that dependency location. Install the plugin package
 and Metamod configuration on the server before replacing the binary.
+
+The `alliedmodders/metamod-source` checkout decides the Metamod version the plugin needs. Metamod 2.0 headers
+build a plugin that Metamod 1.12 refuses (`Plugin requires newer Metamod version (17 > 16)`); for a 1.12
+server, check out the `1.12-dev` branch there before building (reported working by a community server).
 
 ## Known issues
 
