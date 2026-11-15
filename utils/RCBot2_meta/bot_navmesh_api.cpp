@@ -1463,7 +1463,7 @@ public:
 				cost += dist * 4.0f;
 		}
 		// Small areas mean clutter (generated meshes cut around props and walls).
-		if (std::min(area->GetSizeX(), area->GetSizeY()) < m_width * 0.6f)
+		if ((std::min)(area->GetSizeX(), area->GetSizeY()) < m_width * 0.6f)
 			cost += dist * 1.5f;
 		if (waterDepth > 0.0f)
 			cost += dist * (waterDepth > m_maxWaterDepth ? 4.0f : 0.5f);

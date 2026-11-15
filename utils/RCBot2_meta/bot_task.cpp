@@ -92,7 +92,7 @@ RCBotNavigation::FailureReason waypointFailureReasonFor(
 void getGrenadeAngle(double v, double g, double desx, double desy, float* fa1, float* fa2)
 {
 	// Normalize
-	const float fmax = static_cast<float>(std::max({ v, g, desx, desy }));
+	const float fmax = static_cast<float>((std::max)({ v, g, desx, desy }));
 	
 	if (std::fabs(fmax) < 1e-6f) {
 		*fa1 = *fa2 = 0.0f; // Handle edge case

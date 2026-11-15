@@ -5426,7 +5426,7 @@ void CBotTF2 :: getTasks ( unsigned iIgnore )
 	if ((m_iClass == TF_CLASS_DEMOMAN) && (m_iTrapType == TF_TRAP_TYPE_NONE) && canDeployStickies())
 	{
 		ADD_UTILITY(BOT_UTIL_DEMO_STICKYTRAP_LASTENEMY, m_pLastEnemy != nullptr,
-			randomFloat(std::min(fDefendFlagUtility, fGetFlagUtility), (std::max)(fDefendFlagUtility, fGetFlagUtility)))
+			randomFloat((std::min)(fDefendFlagUtility, fGetFlagUtility), (std::max)(fDefendFlagUtility, fGetFlagUtility)))
 
 		ADD_UTILITY(BOT_UTIL_DEMO_STICKYTRAP_FLAG,
 			CTeamFortress2Mod::isMapType(TF_MAP_CTF) && !bHasFlag &&

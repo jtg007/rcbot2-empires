@@ -161,7 +161,7 @@ namespace
 		const ICollideable* collideable = bot->getEdict()->GetCollideable();
 		const Vector mins = collideable->OBBMins();
 		const Vector maxs = collideable->OBBMaxs();
-		return (std::max)(std::max(std::fabs(mins.x), std::fabs(maxs.x)),
+		return (std::max)((std::max)(std::fabs(mins.x), std::fabs(maxs.x)),
 			(std::max)(std::fabs(mins.y), std::fabs(maxs.y)));
 	}
 
@@ -1697,7 +1697,7 @@ namespace
 
 		std::uint64_t sessionMilliseconds() const
 		{
-			return static_cast<std::uint64_t>(std::max(0.0, elapsed()) * 1000.0);
+			return static_cast<std::uint64_t>((std::max)(0.0, elapsed()) * 1000.0);
 		}
 
 		static std::string navigationDataIdentity()

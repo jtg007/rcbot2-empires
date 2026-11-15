@@ -512,7 +512,7 @@ FormationDecisionResult SquadSpatialCore::Evaluate(
 	};
 	std::vector<bool> usedParticipants(participants.size(), false);
 	std::vector<ProposedAssignment> proposed;
-	proposed.reserve(std::min(participants.size(), result.slots.size()));
+	proposed.reserve((std::min)(participants.size(), result.slots.size()));
 	for (std::size_t slotIndex = 0; slotIndex < result.slots.size(); ++slotIndex)
 	{
 		std::size_t bestParticipant = participants.size();

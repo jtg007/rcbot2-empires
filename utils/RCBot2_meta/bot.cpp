@@ -2289,7 +2289,7 @@ void CBot :: think ()
 			* fLerpTimeDelta
 		> fMaxDifferenceAdjusted
 			? 0.0f
-			: (std::min)(std::max(0.0f, m_fEnemyAimLerp + fLerpTimeDelta), 1.0f);
+			: (std::min)((std::max)(0.0f, m_fEnemyAimLerp + fLerpTimeDelta), 1.0f);
 
 		m_vEnemyAimLerpVelocity = vEnemyAimLerpVelocity;
 	}

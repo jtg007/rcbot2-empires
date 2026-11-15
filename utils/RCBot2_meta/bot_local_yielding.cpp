@@ -150,10 +150,10 @@ namespace RCBotLocalYielding
 		if (!pair.active)
 			return;
 		if (pair.low.role == Role::WAIT)
-			pair.low.waitAge = static_cast<float>(std::max(0.0,
+			pair.low.waitAge = static_cast<float>((std::max)(0.0,
 				now - pair.low.startedAt));
 		else if (pair.high.role == Role::WAIT)
-			pair.high.waitAge = static_cast<float>(std::max(0.0,
+			pair.high.waitAge = static_cast<float>((std::max)(0.0,
 				now - pair.high.startedAt));
 	}
 
