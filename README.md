@@ -105,9 +105,9 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | 🟡 | Resupply | Engineer resupply exists; ammo requests and coverage for other classes remain open |
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
-| ✅ | Follow move orders | From a human commander; completion distance near mesh edges needs further testing |
+| ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human |
 | 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
-| 🟡 | Follow guard orders | Engineers repair the ordered building; not tested with a human commander yet |
+| 🟡 | Follow guard orders | Infantry follow the guarded unit; engineers build or repair the guarded building. Attack target and a test with a real human are open |
 | ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |
 | 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
 | 🟡 | Mines, scout binoculars | Implemented, rarely used in matches |
@@ -173,6 +173,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | `rcbot_empires_engibot_cost` | 100 | Team resources per EngiBot |
 | `rcbot_empires_engibot_limit` | 2 | EngiBots per team (0–8) |
 | `rcbot_empires_engibot_leash` | 2500 | EngiBots work within this distance of their team CV |
+| `rcbot_empires_engineer_help_human` | 2 | With a human commander, up to this many engineer bots per team build and repair unfinished or damaged buildings near the CV on their own (0 = only on a guard order) |
 | `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, minimum 2; Bill Nye excluded) |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |

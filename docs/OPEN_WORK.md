@@ -93,13 +93,18 @@ Check free space before long recordings and remove only recordings you created.
   and a test with a human commander. A community server crashed on `!buildengibot` with SourceMod and humans;
   the purchase now runs in the next server frame instead of inside the chat event (not yet confirmed there).
 
-- [ ] Community test (emp_crossroads, 7 bots + 2 humans): bots ignored the human commander's guard and stop
-  orders and ran off; move orders unclear. Guard is only built for engineers so far. Also
+- [ ] Orders from a human commander (community test: guard/stop ignored, bots ran off). Now testable without a
+  human: `rcbotd empires_test_unit_order` makes the commander bot send `emp_unit_order_list` + `emp_unit_order`
+  like the game UI. Measured: move, abort, attack location and guard (infantry follow the guarded unit, engineers
+  build or repair the guarded building: barracks, radar, armory, repair pad, factory). New
+  `rcbot_empires_engineer_help_human`: with a human commander up to 2 engineers per team build and repair near the
+  CV on their own. Open: attack target (type 3) on an enemy cannot be given by a bot commander (the game only accepts targets
+  that were transmitted to the commander's client); the bot side shares the guard code. Also open: refinery not tested, a navmesh
+  trap on emp_streetsoffire near (-4245 -5424), confirmation with a real human commander.
   `Bad SetLocalAngles(..., -nan)` about twice a minute: a NaN view angle is now zeroed before the user command
   and logged (`viewangles non-finite`), the source is still open.
 
-- [ ] Hand the CV seat to a human commander; MOVE with cancel (cancel handling is built,
-  untested); guard and attack orders from a human; "Roger"/"Negative" replies.
+- [ ] Hand the CV seat to a human commander; "Roger"/"Negative" replies.
 - [ ] Vehicle MG effect, scout binocular spotting, engineer behaviour under a human commander.
 
 ## 3. Known bugs waiting for a reproduction

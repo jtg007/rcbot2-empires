@@ -1894,6 +1894,110 @@ CBotCommandInline EmpiresTestEngibotCommand("empires_test_engibot", CMD_ACCESS_D
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_engibot <speaker_userid> [!]" : test-only, the speaker says /buildengibot (or !buildengibot) in chat)");
 
+// Test only: the commander gives an order the way the game's commander UI does: select the unit
+// (emp_unit_order_list <entindex>), then emp_unit_order <type> <x> <y> <z>, or with a target
+// emp_unit_order <type> <target entindex>
+// (server 0x64cdf0 / 0x64e9a0, reverse-engineering/notes/commander-order-types.md).
+// Type 0 abort, 1 move, 2 attack location, 3 attack target, 4 guard. target = player userid.
+CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		auto byUserId = [](int userId) -> edict_t* {
+			for (int i = 1; gpGlobals != nullptr && i <= gpGlobals->maxClients; ++i)
+			{
+				edict_t* e = engine->PEntityOfEntIndex(i);
+				if (e != nullptr && !e->IsFree() && engine->GetPlayerUserId(e) == userId)
+					return e;
+			}
+			return nullptr;
+		};
+		auto arg = [&args](std::size_t i) { return i < args.size() && args[i] != nullptr && *args[i] != '\0' ? args[i] : nullptr; };
+		if (arg(5) == nullptr || helpers == nullptr)
+			return COMMAND_ERROR;
+		edict_t* commander = byUserId(std::atoi(arg(0)));
+		edict_t* unit = byUserId(std::atoi(arg(2)));
+		edict_t* target = nullptr;
+		if (commander == nullptr || unit == nullptr)
+			return COMMAND_ERROR;
+		if (arg(6) != nullptr && arg(6)[0] == 'b')
+		{
+			// "b": the unit's nearest own building below full health; "bd": nearest full one, damaged to 100.
+			float best = 0.0f;
+			const Vector from = CBotGlobals::entityOrigin(unit);
+			for (int i = gpGlobals->maxClients + 1; i < engine->GetEntityCount(); ++i)
+			{
+				edict_t* e = engine->PEntityOfEntIndex(i);
+				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
+					std::strncmp(e->GetClassName(), "emp_building", 12) != 0 ||
+					CClassInterface::getTeam(e) != CClassInterface::getTeam(unit))
+					continue;
+				int hp = -1, maxHp = -1;
+				if (e->GetNetworkable() != nullptr)
+				{
+					CClassInterfaceValue h(e->GetNetworkable()->GetServerClass()->m_pNetworkName, "m_iHealth", 0);
+					CClassInterfaceValue m(e->GetNetworkable()->GetServerClass()->m_pNetworkName, "m_iMaxHealth", 0);
+					h.findOffset();
+					m.findOffset();
+					if (int* p = h.getIntPointer(e)) hp = *p;
+					if (int* p = m.getIntPointer(e)) maxHp = *p;
+				}
+				const bool full = hp >= maxHp && maxHp > 0;
+				if (full != (arg(6)[1] == 'd')) // b: not full (new or damaged); bd: full, damaged below
+					continue;
+				const float d = (CBotGlobals::entityOrigin(e) - from).Length();
+				if (target == nullptr || d < best)
+				{
+					target = e;
+					best = d;
+				}
+			}
+			if (target != nullptr && arg(6)[1] == 'd' && target->GetNetworkable() != nullptr)
+			{
+				CClassInterfaceValue health(target->GetNetworkable()->GetServerClass()->m_pNetworkName, "m_iHealth", 0);
+				health.findOffset();
+				if (int* h = health.getIntPointer(target))
+					*h = 100;
+			}
+			if (target == nullptr)
+				return COMMAND_ERROR;
+		}
+		else if (arg(6) != nullptr)
+			target = byUserId(std::atoi(arg(6)));
+		const int type = std::atoi(arg(1));
+		char command[160];
+		std::snprintf(command, sizeof(command), "emp_unit_order_list %d\n", engine->IndexOfEdict(unit));
+		helpers->ClientCommand(commander, command);
+		if (target != nullptr)
+			std::snprintf(command, sizeof(command), "emp_unit_order %d %d\n", type, engine->IndexOfEdict(target)); // entity form: 2 args (0x650114)
+		else
+			std::snprintf(command, sizeof(command), "emp_unit_order %d %s %s %s\n", type, arg(3), arg(4), arg(5));
+		helpers->ClientCommand(commander, command);
+		int commandType = -999;
+		ServerClass* sc = unit->GetNetworkable() != nullptr ? unit->GetNetworkable()->GetServerClass() : nullptr;
+		if (sc != nullptr)
+		{
+			CClassInterfaceValue v(sc->m_pNetworkName, "m_iCommandType", 0);
+			v.findOffset();
+			if (int* p = v.getIntPointer(unit))
+				commandType = *p;
+		}
+		CBotGlobals::botMessage(pEntity, 0, "empires_test_unit_order commander=%s unit=%d type=%d target=%d sent=\"%s\" unit_command_type_now=%d",
+			arg(0), engine->IndexOfEdict(unit), type, target != nullptr ? engine->IndexOfEdict(target) : -1, command, commandType);
+		RCBOT_DIAG("[RCBOT2] test-unit-order unit=%d type=%d unit_command_type_now=%d\n", engine->IndexOfEdict(unit), type, commandType);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_unit_order <commander_userid> <type> <unit_userid> <x> <y> <z> [target_userid|b|bd]" : test-only (b = nearest own building below full health, bd = nearest full one, damaged to 100 first), the commander orders one unit through emp_unit_order_list + emp_unit_order)");
+
+extern int g_empiresTestHumanCommanderTeam; // bot_empires_engibot.cpp
+
+CBotCommandInline EmpiresTestHelpHumanCommand("empires_test_help_human", CMD_ACCESS_DEDICATED,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		g_empiresTestHumanCommanderTeam = args.size() > 0 && args[0] != nullptr ? std::atoi(args[0]) : 0;
+		CBotGlobals::botMessage(pClient != nullptr ? pClient->getPlayer() : nullptr, 0, "empires_test_help_human team=%d", g_empiresTestHumanCommanderTeam);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_help_human <team|0>" : test-only, the team's seated bot commander counts as a human commander for rcbot_empires_engineer_help_human)");
+
 CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move", CMD_ACCESS_DEDICATED,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
@@ -3319,6 +3423,34 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		int resIndex = -1;
 		if (args.size() >= 4)
 			pos = Vector(static_cast<float>(std::atof(args[1])), static_cast<float>(std::atof(args[2])), static_cast<float>(std::atof(args[3])));
+		else if (type != 0 && args.size() >= 2 && args[1] != nullptr && std::strcmp(args[1], "spot") == 0)
+		{
+			// Test aid: a valid spot for this type near the CV (same native search as the commander economy).
+			EmpiresNativePlacement::ContextIdentity context;
+			EmpiresSpatial::SearchResult search;
+			const bool captured = EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(bot->getEdict()), context);
+			for (int ring = 0; captured && ring < 5 && !(search.status == EmpiresSpatial::Status::Found && search.hasSelected); ++ring)
+			{
+				Vector center = pos;
+				if (ring > 0)
+				{
+					const float angle = (ring - 1) * 1.5707963f;
+					center += Vector(std::cos(angle), std::sin(angle), 0.0f) * 1500.0f; // as the commander economy
+				}
+				EmpiresSpatial::Request request;
+				request.origin = {center.x, center.y, center.z};
+				request.radius = 2048.0f;
+				request.buildingType = type;
+				request.invalidSkipRadius = 250.0f;
+				search = EmpiresSpatial::SearchBarracksCandidates(context, request);
+			}
+			if (search.status != EmpiresSpatial::Status::Found || !search.hasSelected)
+			{
+				Msg("[RCBOT2] commander-build type=%d spot=none search=%s\n", type, EmpiresSpatial::Name(search.status));
+				return COMMAND_ACCESSED;
+			}
+			pos = Vector(search.selected.origin.x, search.selected.origin.y, search.selected.origin.z);
+		}
 		else if (type == 0)
 		{
 			float best = 1e30f;
@@ -3358,7 +3490,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		Msg("[RCBOT2] commander-build type=%d res_index=%d pos=(%.0f %.0f %.0f) cv_dist=%.0f before=%d after=%d\n",
 			type, resIndex, pos.x, pos.y, pos.z, (pos - CBotGlobals::entityOrigin(vehicle)).Length(), int(before.size()), int(after.size()));
 		return COMMAND_ACCESSED;
-}, R"(usage "empires_commander_build <type> [x y z] | list" : seated Commander bot submits emp_build (probe); list shows buildings and resource points)");
+}, R"(usage "empires_commander_build <type> [x y z | spot] | list" : seated Commander bot submits emp_build (probe); list shows buildings and resource points)");
 
 CBotCommandInline EmpiresVehicleFactoryDriveOnceCommand("empires_vehicle_vf_drive_once", CMD_ACCESS_DEDICATED,
 	[](const CClient* pClient, const BotCommandArgs& args)
@@ -3871,6 +4003,8 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresVehicleCrateCommand,
 	&EmpiresTestWagesCommand,
 	&EmpiresTestEngibotCommand,
+	&EmpiresTestUnitOrderCommand,
+	&EmpiresTestHelpHumanCommand,
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,

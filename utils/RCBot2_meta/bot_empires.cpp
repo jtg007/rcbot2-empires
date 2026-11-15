@@ -4254,6 +4254,20 @@ bool CBotEmpires::requestNormalPathOnce(const int startWaypoint,
 		m_eNormalPathState == EmpiresNormalPathState::ARMED;
 }
 
+// m_iCommandTarget is an int[32] 0x10 behind m_iCommandType (+0x1458 / +0x1468,
+// reverse-engineering/notes/commander-order-types.md). UTIL_FindSendPropInfo gave an offset
+// that did not hit it (guard target read failed in run 20261115-112314); use the pointer
+// that the working m_iCommandType reader uses.
+static int ReadEmpiresCommandTargetIndex(edict_t* pEdict)
+{
+	if (pEdict == nullptr || pEdict->IsFree())
+		return -1;
+	CClassInterfaceValue typeValue("CEmpPlayer", "m_iCommandType", 0);
+	typeValue.findOffset();
+	const int* type = typeValue.getIntPointer(pEdict);
+	return type != nullptr ? type[4] : -1;
+}
+
 bool CBotEmpires::readEmpiresCommanderMove(Vector& target, bool& synthetic,
 	bool& expired, int& commandType) const
 {
@@ -4275,8 +4289,39 @@ bool CBotEmpires::readEmpiresCommanderMove(Vector& target, bool& synthetic,
 		return false;
 
 	if (!readEmpiresIntProperty(m_pEdict, "m_iCommandType", commandType) ||
-		commandType != kEmpiresCommanderMoveType ||
-		!readEmpiresEntityVectorProperty(m_pEdict, "m_vCommandLocation", target) ||
+		commandType < kEmpiresCommanderMoveType || commandType > 4)
+		return false;
+	if (commandType == 3 || commandType == 4)
+	{
+		// Attack target / guard unit: go to the target's current position.
+		// m_iCommandTarget is an int[32]; element 0 sits 0x10 behind m_iCommandType.
+		const int targetIndex = ReadEmpiresCommandTargetIndex(m_pEdict);
+		edict_t* targetEdict = targetIndex > 0 && gpGlobals != nullptr && targetIndex < gpGlobals->maxEntities ?
+			engine->PEntityOfEntIndex(targetIndex) : nullptr;
+		if (targetEdict == nullptr || targetEdict->IsFree() || targetEdict == m_pEdict)
+			return false;
+		// An Engineer guarding a friendly building repairs it (tickEmpiresGuardOrder).
+		int classId = -1;
+		bool classDesired = false;
+		bool classDesiredKnown = false;
+		const char* classPropertyName = nullptr;
+		if (commandType == 4 && targetEdict->GetClassName() != nullptr &&
+			std::strncmp(targetEdict->GetClassName(), "emp_building", 12) == 0 &&
+			CClassInterface::getTeam(targetEdict) == CClassInterface::getTeam(m_pEdict) &&
+			readEmpiresClass(m_pEdict, classId, classDesired, classDesiredKnown, classPropertyName) &&
+			classId == EMP_CLASS_ENGINEER)
+			return false;
+		target = CBotGlobals::entityOrigin(targetEdict);
+		if (!target.IsValid())
+			return false;
+		// A moving target: keep the current route until it moved 250 away.
+		if (m_bEmpiresCommanderMoveRouteIssued && m_iEmpiresCommanderOrderType == commandType &&
+			m_iEmpiresCommanderOrderTargetEnt == targetIndex &&
+			(target - m_vEmpiresCommanderMoveTarget).LengthSqr() < 250.0f * 250.0f)
+			target = m_vEmpiresCommanderMoveTarget;
+		m_iEmpiresCommanderOrderTargetEnt = targetIndex;
+	}
+	else if (!readEmpiresEntityVectorProperty(m_pEdict, "m_vCommandLocation", target) ||
 		!target.IsValid())
 	{
 		return false;
@@ -5123,7 +5168,19 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 		}
 	}
 
-	if (!readEmpiresCommanderMove(target, synthetic, expired, commandType))
+	const bool orderRead = readEmpiresCommanderMove(target, synthetic, expired, commandType);
+	{
+		int seenType = -1;
+		if (m_pEdict != nullptr && readEmpiresIntProperty(m_pEdict, "m_iCommandType", seenType) &&
+			seenType != m_iEmpiresCommanderOrderSeenType)
+		{
+			m_iEmpiresCommanderOrderSeenType = seenType;
+			RCBOT_DIAG("[RCBOT2] commander-order seen type=%d read=%d target=(%.0f %.0f %.0f) issued=%d finished=%d failed=%d active_type=%d\n",
+				seenType, orderRead ? 1 : 0, target.x, target.y, target.z, m_bEmpiresCommanderMoveRouteIssued ? 1 : 0,
+				m_bEmpiresCommanderMoveFinished ? 1 : 0, m_bEmpiresCommanderMoveFailed ? 1 : 0, m_iEmpiresCommanderOrderType);
+		}
+	}
+	if (!orderRead)
 	{
 		// m_iCommandType left MOVE. The game ends a MOVE itself only within 100 of the
 		// location (PostThink 0x669561, squared 10000); farther away 0 is an abort
@@ -5132,8 +5189,9 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 		if (m_bEmpiresCommanderMoveRouteIssued && !m_bEmpiresCommanderMoveFinished &&
 			!m_bEmpiresCommanderMoveFailed && !m_bEmpiresCommanderMoveTestActive && isAlive() &&
 			m_pEdict != nullptr && readEmpiresIntProperty(m_pEdict, "m_iCommandType", liveType) &&
-			liveType != kEmpiresCommanderMoveType &&
-			(getOrigin() - m_vEmpiresCommanderMoveTarget).Length() > 110.0f)
+			liveType != m_iEmpiresCommanderOrderType &&
+			(m_iEmpiresCommanderOrderType != kEmpiresCommanderMoveType ||
+				(getOrigin() - m_vEmpiresCommanderMoveTarget).Length() > 110.0f))
 		{
 			m_bEmpiresCommanderMoveFailed = true;
 			m_commanderMoveShadow.ObserveAbort(liveType == 0 ?
@@ -5163,9 +5221,37 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 		m_fLastWaypointVisible = engine->Time();
 	}
 
+	// Attack location / attack target / guard stay set until the commander changes them (the
+	// game ends only MOVE by distance). Once the route is done, the bot does its normal work
+	// there; if that takes it too far from the order, it goes back (leash).
+	if (orderRead && !synthetic && commandType >= 2 && commandType <= 4 && commandType == m_iEmpiresCommanderOrderType &&
+		m_bEmpiresCommanderMoveRouteIssued && (m_bEmpiresCommanderMoveFinished || m_bEmpiresCommanderMoveFailed) &&
+		engine != nullptr && engine->Time() >= m_fEmpiresCommanderOrderRearmAt && isAlive())
+	{
+		const float leash = commandType == 2 ? 500.0f : commandType == 3 ? 300.0f : 350.0f;
+		// After a failed route wait 30 s and keep the navigation cooldown (unreachable target, navmesh
+		// trap: no restart every 5 s, expert review 15.11.).
+		const bool failed = m_bEmpiresCommanderMoveFailed;
+		m_fEmpiresCommanderOrderRearmAt = engine->Time() + (failed ? 30.0f : 5.0f);
+		if ((getOrigin() - target).Length() > leash)
+		{
+			RCBOT_DIAG("[RCBOT2] commander-order rearm type=%d dist=%.0f leash=%.0f after=%s\n", commandType,
+				(getOrigin() - target).Length(), leash, failed ? "fail" : "complete");
+			if (!failed)
+				clearNavigationAttemptCooldownForStartAnchorRetry();
+			m_bEmpiresCommanderMoveRouteIssued = false;
+		}
+	}
+
 	const int userId = engine != nullptr && m_pEdict != nullptr ?
 		engine->GetPlayerUserId(m_pEdict) : -1;
+	// A followed unit (3/4) that moved: after a failed route only re-plan with the 30 s rearm delay.
+	if (orderRead && !synthetic && m_bEmpiresCommanderMoveRouteIssued && m_bEmpiresCommanderMoveFailed &&
+		(commandType == 3 || commandType == 4) && commandType == m_iEmpiresCommanderOrderType &&
+		engine != nullptr && engine->Time() < m_fEmpiresCommanderOrderRearmAt)
+		target = m_vEmpiresCommanderMoveTarget;
 	const bool targetChanged = !m_bEmpiresCommanderMoveRouteIssued ||
+		(orderRead && !synthetic && commandType != m_iEmpiresCommanderOrderType) ||
 		(m_vEmpiresCommanderMoveTarget - target).LengthSqr() >
 			kEmpiresCommanderMoveTargetChangeRadius *
 			kEmpiresCommanderMoveTargetChangeRadius;
@@ -5201,7 +5287,11 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 		m_bEmpiresCommanderMoveFailed = false;
 		m_vEmpiresCommanderMovePreviousTarget = m_vEmpiresCommanderMoveTarget;
 		m_vEmpiresCommanderMoveTarget = target;
+		m_iEmpiresCommanderOrderType = commandType;
 		++m_iEmpiresCommanderMoveGeneration;
+		RCBOT_DIAG("[RCBOT2] commander-order start type=%d target=(%.0f %.0f %.0f) ent=%d dist=%.0f replacement=%d\n",
+			commandType, target.x, target.y, target.z, commandType >= 3 ? m_iEmpiresCommanderOrderTargetEnt : 0,
+			(getOrigin() - target).Length(), replacement ? 1 : 0);
 		m_iEmpiresCommanderMoveNavigationIntentId = 0;
 
 		const char* source = synthetic ? "synthetic-test" : "EmpiresSendProp";
@@ -7576,23 +7666,9 @@ void CBotEmpires::tickEmpiresGuardOrder()
 
 	// m_iCommandTarget is an int[32]; element 0 sits 0x10 behind m_iCommandType.
 	int targetIndex = m_iEmpiresTestGuardTarget;
-	unsigned typeOffset = 0;
-	unsigned locationOffset = 0;
-	ServerClass* serverClass = m_pEdict->GetNetworkable() != nullptr ?
-		m_pEdict->GetNetworkable()->GetServerClass() : nullptr;
-	CBaseEntity* self = m_pEdict->GetUnknown() != nullptr ?
-		m_pEdict->GetUnknown()->GetBaseEntity() : nullptr;
 	if (targetIndex <= 0)
-	{
-		if (serverClass == nullptr || self == nullptr ||
-			!UTIL_FindSendPropInfo(serverClass, "m_iCommandType", &typeOffset) ||
-			!UTIL_FindSendPropInfo(serverClass, "m_vCommandLocation", &locationOffset) ||
-			typeOffset == 0 || locationOffset != typeOffset + 4)
-			return;
-		targetIndex = *reinterpret_cast<const int*>(
-			reinterpret_cast<const char*>(self) + typeOffset + 0x10);
-	}
-	if (targetIndex <= 0 || targetIndex >= engine->GetEntityCount())
+		targetIndex = ReadEmpiresCommandTargetIndex(m_pEdict);
+	if (targetIndex <= 0 || gpGlobals == nullptr || targetIndex >= gpGlobals->maxEntities)
 		return;
 	edict_t* target = engine->PEntityOfEntIndex(targetIndex);
 	if (target == nullptr || target->IsFree() || target->GetClassName() == nullptr ||

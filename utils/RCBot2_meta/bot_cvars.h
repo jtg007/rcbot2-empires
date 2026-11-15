@@ -92,6 +92,7 @@ extern ConVar rcbot_empires_engibot;
 extern ConVar rcbot_empires_engibot_cost;
 extern ConVar rcbot_empires_engibot_limit;
 extern ConVar rcbot_empires_engibot_leash;
+extern ConVar rcbot_empires_engineer_help_human;
 extern ConVar rcbot_empires_vehicle_drivers;
 extern ConVar rcbot_empires_vehicle_debug_buy;
 extern ConVar rcbot_empires_vehicle_debug_mixed;

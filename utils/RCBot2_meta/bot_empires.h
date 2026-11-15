@@ -728,6 +728,10 @@ public:
 	// Test-only: act as if a human of the team wanted the Commander seat.
 	static void requestCommanderYieldTest(int team);
 	bool isEmpiresEngineerClass() const;
+	// Human commander: up to rcbot_empires_engineer_help_human free engineers of the team build or
+	// repair unfinished/damaged own buildings near the CV (the bot commander's economy does this
+	// otherwise). Called every 10 s from EmpiresEngibotFrame.
+	static void empiresHelpHumanCommander();
 	struct CommanderEconomyState
 	{
 		float nextTick = 0.0f;
@@ -1613,6 +1617,12 @@ private:
 	bool m_bEmpiresCommanderMoveTestActive = false;
 	Vector m_vEmpiresCommanderMoveTestTarget = vec3_origin;
 	bool m_bEmpiresCommanderMoveRouteIssued = false;
+	// Commander order type that started the route (1 move, 2 attack location, 3 attack target,
+	// 4 guard; reverse-engineering/notes/commander-order-types.md) and its target entity (3/4).
+	int m_iEmpiresCommanderOrderType = 0;
+	mutable int m_iEmpiresCommanderOrderTargetEnt = 0; // written by the const reader
+	float m_fEmpiresCommanderOrderRearmAt = 0.0f;
+	int m_iEmpiresCommanderOrderSeenType = -1;
 	bool m_bEmpiresCommanderMoveFinished = false;
 	bool m_bEmpiresCommanderMoveFailed = false;
 	bool m_bEmpiresCommanderMoveSynthetic = false;

@@ -28,7 +28,14 @@ input codes 1/2/3/4 directly, 14 = resupply, 15 = heal, 30 = repair (all set typ
 
 ## Setting the fields
 
-- `emp_unit_order <type> <x> <y> <z> [entindex]` (0x64e9a0): a type > 100 is reduced by 100 (0x64ec0a, meaning unknown).
+- `emp_unit_order` (0x64e9a0) has two forms (corrected 2026-11-15, the earlier `x y z [entindex]` was wrong):
+  - `emp_unit_order <type> <x> <y> <z>` (argc >= 5): location; the target entindex stays -1 (0x64e9ac).
+  - `emp_unit_order <type> <entindex>` (argc 3..4, 0x650114: argv[1] type, argv[2] entindex at 0x65014b).
+    Measured: the location form with a 5th argument left m_iCommandTarget[0] = -1 (run 20261115-112940).
+  A type > 100 is reduced by 100 (0x64ec0a, meaning unknown).
+- Unit selection: `emp_unit_order_list <entindex> ...` (0x64cdf0) sets the commander's selection (+0x153c count = argc-1,
+  max 32; +0x1540 handles). A bot commander can give orders like a human with these two commands
+  (`rcbotd empires_test_unit_order`).
   Applied to every unit the commander has selected (+0x153c count, +0x1540 handles).
   - Type 1/2: m_vCommandLocation = (x,y,z).
   - Type 3/4: m_iCommandTarget[0] = entindex; guard additionally sets m_vCommandLocation = the target's AbsOrigin at the time of the order (0x64f079..0x64f0ac).
@@ -47,6 +54,19 @@ The game does not reject orders itself. "Negative, I won't accept ..." is the **
 `emp_menu_command 33` (jump table 0x9d8db0, index 33 -> 0x66dfd8): only if m_iCommandType != 0;
 sets type 0 and SetMinimapOrderActive(true). `emp_menu_command 35` (-> 0x66df00) = "Roger, order acknowledged!"
 (only if type != 0 and byte +0x152c is set).
+
+Exception (2026-11-15): the **entity form on an enemy target** is dropped silently, before any unit is touched
+(0x64eb15..0x64ebe3, `ret` at 0x64eba9; nothing is set, so m_iCommandType stays 0):
+- target is a CEmpPlayer (dynamic_cast 0x64eb93) and byte `+0x14ec` is 0, or it is set but the target is
+  `InCond(1)` (0x6507b6) -> dropped. `+0x14ec` is written only in `CEmpPlayer::ShouldTransmit` (0x673173):
+  1 when the receiving client `IsCommander()` (vtable +0x72c) and the result is not FL_EDICT_DONTSEND
+  (`!(flags & 0x10)`); 0 only in the constructor (0x666aae). Meaning: "this enemy is sent to a commander client".
+- target is another class: dynamic_cast to 0x9df7a0 (probably the building base) needs byte `+0x9a4` != 0.
+- A friendly target (InSameTeam, 0x64eb6f) skips these checks.
+Consequence: a **bot** commander cannot give type 3/4 on enemy players, because a fake client receives no
+snapshots and ShouldTransmit never runs for it (engine behaviour, assumed, not checked in the engine binary).
+Measured: run 20261115-115258, `unit_command_type_now=0`. Test aid: write 1 to the target's `+0x14ec` before
+`emp_unit_order 3 <entindex>`.
 
 ## Assumed / open
 

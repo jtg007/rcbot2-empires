@@ -33,6 +33,7 @@ NO_RECORDER = bool(os.environ.get("DEV_NO_RECORDER"))
 #   DEV_TIMESCALE=4      host_timescale; minutes and waits count game time
 #   DEV_ROSTER="2:1 2:3" team:class per bot instead of the alternating default
 #   DEV_CMDS="cmd;wait 5;waitfor 120 some regex;cmd"   waitfor = up to 120 game seconds
+#   "mark" in DEV_CMDS: later waitfor only match lines logged after it (repeated results)
 #   DEV_UNTIL="regex"    end the run as soon as a log line matches
 #   DEV_SHOW="regex"     print matching log lines at the end (repeats collapsed)
 TIMESCALE = max(float(os.environ.get("DEV_TIMESCALE", "1")), 0.1)
@@ -324,6 +325,8 @@ def run_match(args):
                 if not match:
                     aborted = True
                     break
+            elif item == "mark":
+                mark = server.mark()  # later waitfor only sees lines from here on
             elif item.startswith("wait "):
                 time.sleep(float(item.split()[1]) / TIMESCALE)
             else:

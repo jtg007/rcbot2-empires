@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 bool EmpiresTeamResources(int team, float& resources);
 bool EmpiresModifyTeamResources(int team, float delta);
@@ -252,6 +253,7 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 } // namespace
 
 // New map: the fake clients stay connected across changelevel; EngiBots belong to one match.
+extern int g_empiresTestHumanCommanderTeam;
 void EmpiresEngibotLevelReset()
 {
 	for (EngibotTeam& t : s_engibots)
@@ -268,6 +270,7 @@ void EmpiresEngibotLevelReset()
 	}
 	s_testSpeaker = -1;
 	s_requestCount = 0;
+	g_empiresTestHumanCommanderTeam = 0;
 }
 
 // Test only (rcbotd empires_test_engibot <speaker userid>): the speaker says /buildengibot in
@@ -432,6 +435,7 @@ void EmpiresEngibotFrame()
 			CBotGlobals::getCurrentMod() != nullptr && CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES)
 			static_cast<CBotEmpires*>(bot)->applyEmpiresTeamClassName();
 	}
+	CBotEmpires::empiresHelpHumanCommander();
 	for (int team = 2; team <= 3; ++team)
 	{
 		Prune(team);
@@ -476,4 +480,109 @@ void CBotEmpires::applyEmpiresTeamClassName()
 		return;
 	ApplyDistinctBotName(m_pEdict, nullptr, team, classId);
 	RCBOT_DIAG("[RCBOT2] bot-name userid=%d from=%s team=%d class=%d\n", engine->GetPlayerUserId(m_pEdict), name, team, classId);
+}
+
+// Test only (rcbotd empires_test_help_human <team>): the team's seated bot commander counts as human.
+int g_empiresTestHumanCommanderTeam = 0;
+
+void CBotEmpires::empiresHelpHumanCommander()
+{
+	const int limit = rcbot_empires_engineer_help_human.GetInt();
+	if (limit <= 0 || engine == nullptr || gpGlobals == nullptr || !CBotGlobals::IsMapRunning() ||
+		CBotGlobals::getCurrentMod() == nullptr || CBotGlobals::getCurrentMod()->getBotType() != BOTTYPE_EMPIRES)
+		return;
+	constexpr float kHelpRadius = 3000.0f; // around the team CV
+	for (int team = 2; team <= 3; ++team)
+	{
+		std::vector<CBotEmpires*> engineers;
+		CBotEmpires* reader = nullptr;
+		for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+		{
+			CBot* bot = CBots::getBot(slot);
+			if (bot == nullptr || !bot->inUse() || bot->getEdict() == nullptr || bot->isControlledTestOnly() ||
+				CClassInterface::getTeam(bot->getEdict()) != team)
+				continue;
+			CBotEmpires* e = static_cast<CBotEmpires*>(bot);
+			reader = e;
+			if (e->isAlive() && e->isEmpiresEngineerClass() && !EmpiresIsEngibot(e->getEdict()))
+				engineers.push_back(e);
+		}
+		if (reader == nullptr || engineers.empty())
+			continue;
+		// Only while a human of this team is the commander.
+		bool human = false;
+		for (int i = 1; i <= gpGlobals->maxClients && !human; ++i)
+		{
+			edict_t* p = engine->PEntityOfEntIndex(i);
+			IPlayerInfo* info = p != nullptr && !p->IsFree() && playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(p) : nullptr;
+			int commander = 0;
+			human = info != nullptr && info->IsConnected() && (!info->IsFakeClient() || g_empiresTestHumanCommanderTeam == team) &&
+				CClassInterface::getTeam(p) == team &&
+				reader->readEmpiresEntityIntProperty(p, "m_bCommander", commander) && commander != 0;
+		}
+		if (!human)
+			continue;
+		edict_t* cv = nullptr;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && cv == nullptr; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (e != nullptr && !e->IsFree() && e->GetClassName() != nullptr &&
+				std::strcmp(e->GetClassName(), team == 2 ? "emp_nf_commander" : "emp_imp_commander") == 0)
+				cv = e;
+		}
+		if (cv == nullptr)
+			continue;
+		const Vector cvOrigin = CBotGlobals::entityOrigin(cv);
+		int busy = 0;
+		std::vector<CBotEmpires*> free;
+		for (CBotEmpires* e : engineers)
+		{
+			int order = 0;
+			int seated = 0;
+			if (e->m_iBuildAssignStage != 0 || e->m_iTurretRefinery != 0)
+				++busy;
+			else if ((e->readEmpiresEntityIntProperty(e->getEdict(), "m_bCommander", seated) && seated != 0) ||
+				e->empiresVehicleOwnsBot() || e->isEmpiresVehicleActionActive())
+				continue; // the seated commander, drivers and passengers stay where they are
+			else if (!e->readEmpiresIntProperty(e->getEdict(), "m_iCommandType", order) || order == 0)
+				free.push_back(e); // a commander order of the human goes first
+		}
+		if (busy >= limit || free.empty())
+			continue;
+		// The nearest unfinished or damaged own building to the CV that nobody works on yet.
+		edict_t* best = nullptr;
+		float bestDist = kHelpRadius;
+		int bestHealth = 0, bestMax = 0;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* b = engine->PEntityOfEntIndex(i);
+			if (b == nullptr || b->IsFree() || b->GetClassName() == nullptr ||
+				std::strncmp(b->GetClassName(), "emp_building_", 13) != 0 ||
+				std::strcmp(b->GetClassName(), "emp_building_vehicle_physbox") == 0 || CClassInterface::getTeam(b) != team)
+				continue;
+			int health = -1, maxHealth = -1;
+			if (!reader->readEmpiresEntityIntProperty(b, "m_iHealth", health) ||
+				!reader->readEmpiresEntityIntProperty(b, "m_iMaxHealth", maxHealth) || health <= 0 || health >= maxHealth)
+				continue;
+			const float d = (CBotGlobals::entityOrigin(b) - cvOrigin).Length();
+			if (d >= bestDist)
+				continue;
+			bool taken = false;
+			for (CBotEmpires* e : engineers)
+				taken = taken || (e->m_iBuildAssignStage != 0 && e->m_hBuildAssignBuilding.get() == b);
+			if (taken)
+				continue;
+			best = b;
+			bestDist = d;
+			bestHealth = health;
+			bestMax = maxHealth;
+		}
+		if (best == nullptr)
+			continue;
+		std::sort(free.begin(), free.end(), [best](CBotEmpires* a, CBotEmpires* b) { return a->distanceFrom(best) < b->distanceFrom(best); });
+		const bool started = free.front()->requestEmpiresBuildAssignment(best);
+		RCBOT_DIAG("[RCBOT2] engineer-help team=%d building=%d class=%s health=%d/%d engineer=%d busy=%d/%d started=%d\n",
+			team, engine->IndexOfEdict(best), best->GetClassName(), bestHealth, bestMax,
+			engine->GetPlayerUserId(free.front()->getEdict()), busy, limit, started ? 1 : 0);
+	}
 }

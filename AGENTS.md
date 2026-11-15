@@ -74,7 +74,8 @@ Environment variables for `dev.sh`:
 - `DEV_SHOW="regex"`: print matching log lines at the end. Keep output small.
 - `DEV_ROSTER="2:1 2:3"`: team:class per bot (team 2 = NF, 3 = BE; class 0 Scout,
   1 Rifleman, 2 Grenadier, 3 Engineer).
-- `DEV_CMDS="wait 10;cmd;waitfor 120 regex;cmd"`, `DEV_PRE="cmd;cmd"` (before bots join).
+- `DEV_CMDS="wait 10;cmd;waitfor 120 regex;cmd"`, `DEV_PRE="cmd;cmd"` (before bots join). `waitfor` searches from the
+  start of the run; `mark` resets that point (for repeated results such as `build-assign result=`). A `NOT found` stops the sequence.
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
 - `DEV_PORT=49926`: own server port so several runs can go at once (default 49925).
   `DEV_SKIP_BUILD=1`: reuse the last build. The plugin is replaced atomically, so running servers survive.
@@ -97,7 +98,9 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 | What | How |
 |---|---|
 | Navmesh at a spot | console `rcbotd empires_nav_scan x y z x2 y2 z2`: route, areas, hull grid (`.` free, `#` world, `E` entity) |
-| Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2) |
+| Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2; test hook, bypasses the game's order path) |
+| Order like a human | `rcbotd empires_test_unit_order <commander_userid> <type> <unit_userid> x y z [target_userid\|b\|bd]`: the seated commander bot selects the unit (`emp_unit_order_list`) and sends `emp_unit_order` (0 abort, 1 move, 2 attack location, 3 attack target, 4 guard); `b` = nearest own building below full health, `bd` = nearest full one, damaged to 100 |
+| Place a building | `rcbotd empires_commander_build <type> spot` (valid spot near the CV, no engineer assigned) |
 | Game binary | `nm -C --defined-only`, `objdump -d -C --start-address=…`; float constants from `.rodata` with Python `struct.unpack('<f', …)` |
 | Notes on game internals | `reverse-engineering/` |
 | Hang analysis | `navmesh-stuck` + `navmesh-stuck-trace` lines show route point, position and what the hull hits (`worldspawn` = map geometry) |

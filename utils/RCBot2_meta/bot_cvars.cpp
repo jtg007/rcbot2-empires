@@ -117,6 +117,7 @@ ConVar rcbot_empires_debug_log("rcbot_empires_debug_log", "0", 0, "if 1, print t
 ConVar rcbot_empires_engibot("rcbot_empires_engibot", "1", 0, "1 = the commander can buy base engineer bots with /buildengibot in chat");
 ConVar rcbot_empires_engibot_cost("rcbot_empires_engibot_cost", "100", 0, "team resources one /buildengibot costs");
 ConVar rcbot_empires_engibot_limit("rcbot_empires_engibot_limit", "2", 0, "maximum EngiBots per team (0-8)");
+ConVar rcbot_empires_engineer_help_human("rcbot_empires_engineer_help_human", "2", 0, "with a human commander, up to this many engineer bots per team build and repair the team's unfinished or damaged buildings near the CV on their own (0 = only on the commander's guard order)");
 ConVar rcbot_empires_engibot_leash("rcbot_empires_engibot_leash", "2500", 0, "EngiBots work only within this distance of their team CV (else their first spawn)");
 ConVar rcbot_empires_vehicle_drivers("rcbot_empires_vehicle_drivers", "-1", 0, "maximum number of bots per team that use a vehicle at the same time (Bill Nye not counted); -1 = 40% of the team bots, at least 2");
 ConVar rcbot_empires_vehicle_debug_mixed("rcbot_empires_vehicle_debug_mixed", "0", 0, "tests only: bought tanks get the MG on the cannon's fire button (mixed loadout, TODO 3.10d)");
