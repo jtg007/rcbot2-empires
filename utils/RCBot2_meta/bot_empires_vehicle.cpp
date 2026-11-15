@@ -594,7 +594,17 @@ struct RepairRequest
 	bool armorDamaged = false;
 };
 RepairRequest s_repairRequest[4];
+EmpiresAmmoRequest s_ammoRequest[4];
 
+} // namespace
+
+EmpiresAmmoRequest& EmpiresAmmoRequestFor(int team)
+{
+	return s_ammoRequest[team >= 0 && team <= 3 ? team : 0];
+}
+
+namespace
+{
 edict_t* RepairRequestVehicle(int team)
 {
 	if (team < 0 || team > 3 || gpGlobals == nullptr)
@@ -2756,6 +2766,8 @@ void CBotEmpires::tickEmpiresVehicle()
 					v.retreatCooldownUntil = now + 60.0f;
 				if (s_repairRequest[team].vehicle == v.vehicleIndex)
 					s_repairRequest[team] = RepairRequest();
+				if (s_ammoRequest[team].vehicle == v.vehicleIndex)
+					s_ammoRequest[team] = EmpiresAmmoRequest();
 			}
 		}
 	}
@@ -2837,7 +2849,39 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.crateIndex = -1;
 			v.nextReplan = 0.0f;
 		}
-		if (v.parkValid)
+		// 3.10b step 3: no crate and no pad within 2500: call for ammo; an engineer who took the
+		// call (claim refreshed every frame) is waited for where the tank stands.
+		bool ammoWait = false;
+		if (v.ammoTrip && crate == nullptr && v.refitStep == 0 && (station == nullptr || best > 2500.0f))
+		{
+			EmpiresAmmoRequest& ar = s_ammoRequest[team];
+			if (now >= v.nextAmmoCall)
+			{
+				v.nextAmmoCall = now + 25.0f;
+				if (ar.vehicle != v.vehicleIndex)
+					ar = EmpiresAmmoRequest();
+				ar.vehicle = v.vehicleIndex;
+				ar.driverUserId = userId;
+				ar.until = now + 40.0f;
+				if (helpers != nullptr)
+					helpers->ClientCommand(m_pEdict, "emp_menu_command 29 base\n");
+				RCBOT_DIAG("[RCBOT2] vehicle ammo-call userid=%d veh=%d pad=%.0f pos=(%.0f %.0f %.0f)\n", userId,
+					v.vehicleIndex, station != nullptr ? best : -1.0f, origin.x, origin.y, origin.z);
+			}
+			if (ar.vehicle == v.vehicleIndex)
+				ar.until = std::max(ar.until, now + 5.0f);
+			ammoWait = ar.vehicle == v.vehicleIndex && ar.engineerUserId >= 0 && now <= ar.claimUntil;
+		}
+		else if (s_ammoRequest[team].vehicle == v.vehicleIndex)
+			s_ammoRequest[team] = EmpiresAmmoRequest(); // a crate or a near pad answers the call
+		if (ammoWait && !v.parkValid)
+		{
+			driveTo = origin;
+			arrive = 400.0f;
+			// Waiting counts as progress (trip timeout, no-pad abort after 30 s).
+			v.lastHealthRise = std::max(v.lastHealthRise, now - 20.0f);
+		}
+		else if (v.parkValid)
 		{
 			// Stuck on the way home (base gates/ramps only open from inside,
 			// run 214613): wait where backing off ended, not at the obstacle
@@ -3027,8 +3071,10 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 		}
-		else if (v.loadoutRefit && (!haveHome || now - v.lastHealthRise > 30.0f))
+		else if (v.loadoutRefit && (!haveHome || now - v.lastHealthRise > (v.ammoTrip ? 60.0f : 30.0f)))
 		{
+			if (s_ammoRequest[team].vehicle == v.vehicleIndex)
+				s_ammoRequest[team] = EmpiresAmmoRequest();
 			// No finished own pad for 30 s (a new one may still be building: head home meanwhile,
 			// run 20261114-2216): the loadout cannot be changed, fight on and look again later.
 			v.retreating = false;
@@ -3949,6 +3995,8 @@ void EmpiresVehicleLevelReset()
 {
 	for (RepairRequest& r : s_repairRequest)
 		r = RepairRequest();
+	for (EmpiresAmmoRequest& r : s_ammoRequest)
+		r = EmpiresAmmoRequest();
 	g_pushZones.clear();
 	g_pushZonesAt = -1.0f;
 }

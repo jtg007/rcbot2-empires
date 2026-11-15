@@ -100,3 +100,20 @@ Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830 (st
   hook does not intercept the game's calls. `AddRecipient` does not exclude fake clients.
 - A separate hook on 023 could capture these messages; this has not been implemented or tested.
   Direct failure-state logging is the smaller diagnostic for the turret case.
+
+## Supply crate (item 7): why the bot placed none (expert, 2026-11-15, static)
+
+- `PrimaryAttack` item-7 branch (0x3cfb9b..0x3cfbbb, 0x3d0be0): only `m_flEngineerNextSupply` (+0x12a8) > curtime
+  (ClientPrint "You cannot build a supply crate...") and `BuildAmmoCrate` 0x3ce830. No research, allotment, clip cost
+  or build state. Common gates before it: not commander (0x3cf152), kit clip > 0 (ItemPostFrame), not in a vehicle
+  (0x3cfb35), `+0x1cf4 == 2` (`#eng_restriction_all`, 0x3d033e). On success item -> 0 (0x3d0c0d) and next supply =
+  curtime + `+0x12ac`.
+- `BuildAmmoCrate` calls ChangeTeam and Spawn first, then `GetBuildLocation` (turrets: the reverse); on failure the
+  crate is removed. `GetBuildLocation` rejects for every item except walls when a vehicle factory "ramp" attachment is
+  within **625** of the eye (500 for walls; 0x96b814/0x95a89c). Player/vehicle box (±25, 0..25) uses a filter without
+  pass entity: an aim spot closer than about 41 to the bot's centre hits the bot itself.
+- Cause in run 20261115-002134 (crossroads, `ammo-crate miss item=7`): the attack never reached the game.
+  `CBot::think` calls `modThink`/`getTasks` (where `handleEmpiresAmmoRequest` calls `primaryAttack(true, 0.35f)`)
+  and afterwards `handleWeapons`; `CBotEmpires::handleWeapons` without a visible enemy calls
+  `m_pButtons->letGo(IN_ATTACK)` before `doButtons`. The MG-turret action works because `handleWeapons` returns early
+  while `isEmpiresEngineerBuildActionActive()`. Fix: the same early return while the crate action aims or observes.

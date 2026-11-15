@@ -424,6 +424,18 @@ void EmpiresVehicleLevelReset();
 void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
 
+// 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one per team; an engineer
+// walks over and places a supply crate (bot_empires_ammo_crate.cpp).
+struct EmpiresAmmoRequest
+{
+	int vehicle = -1;
+	int driverUserId = -1;
+	float until = 0.0f;
+	int engineerUserId = -1;
+	float claimUntil = 0.0f;
+};
+EmpiresAmmoRequest& EmpiresAmmoRequestFor(int team);
+
 struct EmpiresVehicleBrain
 {
 	EmpiresVehicleStage stage = EmpiresVehicleStage::NONE;
@@ -544,6 +556,7 @@ struct EmpiresVehicleBrain
 	float crateReadAt = 0.0f;
 	bool crateDone = false;          // refilled at the crate: end the trip
 	int crateSkip = -1;              // crate that gave nothing for 30 s: use the pad
+	float nextAmmoCall = 0.0f;       // 3.10b step 3: next "I need ammo" call
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
 	bool refitDone = false;
@@ -852,6 +865,18 @@ private:
 	bool holdRespawnForRevive();
 	// Engineer builds an MG turret on the front side of own refineries (bot_empires_turret_build.cpp).
 	bool handleEmpiresRefineryTurret();
+	// Engineer answers a vehicle's ammo call with a supply crate (bot_empires_ammo_crate.cpp).
+	bool handleEmpiresAmmoRequest();
+	int m_iAmmoCrateStage = 0;      // 0 idle, 1 walk, 2 select, 3 aim, 4 observe
+	int m_iAmmoCrateVehicle = -1;
+	int m_iAmmoCrateTries = 0;
+	int m_iAmmoCrateBaseline = 0;   // crates near the engineer before the attempt
+	float m_flAmmoCrateStageAt = 0.0f;
+	float m_flAmmoCrateNextNav = 0.0f;
+	float m_flAmmoCrateNextSearch = 0.0f;
+	float m_flAmmoCrateBestDist = 0.0f;   // nearest the walk got (progress check)
+	float m_flAmmoCrateProgressAt = 0.0f;
+	Vector m_vAmmoCrateTarget;
 	int m_iTurretRefinery = 0;
 	int m_iTurretAttempt = 0;
 	int m_iTurretBuilding = 0;

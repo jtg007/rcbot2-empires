@@ -1989,6 +1989,11 @@ void CBotEmpires::handleWeapons()
 		return;
 	}
 
+	// The ammo-crate action (3.10b step 3) owns the kit attack while it aims and observes;
+	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
+	if (m_iAmmoCrateStage >= 3)
+		return;
+
 	const bool coverScheduleActive =
 		m_bEmpiresCoverScheduleActive &&
 		m_pSchedules != nullptr &&
@@ -2528,6 +2533,14 @@ void CBotEmpires::killed(edict_t* pVictim, char* weapon)
 
 void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
+	if (m_iAmmoCrateStage != 0)
+	{
+		EmpiresAmmoRequest& ar = EmpiresAmmoRequestFor(getTeam());
+		if (engine != nullptr && ar.engineerUserId == engine->GetPlayerUserId(m_pEdict))
+			ar.engineerUserId = -1; // the tank stops waiting for a dead engineer
+		m_iAmmoCrateStage = 0;
+		m_iAmmoCrateVehicle = -1;
+	}
 	m_flEmpiresTurretRocketUntil = 0.0f;
 	m_bEmpiresTurretRocketApproach = false;
 	m_flVoidNextCheck = 0.0f;
@@ -6105,6 +6118,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		if (handleEmpiresVehicleRepairRequest())
 			return;
 
+		if (handleEmpiresAmmoRequest())
+			return;
+
 		if (handleEmpiresRefineryTurret())
 			return;
 
@@ -6353,7 +6369,8 @@ void CBotEmpires::modThink()
 	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
 	{
 		handleEmpiresRevive();
-		handleEmpiresRefineryTurret();
+		if (!handleEmpiresAmmoRequest())
+			handleEmpiresRefineryTurret();
 	}
 	if (m_vehicle.stage == EmpiresVehicleStage::DRIVING ||
 		m_vehicle.stage == EmpiresVehicleStage::ENTERING ||
@@ -7326,6 +7343,9 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	// A started refinery-turret job finishes first (user rule 2026-11-12: no detours).
 	if (m_iTurretRefinery != 0 && building != nullptr && !building->IsFree() &&
 		engine != nullptr && engine->IndexOfEdict(building) != m_iTurretBuilding)
+		return false;
+	// So does a taken ammo call (3.10b step 3): the crate takes seconds once there.
+	if (m_iAmmoCrateStage != 0)
 		return false;
 	if (m_iBuildAssignStage != 0 || building == nullptr || building->IsFree() ||
 		building->GetUnknown() == nullptr || m_pSchedules == nullptr || !isAlive() ||
@@ -22063,6 +22083,10 @@ void CBotEmpires::freeMapMemory()
 	m_iTurretBuilding = 0;
 	m_iTurretAssignRejects = 0;
 	m_bTurretBuildArmed = false;
+	m_iAmmoCrateStage = 0;
+	m_iAmmoCrateVehicle = -1;
+	m_iAmmoCrateTries = 0;
+	m_flAmmoCrateNextSearch = 0.0f;
 	m_vTurretSpot = vec3_origin;
 	m_flTurretYaw = 0.0f;
 	m_flTurretUntil = 0.0f;

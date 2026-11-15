@@ -21,8 +21,11 @@ Check free space before long recordings and remove only recordings you created.
    Step 2 done: a team ammo crate (engineer crate or the team's map ammo crate) nearer than the finished
    pad is used instead; the tank stops within 850 and waits until the crate gives nothing for 8 s
    (`scripts/dev_crate.sh`, test command `rcbotd empires_vehicle_crate <distance>`; measured: empty
-   cannon and MG back to 40/0 and 60/4 after 21-22 s). Next: the "I need ammo" call (`emp_menu_command 29`) with an engineer placing a crate (build item 7), other
-   chassis, then infantry resupply for every class.
+   cannon and MG back to 40/0 and 60/4 after 21-22 s). Step 3 done: without a nearer crate and with
+   the pad over 2500 away (or none) the tank calls "I need ammo" (`emp_menu_command 29`) and waits
+   while an engineer holds the call; the engineer walks over and places a supply crate (`engSelect 7`,
+   `scripts/dev_ammocall.sh`; measured: crate on the first try, tank full again after 22 s). Next:
+   other chassis, then infantry resupply for every class.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
 7. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
