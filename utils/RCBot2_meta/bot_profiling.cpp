@@ -90,7 +90,7 @@ CProfileTimer::CProfileTimer(const char* szFunction)
     : start_cycle(0),
     end_cycle(0),
     m_average(0),
-    m_min(std::numeric_limits<unsigned long long>::max()),
+    m_min((std::numeric_limits<unsigned long long>::max)()),
     m_max(0),
     m_last(0),
     m_overall(0),

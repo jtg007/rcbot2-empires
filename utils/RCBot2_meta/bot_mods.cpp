@@ -263,8 +263,8 @@ namespace
 		char* end = nullptr;
 		const long parsed = std::strtol(rawValue, &end, 10);
 		if (end == rawValue || *end != '\0' ||
-			parsed < static_cast<long>(std::numeric_limits<int>::min()) ||
-			parsed > static_cast<long>(std::numeric_limits<int>::max()))
+			parsed < static_cast<long>((std::numeric_limits<int>::min)()) ||
+			parsed > static_cast<long>((std::numeric_limits<int>::max)()))
 			return false;
 
 		value = static_cast<int>(parsed);
