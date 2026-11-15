@@ -124,10 +124,15 @@ bool IsEntityWalkable(edict_t *entity, unsigned int flags) {
 					return (flags & WALK_THRU_TOGGLE_BRUSHES) != 0;
 				}
 	}
-	// if we hit a breakable object, assume its walkable because we will shoot it when we touch it
-	return (((FClassnameIs( entity, "func_breakable" ) || FClassnameIs( entity, "func_breakable_surf" ))
-			&& *BaseEntity(entity).getHealth() > 0) && (flags & WALK_THRU_BREAKABLES))
-			|| FClassnameIs( entity, "func_playerinfected_clip" )
+	if (FClassnameIs(entity, "func_breakable") || FClassnameIs(entity, "func_breakable_surf")) {
+		if (!(flags & WALK_THRU_BREAKABLES))
+			return false;
+
+		const int* health = BaseEntity(entity).getHealth();
+		return health != nullptr && *health > 0;
+	}
+
+	return FClassnameIs( entity, "func_playerinfected_clip" )
 			|| (nav_solid_props.GetBool() && FClassnameIs( entity, "prop_*" ));
 }
 

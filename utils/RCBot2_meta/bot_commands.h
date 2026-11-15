@@ -59,7 +59,8 @@ enum : std::uint8_t
 	CMD_ACCESS_CONFIG = 1<<3,
 	CMD_ACCESS_DEBUG = 1<<4,
 	CMD_ACCESS_USERS = 1<<5,
-	CMD_ACCESS_DEDICATED = 1<<6 // replaces canbeUsedDedicated
+	CMD_ACCESS_DEDICATED = 1<<6,
+	CMD_ACCESS_CONSOLE_ONLY = 1<<7
 };
 
 #define CMD_ACCESS_ALL (CMD_ACCESS_WAYPOINT|CMD_ACCESS_UTIL|CMD_ACCESS_BOT|CMD_ACCESS_CONFIG|CMD_ACCESS_DEBUG|CMD_ACCESS_USERS)
@@ -111,7 +112,7 @@ public:
 
 	virtual bool isContainer () { return false; }
 
-	bool canbeUsedDedicated () const { return (this->m_iAccessLevel & CMD_ACCESS_DEDICATED) != 0; }
+	bool canbeUsedDedicated () const { return (this->m_iAccessLevel & (CMD_ACCESS_DEDICATED | CMD_ACCESS_CONSOLE_ONLY)) != 0; }
 protected:
 
 	int m_iAccessLevel;

@@ -208,8 +208,10 @@ Check free space before long recordings and remove only recordings you created.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
   resupply for every class; the current normal resupply path covers engineers only and
   searches team map crates, not engineer-built crates.
-- Test-server inventory: 24 BSP maps, 10 with navmeshes; three of those have no recorded
-  run yet: `con_district402`, `con_glycencity`, `con_urbanchaos`.
+- Test-server inventory: 24 BSP maps, 10 with navmeshes. `con_district402` and
+  `con_glycencity` still need a run. After the navmesh crash fix (GitHub #4),
+  `con_urbanchaos` loaded all 6,467 areas with one active bot and no crash
+  (run `20261115-145901-con_urbanchaos-1b-1m-p49979`).
 - Fairness: vehicle and objective targets are picked from the full entity list; limit to
   what a player could know.
 - Vehicle re-customizing on the repair pad on a server without debug purchase.

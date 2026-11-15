@@ -194,6 +194,8 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
 Detailed diagnostics default to off to keep ordinary server logs readable. The development
 test harness enables them automatically; set `rcbot_empires_debug_log 1` for manual diagnosis.
+Run Empires test and diagnostic commands such as `rcbotd empires_nav_scan` from the
+dedicated server console.
 
 ## Build
 
@@ -205,6 +207,7 @@ SDK_ROOT="../rcbot2-clean/alliedmodders" \
 MANIFEST_DIR="../rcbot2-clean/hl2sdk-manifests" scripts/build_empires.sh
 ```
 
+Relative dependency paths are resolved from the directory where you invoke the script.
 The script prints the resulting `.so` path (by default
 `/tmp/rcbot2-build-output-v2/rcbot.2.sdk2013.so`). For iterative development,
 `scripts/dev_build.sh` uses a cache and the sibling `rcbot2-clean` checkout;

@@ -88,6 +88,8 @@ but declared globally elsewhere, and `edict->StateChanged()` (needs engine-only 
 Detailed diagnostics default to off to keep normal server logs readable. The harness
 turns them on (`rcbot_empires_debug_log 1`); use that cvar for manual diagnosis too.
 A run writes thousands of log lines: always filter, never read a whole log.
+Use the dedicated server console for Empires test and diagnostic commands.
+`rcbotd empires_test_botcmd` accepts repeat counts from 1 to 32.
 
 **Test server economy:** a typical isolated test config uses resource ×10, research
 complete and debug vehicle purchase. For a realistic match pass production values,

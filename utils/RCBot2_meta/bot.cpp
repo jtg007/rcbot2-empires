@@ -4714,8 +4714,15 @@ bool CBots::createEmpiresBootstrapBot()
 	if (!pBot->attachBootstrapEdict(pEdict))
 	{
 		logger->Log(LogLevel::ERROR, "Empires bootstrap failed: fake client could not be attached");
+		const int userId = pEdict->IsFree() ? -1 : engine->GetPlayerUserId(pEdict);
+		if (userId <= 0)
+		{
+			logger->Log(LogLevel::WARN, "Empires bootstrap cleanup skipped: invalid userid for edict index=%d", index);
+			return false;
+		}
+
 		char command[64];
-		std::snprintf(command, sizeof(command), "kickid %d\n", index);
+		std::snprintf(command, sizeof(command), "kickid %d\n", userId);
 		engine->ServerCommand(command);
 		return false;
 	}

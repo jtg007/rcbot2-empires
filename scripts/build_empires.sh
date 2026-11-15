@@ -7,10 +7,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SDK_ROOT="${SDK_ROOT:-$ROOT_DIR/alliedmodders}"
+MANIFEST_DIR="${MANIFEST_DIR:-$ROOT_DIR/hl2sdk-manifests}"
+# Keep relative dependency paths anchored at the caller when linking into the snapshot.
+CALLER_DIR="$(pwd -P)"
+[[ "$SDK_ROOT" == /* ]] || SDK_ROOT="$CALLER_DIR/$SDK_ROOT"
+[[ "$MANIFEST_DIR" == /* ]] || MANIFEST_DIR="$CALLER_DIR/$MANIFEST_DIR"
 SDK2013_DIR="$SDK_ROOT/hl2sdk-sdk2013"
 MMS_DIR="$SDK_ROOT/metamod-source"
 SM_DIR="$SDK_ROOT/sourcemod"
-MANIFEST_DIR="${MANIFEST_DIR:-$ROOT_DIR/hl2sdk-manifests}"
 LOG_DIR="${EMPIRES_BUILD_LOG_DIR:-/tmp/rcbot2-build-logs}"
 ARTIFACT_DIR="${EMPIRES_BUILD_ARTIFACT_DIR:-/tmp/rcbot2-build-output-v2}"
 STAMP="$(date +%Y%m%d-%H%M%S)"

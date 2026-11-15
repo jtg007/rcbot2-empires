@@ -402,21 +402,21 @@ CON_COMMAND(rcbot_analysis_status, "show Empires gameplay analysis status")
 	analysisStatus(nullptr);
 }
 
-CBotCommandInline EmpiresAnalysisStartCommand("analysis_start", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresAnalysisStartCommand("analysis_start", CMD_ACCESS_CONSOLE_ONLY,
 	[](CClient* client, const BotCommandArgs&) { return analysisStart(client); },
 	"start an Empires gameplay analysis session");
 
-CBotCommandInline EmpiresAnalysisStopCommand("analysis_stop", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresAnalysisStopCommand("analysis_stop", CMD_ACCESS_CONSOLE_ONLY,
 	[](CClient* client, const BotCommandArgs&) { return analysisStop(client); },
 	"stop the Empires gameplay analysis session");
 
-CBotCommandInline EmpiresAnalysisMarkCommand("analysis_mark", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresAnalysisMarkCommand("analysis_mark", CMD_ACCESS_CONSOLE_ONLY,
 	[](CClient* client, const BotCommandArgs& args)
 	{
 		return analysisMark(client, analysisMarkText(args));
 	}, "record a marker in the Empires analysis session");
 
-CBotCommandInline EmpiresAnalysisStatusCommand("analysis_status", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresAnalysisStatusCommand("analysis_status", CMD_ACCESS_CONSOLE_ONLY,
 	[](CClient* client, const BotCommandArgs&) { return analysisStatus(client); },
 	"show Empires gameplay analysis status");
 
@@ -528,7 +528,7 @@ CBotCommandInline EmpiresBootstrapRemoveCommand("empires_bootstrap_remove", CMD_
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_bootstrap_remove" : disconnects the controlled Empires bootstrap fake client)");
 
-CBotCommandInline EmpiresControllerProbeCreateCommand("empires_bootstrap_controllerprobe_create", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeCreateCommand("empires_bootstrap_controllerprobe_create", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -541,7 +541,7 @@ CBotCommandInline EmpiresControllerProbeCreateCommand("empires_bootstrap_control
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_bootstrap_controllerprobe_create" : creates one isolated IBotManager::CreateBot probe)");
 
-CBotCommandInline EmpiresControllerProbeStatusCommand("empires_bootstrap_controllerprobe_status", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeStatusCommand("empires_bootstrap_controllerprobe_status", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -583,7 +583,7 @@ CBotCommandInline EmpiresControllerProbeStatusCommand("empires_bootstrap_control
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_bootstrap_controllerprobe_status" : re-reads probe state and IBotManager::GetBotController)");
 
-CBotCommandInline EmpiresControllerProbeRemoveCommand("empires_bootstrap_controllerprobe_remove", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeRemoveCommand("empires_bootstrap_controllerprobe_remove", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -596,7 +596,7 @@ CBotCommandInline EmpiresControllerProbeRemoveCommand("empires_bootstrap_control
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_bootstrap_controllerprobe_remove" : disconnects the isolated controller probe)");
 
-CBotCommandInline EmpiresControllerProbeJoinTeamCommand("empires_controllerprobe_jointeam", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeJoinTeamCommand("empires_controllerprobe_jointeam", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -648,7 +648,7 @@ CBotCommandInline EmpiresControllerProbeJoinTeamCommand("empires_controllerprobe
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_jointeam <nf|be>" : assigns only the isolated controller probe team)");
 
-CBotCommandInline EmpiresControllerProbeSpawnSequenceCommand("empires_controllerprobe_spawnsequence", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeSpawnSequenceCommand("empires_controllerprobe_spawnsequence", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -678,7 +678,7 @@ CBotCommandInline EmpiresControllerProbeSpawnSequenceCommand("empires_controller
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_spawnsequence" : runs one isolated NF/Rifleman/spawnpoint/controller-input sequence)");
 
-CBotCommandInline EmpiresControllerProbeSpawnHoldTestCommand("empires_controllerprobe_spawnholdtest", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeSpawnHoldTestCommand("empires_controllerprobe_spawnholdtest", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -708,7 +708,7 @@ CBotCommandInline EmpiresControllerProbeSpawnHoldTestCommand("empires_controller
 		return COMMAND_ACCESSED;
 		}, R"(usage "empires_controllerprobe_spawnholdtest" : runs the bounded NF/Rifleman two-frame spawn hold test)");
 
-CBotCommandInline EmpiresControllerProbeReadinessCommand("empires_controllerprobe_readiness", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeReadinessCommand("empires_controllerprobe_readiness", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -738,7 +738,7 @@ CBotCommandInline EmpiresControllerProbeReadinessCommand("empires_controllerprob
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_readiness" : observes Empires respawn readiness without sending UserCmd input)");
 
-CBotCommandInline EmpiresControllerProbeNeutralReadinessCommand("empires_controllerprobe_neutralreadiness", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeNeutralReadinessCommand("empires_controllerprobe_neutralreadiness", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -768,7 +768,7 @@ CBotCommandInline EmpiresControllerProbeNeutralReadinessCommand("empires_control
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_neutralreadiness" : submits only verified neutral UserCmds until Empires respawn readiness)");
 
-CBotCommandInline EmpiresControllerProbeLoadoutReadinessCommand("empires_controllerprobe_loadoutreadiness", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeLoadoutReadinessCommand("empires_controllerprobe_loadoutreadiness", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -798,7 +798,7 @@ CBotCommandInline EmpiresControllerProbeLoadoutReadinessCommand("empires_control
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_loadoutreadiness" : applies one verified NF Rifleman loadout, then submits only neutral UserCmds until respawn readiness)");
 
-CBotCommandInline EmpiresControllerProbeLoadoutReadinessClassFirstCommand("empires_controllerprobe_loadoutreadiness_classfirst", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeLoadoutReadinessClassFirstCommand("empires_controllerprobe_loadoutreadiness_classfirst", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -828,7 +828,7 @@ CBotCommandInline EmpiresControllerProbeLoadoutReadinessClassFirstCommand("empir
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_loadoutreadiness_classfirst" : applies class 1 before the validated NF Rifleman loadout, then submits only neutral UserCmds)");
 
-CBotCommandInline EmpiresControllerProbeAppliedLoadoutReadinessCommand("empires_controllerprobe_appliedloadoutreadiness", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeAppliedLoadoutReadinessCommand("empires_controllerprobe_appliedloadoutreadiness", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -858,7 +858,7 @@ CBotCommandInline EmpiresControllerProbeAppliedLoadoutReadinessCommand("empires_
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_appliedloadoutreadiness" : class-first test using exact applied SendProp values and cleared Desired flags before neutral simulation)");
 
-CBotCommandInline EmpiresControllerProbeSpawnConfirmReadyCommand("empires_controllerprobe_spawnconfirm_ready", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeSpawnConfirmReadyCommand("empires_controllerprobe_spawnconfirm_ready", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -888,7 +888,7 @@ CBotCommandInline EmpiresControllerProbeSpawnConfirmReadyCommand("empires_contro
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_spawnconfirm_ready" : submits exactly one attack press and next-frame neutral release only after applied-loadout LIFE_RESPAWNABLE readiness)");
 
-CBotCommandInline EmpiresControllerProbeMovementCommand("empires_controllerprobe_movement", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeMovementCommand("empires_controllerprobe_movement", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -918,7 +918,7 @@ CBotCommandInline EmpiresControllerProbeMovementCommand("empires_controllerprobe
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_movement" : proves one bounded forward movement and neutral stop after spawn confirmation)");
 
-CBotCommandInline EmpiresControllerProbeWaypointOnceCommand("empires_controllerprobe_waypoint_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeWaypointOnceCommand("empires_controllerprobe_waypoint_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -948,7 +948,7 @@ CBotCommandInline EmpiresControllerProbeWaypointOnceCommand("empires_controllerp
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_waypoint_once" : selects one nearby loaded waypoint and performs one bounded direct-steering proof without normal navigation)");
 
-CBotCommandInline EmpiresControllerProbeWaypointRouteOnceCommand("empires_controllerprobe_waypoint_route_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbeWaypointRouteOnceCommand("empires_controllerprobe_waypoint_route_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -978,7 +978,7 @@ CBotCommandInline EmpiresControllerProbeWaypointRouteOnceCommand("empires_contro
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_waypoint_route_once" : follows up to four linked loaded waypoints with bounded direct steering, without normal navigation)");
 
-CBotCommandInline EmpiresControllerProbePathOnceCommand("empires_controllerprobe_path_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresControllerProbePathOnceCommand("empires_controllerprobe_path_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1030,7 +1030,7 @@ CBotCommandInline EmpiresControllerProbePathOnceCommand("empires_controllerprobe
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_controllerprobe_path_once [start_waypoint destination_waypoint]" : runs one bounded existing CWaypointNavigator route search and traverses the resulting fixed waypoint route without normal bot AI; no arguments use 145 to 157)");
 
-CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1086,7 +1086,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 	}, R"(usage "empires_normal_path_once [start_waypoint destination_waypoint]" : arms one normal Empires bot for a bounded existing A* route using regular CBot::think and RunPlayerMove; no arguments use the nearest current waypoint to 155)");
 
 	CBotCommandInline EmpiresAnchorResolverProbeCommand(
-	"empires_anchor_resolver_probe", CMD_ACCESS_DEDICATED,
+	"empires_anchor_resolver_probe", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1168,7 +1168,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 	}, R"(usage "empires_anchor_resolver_probe <x> <y> <z> [goal_waypoint]" : test-only bounded waypoint anchor resolution; never starts movement)");
 
 	CBotCommandInline EmpiresNavMeshProviderOnceCommand(
-		"empires_navmesh_provider_once", CMD_ACCESS_DEDICATED,
+		"empires_navmesh_provider_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1217,7 +1217,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navmesh_provider_once <x> <y> <z> [bot_userid]" : test-only native Source NavMesh route through NavigationIntent ownership and normal CBot locomotion)");
 
 	CBotCommandInline EmpiresNavMeshProviderStatusCommand(
-		"empires_navmesh_provider_status", CMD_ACCESS_DEDICATED,
+		"empires_navmesh_provider_status", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1254,7 +1254,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navmesh_provider_status [bot_userid]" : test-only reports the native NavMesh provider and shared navigation ownership state)");
 
 	CBotCommandInline EmpiresNavMeshProviderCancelCommand(
-		"empires_navmesh_provider_cancel", CMD_ACCESS_DEDICATED,
+		"empires_navmesh_provider_cancel", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1286,7 +1286,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navmesh_provider_cancel [bot_userid]" : test-only cancels the native NavMesh route and releases shared navigation ownership)");
 
 	CBotCommandInline EmpiresNavigationRequestCommand(
-		"empires_navigation_request", CMD_ACCESS_DEDICATED,
+		"empires_navigation_request", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1333,7 +1333,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_request <x> <y> <z> [AUTO|WAYPOINT_ONLY|NAVMESH_ONLY] [bot_userid]" : test-only starts the provider-arbitrated normal navigation intent)");
 
 	CBotCommandInline EmpiresNavigationNavMeshFixtureCommand(
-		"empires_navigation_navmesh_fixture_once", CMD_ACCESS_DEDICATED,
+		"empires_navigation_navmesh_fixture_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1375,7 +1375,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_navmesh_fixture_once [bot_userid]" : test-only forces one structural WAYPOINT failure before a real short AUTO NAVMESH route)");
 
 	CBotCommandInline EmpiresNavigationBarracksOnceCommand(
-		"empires_navigation_barracks_once", CMD_ACCESS_DEDICATED,
+		"empires_navigation_barracks_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1415,7 +1415,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_barracks_once [bot_userid]" : test-only starts AUTO arbitration toward the nearest live team NF Barracks selected by class and live collision bounds)");
 
 	CBotCommandInline EmpiresNavigationIntentOnceCommand(
-		"empires_navigation_intent_once", CMD_ACCESS_DEDICATED,
+		"empires_navigation_intent_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1448,7 +1448,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_intent_once <goal_waypoint>" : test-only real normal Waypoint CFindPathTask intent lifecycle)");
 
 	CBotCommandInline EmpiresNavigationIntentWriterProbeCommand(
-		"empires_navigation_intent_writer_probe", CMD_ACCESS_DEDICATED,
+		"empires_navigation_intent_writer_probe", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1480,7 +1480,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_intent_writer_probe [bot_userid]" : test-only attempts a conflicting legacy setMoveTo while Waypoint navigation owns movement)");
 
 	CBotCommandInline EmpiresNavigationIntentStaleWriterProbeCommand(
-		"empires_navigation_stale_writer_probe", CMD_ACCESS_DEDICATED,
+		"empires_navigation_stale_writer_probe", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1524,7 +1524,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_stale_writer_probe <intent_id> [bot_userid]" : test-only verifies an old owner token cannot write after terminal cleanup)");
 
 	CBotCommandInline EmpiresNavigationIntentStatusCommand(
-		"empires_navigation_intent_status", CMD_ACCESS_DEDICATED,
+		"empires_navigation_intent_status", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1589,7 +1589,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_intent_status [bot_userid]" : test-only reports intent, owner, attempt and target cleanup state)");
 
 	CBotCommandInline EmpiresNavigationIntentCancelCommand(
-		"empires_navigation_intent_cancel", CMD_ACCESS_DEDICATED,
+		"empires_navigation_intent_cancel", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1619,7 +1619,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_navigation_intent_cancel [bot_userid]" : test-only cancels the active navigation intent and releases movement)");
 
 	CBotCommandInline EmpiresLocalExplorerRequestCommand(
-		"empires_local_explorer_request", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_request", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1656,7 +1656,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_local_explorer_request <x> <y> <z> [bot_userid]" : test-only starts a bounded local hull/ground graph explorer; it is not an AUTO provider)");
 
 	CBotCommandInline EmpiresLocalExplorerBarracksCommand(
-		"empires_local_explorer_barracks_once", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_barracks_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1690,7 +1690,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_local_explorer_barracks_once [bot_userid]" : test-only selects the nearest live team NF Barracks by class and derives its live collision bounds as the local-explorer goal)");
 
 	CBotCommandInline EmpiresLocalExplorerBudgetCommand(
-		"empires_local_explorer_budget_once", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_budget_once", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1734,7 +1734,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_local_explorer_budget_once <x> <y> <z> [bot_userid]" : test-only runs the local explorer with deliberately tiny hard budgets and expects LOCAL_BUDGET_EXHAUSTED)");
 
 	CBotCommandInline EmpiresLocalExplorerUnreachableCommand(
-		"empires_local_explorer_unreachable", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_unreachable", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1764,7 +1764,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_local_explorer_unreachable [bot_userid]" : test-only requests a deterministic goal beyond the explorer radius and expects LOCAL_UNREACHABLE)");
 
 	CBotCommandInline EmpiresLocalExplorerStatusCommand(
-		"empires_local_explorer_status", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_status", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1799,7 +1799,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 		}, R"(usage "empires_local_explorer_status [bot_userid]" : test-only reports bounded graph, lifecycle, intent and attempt state)");
 
 	CBotCommandInline EmpiresLocalExplorerCancelCommand(
-		"empires_local_explorer_cancel", CMD_ACCESS_DEDICATED,
+		"empires_local_explorer_cancel", CMD_ACCESS_CONSOLE_ONLY,
 		[](const CClient* pClient, const BotCommandArgs& args)
 		{
 			edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1821,7 +1821,7 @@ CBotCommandInline EmpiresNormalPathOnceCommand("empires_normal_path_once", CMD_A
 			return COMMAND_ACCESSED;
 		}, R"(usage "empires_local_explorer_cancel [bot_userid]" : test-only cancels exploration and releases the shared CBot movement owner)");
 
-CBotCommandInline EmpiresVehicleScaleHpCommand("empires_vehicle_scalehp", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresVehicleScaleHpCommand("empires_vehicle_scalehp", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1845,7 +1845,7 @@ CBotCommandInline EmpiresVehicleScaleHpCommand("empires_vehicle_scalehp", CMD_AC
 
 int EmpiresVehicleDebugSetAmmo(int magazine, int reserve); // bot_empires_vehicle.cpp
 
-CBotCommandInline EmpiresVehicleSetAmmoCommand("empires_vehicle_setammo", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresVehicleSetAmmoCommand("empires_vehicle_setammo", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1858,7 +1858,7 @@ CBotCommandInline EmpiresVehicleSetAmmoCommand("empires_vehicle_setammo", CMD_AC
 
 int EmpiresVehicleDebugCrate(float distance); // bot_empires_vehicle.cpp
 
-CBotCommandInline EmpiresVehicleCrateCommand("empires_vehicle_crate", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresVehicleCrateCommand("empires_vehicle_crate", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1870,7 +1870,7 @@ CBotCommandInline EmpiresVehicleCrateCommand("empires_vehicle_crate", CMD_ACCESS
 
 int EmpiresTestWagesChat(int speakerUserId, float wages); // bot_empires_vehicle.cpp
 
-CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1883,7 +1883,7 @@ CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_DEDIC
 
 bool EmpiresTestEngibotChat(int speakerUserId, char prefix); // bot_empires_engibot.cpp
 
-CBotCommandInline EmpiresTestEngibotCommand("empires_test_engibot", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresTestEngibotCommand("empires_test_engibot", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1899,7 +1899,7 @@ CBotCommandInline EmpiresTestEngibotCommand("empires_test_engibot", CMD_ACCESS_D
 // emp_unit_order <type> <target entindex>
 // (server 0x64cdf0 / 0x64e9a0, reverse-engineering/notes/commander-order-types.md).
 // Type 0 abort, 1 move, 2 attack location, 3 attack target, 4 guard. target = player userid.
-CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -1990,7 +1990,7 @@ CBotCommandInline EmpiresTestUnitOrderCommand("empires_test_unit_order", CMD_ACC
 
 extern int g_empiresTestHumanCommanderTeam; // bot_empires_engibot.cpp
 
-CBotCommandInline EmpiresTestHelpHumanCommand("empires_test_help_human", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresTestHelpHumanCommand("empires_test_help_human", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		g_empiresTestHumanCommanderTeam = args.size() > 0 && args[0] != nullptr ? std::atoi(args[0]) : 0;
@@ -1998,7 +1998,7 @@ CBotCommandInline EmpiresTestHelpHumanCommand("empires_test_help_human", CMD_ACC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_help_human <team|0>" : test-only, the team's seated bot commander counts as a human commander for rcbot_empires_engineer_help_human)");
 
-CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2069,7 +2069,7 @@ CBotCommandInline EmpiresCommanderMoveTestCommand("empires_test_commander_move",
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_commander_move bot <bot_userid> <x> <y> <z> | squad <team> <squad_id> <x> <y> <z>" : test-only MOVE fixture; bot mode preserves Commander BOT path, squad mode issues one Phase-10.6 SQUAD parent/child order from existing live bot-owned membership without joining or moving any member)");
 
-CBotCommandInline EmpiresGuardTestCommand("empires_test_guard", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresGuardTestCommand("empires_test_guard", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2094,13 +2094,21 @@ CBotCommandInline EmpiresGuardTestCommand("empires_test_guard", CMD_ACCESS_DEDIC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_guard <bot_userid> <building_entindex|0>" : test-only, makes the bot act as if a Commander gave Guard on that building)");
 
-CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
 		if (args.size() < 3 || args[0] == nullptr || args[1] == nullptr || args[2] == nullptr)
 		{
 			CBotGlobals::botMessage(pEntity, 0, "usage: rcbotd empires_test_botcmd <bot_userid> <repeat> <command> [args]");
+			return COMMAND_ACCESSED;
+		}
+		constexpr int maxRepeat = 32;
+		char* repeatEnd = nullptr;
+		const long repeat = std::strtol(args[1], &repeatEnd, 10);
+		if (repeatEnd == args[1] || *repeatEnd != '\0' || repeat < 1 || repeat > maxRepeat)
+		{
+			CBotGlobals::botMessage(pEntity, 0, "error: repeat must be an integer from 1 to %d", maxRepeat);
 			return COMMAND_ACCESSED;
 		}
 		edict_t* pBotEdict = CBotGlobals::playerByUserId(std::atoi(args[0]));
@@ -2117,14 +2125,13 @@ CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_
 			command += args[i];
 		}
 		command += '\n';
-		const int repeat = std::max(1, std::atoi(args[1]));
-		for (int i = 0; i < repeat; ++i)
+		for (long i = 0; i < repeat; ++i)
 			helpers->ClientCommand(pBotEdict, command.c_str());
-		Msg("[RCBOT2] botcmd userid=%s repeat=%d cmd=%s", args[0], repeat, command.c_str());
+		Msg("[RCBOT2] botcmd userid=%s repeat=%ld cmd=%s", args[0], repeat, command.c_str());
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_botcmd <bot_userid> <repeat> <command> [args]" : test-only, the bot runs a client command)");
 
-CBotCommandInline EmpiresCommanderYieldTestCommand("empires_test_commander_yield", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresCommanderYieldTestCommand("empires_test_commander_yield", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2139,7 +2146,7 @@ CBotCommandInline EmpiresCommanderYieldTestCommand("empires_test_commander_yield
 	}, R"(usage "empires_test_commander_yield <team>" : test-only, the auto Commander of that team acts as if a human wanted the seat)");
 
 CBotCommandInline EmpiresRecoveryCaptureAcceptanceCommand(
-	"empires_recovery_acceptance_capture", CMD_ACCESS_DEDICATED,
+	"empires_recovery_acceptance_capture", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2178,7 +2185,7 @@ CBotCommandInline EmpiresRecoveryCaptureAcceptanceCommand(
 );
 
 CBotCommandInline EmpiresRecoverySquadAcceptanceCommand(
-	"empires_recovery_acceptance_squad", CMD_ACCESS_DEDICATED,
+	"empires_recovery_acceptance_squad", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2213,7 +2220,7 @@ CBotCommandInline EmpiresRecoverySquadAcceptanceCommand(
 );
 
 CBotCommandInline EmpiresScoutBuildingVisibilityScanCommand(
-	"empires_scout_building_visibility_scan", CMD_ACCESS_DEDICATED,
+	"empires_scout_building_visibility_scan", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2287,7 +2294,7 @@ CBotCommandInline EmpiresScoutBuildingVisibilityScanCommand(
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_building_visibility_scan <building_index>" : read-only trace from loaded waypoint eye-height positions to one live Empires building; does not move actors or write gameplay state)");
 
-CBotCommandInline EmpiresEnemyLosFixtureCommand("empires_enemy_los_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEnemyLosFixtureCommand("empires_enemy_los_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2322,7 +2329,7 @@ CBotCommandInline EmpiresEnemyLosFixtureCommand("empires_enemy_los_once", CMD_AC
 		return COMMAND_ACCESSED;
 		}, R"(usage "empires_enemy_los_once <observer_userid> <opponent_userid> [expire]" : runs one bounded two-normal-bot LOS/last-known fixture; optional expire mode uses the same geometry fixture with opponent route 155 to 157 and requires natural search expiry without reacquisition)");
 
-CBotCommandInline EmpiresEnemyLosFixtureCleanupCommand("empires_enemy_los_cleanup", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEnemyLosFixtureCleanupCommand("empires_enemy_los_cleanup", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2333,7 +2340,7 @@ CBotCommandInline EmpiresEnemyLosFixtureCleanupCommand("empires_enemy_los_cleanu
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_enemy_los_cleanup" : releases any active debug LOS fixture without changing normal enemy memory)");
 
-CBotCommandInline EmpiresEnemyCombatFixtureCommand("empires_enemy_combat_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEnemyCombatFixtureCommand("empires_enemy_combat_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2367,7 +2374,7 @@ CBotCommandInline EmpiresEnemyCombatFixtureCommand("empires_enemy_combat_once", 
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_enemy_combat_once <observer_userid> <opponent_userid>" : positions two alive opposing normal bots at known visible waypoints, holds movement only, and leaves normal combat input active for one bounded telemetry run)");
 
-CBotCommandInline EmpiresScoutPriorityFixtureCommand("empires_scout_priority_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresScoutPriorityFixtureCommand("empires_scout_priority_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2404,7 +2411,7 @@ CBotCommandInline EmpiresScoutPriorityFixtureCommand("empires_scout_priority_onc
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_priority_once <scout_userid> <target_a_userid> <target_b_userid> <firing_target_userid>" : positions one Scout and two opposing normal players at known visible waypoints, varies only the public last-command IN_ATTACK state and observes normal target selection)");
 
-CBotCommandInline EmpiresScoutPriorityFixtureCleanupCommand("empires_scout_priority_cleanup", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresScoutPriorityFixtureCleanupCommand("empires_scout_priority_cleanup", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2415,7 +2422,7 @@ CBotCommandInline EmpiresScoutPriorityFixtureCleanupCommand("empires_scout_prior
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_priority_cleanup" : releases the bounded Scout target-priority fixture)");
 
-CBotCommandInline EmpiresEnemyApproachFixtureCommand("empires_enemy_approach_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEnemyApproachFixtureCommand("empires_enemy_approach_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2449,7 +2456,7 @@ CBotCommandInline EmpiresEnemyApproachFixtureCommand("empires_enemy_approach_onc
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_enemy_approach_once <observer_userid> <opponent_userid>" : positions two normal bots, releases the observer after acquisition and proves existing approach movement with the target held)");
 
-CBotCommandInline EmpiresScoutBinocularOnceCommand("empires_scout_binocular_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresScoutBinocularOnceCommand("empires_scout_binocular_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2482,7 +2489,7 @@ CBotCommandInline EmpiresScoutBinocularOnceCommand("empires_scout_binocular_once
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_binocular_once <scout_userid> <target_userid>" : bounded Scout binocular primary-input proof; no generic scoring or role policy)");
 
-CBotCommandInline EmpiresScoutBinocularBuildingOnceCommand("empires_scout_binocular_building_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresScoutBinocularBuildingOnceCommand("empires_scout_binocular_building_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2515,7 +2522,7 @@ CBotCommandInline EmpiresScoutBinocularBuildingOnceCommand("empires_scout_binocu
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_binocular_building_once <scout_userid> <building_entity_index>" : bounded Scout binocular building-output proof; no generic role policy)");
 
-CBotCommandInline EmpiresScoutSkillObservationCommand("empires_scout_skill_observation", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresScoutSkillObservationCommand("empires_scout_skill_observation", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2545,7 +2552,7 @@ CBotCommandInline EmpiresScoutSkillObservationCommand("empires_scout_skill_obser
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_scout_skill_observation <scout_userid>" : development-only read-only Scout personal class-skill-slot observation through dynamic public properties; not Squad-Leader skill observation; no state writes)");
 
-CBotCommandInline EmpiresSquadObservationCommand("empires_squad_observation", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresSquadObservationCommand("empires_squad_observation", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2576,7 +2583,7 @@ CBotCommandInline EmpiresSquadObservationCommand("empires_squad_observation", CM
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_squad_observation [userid]" : development-only read-only Empires squad membership/leader/class/points observation through dynamic public properties; dumps raw m_iSquad/m_iSquadPosition/m_bSquadLeader/m_iEmpSquadXP with resolution status; no state writes)");
 
-CBotCommandInline EmpiresSquadMakeLeadCommand("empires_squad_make_lead", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresSquadMakeLeadCommand("empires_squad_make_lead", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2608,7 +2615,7 @@ CBotCommandInline EmpiresSquadMakeLeadCommand("empires_squad_make_lead", CMD_ACC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_squad_make_lead <issuer_userid> <target_userid>" : development-only native Empires squad leader change through the production client-command path (emp_make_lead with the live target entity index); submission is not success, confirm with empires_squad_make_lead_status; no tactical policy)");
 
-CBotCommandInline EmpiresSquadMakeLeadStatusCommand("empires_squad_make_lead_status", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresSquadMakeLeadStatusCommand("empires_squad_make_lead_status", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2621,7 +2628,7 @@ CBotCommandInline EmpiresSquadMakeLeadStatusCommand("empires_squad_make_lead_sta
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_squad_make_lead_status" : development-only readback of the pending native squad leader change from public squad state; reports NOT_REQUESTED/REQUESTED/CONFIRMED/FAILED/INVALIDATED)");
 
-CBotCommandInline EmpiresMortarSmokeCommand("empires_mortar_smoke_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresMortarSmokeCommand("empires_mortar_smoke_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2645,7 +2652,7 @@ CBotCommandInline EmpiresMortarSmokeCommand("empires_mortar_smoke_once", CMD_ACC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_mortar_smoke_once" : bounded NF mortar projectile proof using normal bot input; no target required)");
 
-CBotCommandInline EmpiresMortarFireOnceCommand("empires_mortar_fire_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresMortarFireOnceCommand("empires_mortar_fire_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2670,7 +2677,7 @@ CBotCommandInline EmpiresMortarFireOnceCommand("empires_mortar_fire_once", CMD_A
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_mortar_fire_once" : bounded current-team Grenadier mortar first shot through the normal weapon/input path; no tactical selection)");
 
-CBotCommandInline EmpiresMineFireOnceCommand("empires_mine_fire_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresMineFireOnceCommand("empires_mine_fire_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2695,7 +2702,7 @@ CBotCommandInline EmpiresMineFireOnceCommand("empires_mine_fire_once", CMD_ACCES
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_mine_fire_once" : bounded current-team Grenadier mine throw through the normal weapon/input path; no tactical placement)");
 
-CBotCommandInline EmpiresMineTriggerOnceCommand("empires_mine_trigger_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresMineTriggerOnceCommand("empires_mine_trigger_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2743,7 +2750,7 @@ CBotCommandInline EmpiresMineTriggerOnceCommand("empires_mine_trigger_once", CMD
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_mine_trigger_once <target_userid> [target_hold_seconds]" : debug-only bounded mine deployment and normal engine trigger observation; optional target hold delays fixture-only placement for activation observation)");
 
-CBotCommandInline EmpiresMortarAimOnceCommand("empires_mortar_aim_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresMortarAimOnceCommand("empires_mortar_aim_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2790,7 +2797,7 @@ CBotCommandInline EmpiresMortarAimOnceCommand("empires_mortar_aim_once", CMD_ACC
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_mortar_aim_once [target_waypoint]" : debug-only one-shot NF mortar aim test from waypoint 147, default target 149, using normal controller input)");
 
-CBotCommandInline EmpiresEngineerRepairFixturePrepareCommand("empires_engineer_repair_fixture_prepare", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerRepairFixturePrepareCommand("empires_engineer_repair_fixture_prepare", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -2814,7 +2821,7 @@ CBotCommandInline EmpiresEngineerRepairFixturePrepareCommand("empires_engineer_r
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_repair_fixture_prepare" : development-only names the current NF Barracks for the isolated repair fixture)");
 
-CBotCommandInline EmpiresEngineerRepairFixtureDamageCommand("empires_engineer_repair_fixture_damage", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerRepairFixtureDamageCommand("empires_engineer_repair_fixture_damage", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2842,7 +2849,7 @@ CBotCommandInline EmpiresEngineerRepairFixtureDamageCommand("empires_engineer_re
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_repair_fixture_damage [class] [damage]" : development-only lowers m_iHealth through the resolved NF Barracks property for one repair test)");
 
-CBotCommandInline EmpiresEngineerRepairVisibilityScanCommand("empires_engineer_repair_visibility_scan", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerRepairVisibilityScanCommand("empires_engineer_repair_visibility_scan", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2884,7 +2891,7 @@ CBotCommandInline EmpiresEngineerRepairVisibilityScanCommand("empires_engineer_r
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_repair_visibility_scan [building_index]" : development-only input-free MASK_SHOT scan from all current-team waypoints to Barracks target points)");
 
-CBotCommandInline EmpiresEngineerRepairVisibilityAllBuildingsCommand("empires_engineer_repair_visibility_scan_all", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerRepairVisibilityAllBuildingsCommand("empires_engineer_repair_visibility_scan_all", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2916,7 +2923,7 @@ CBotCommandInline EmpiresEngineerRepairVisibilityAllBuildingsCommand("empires_en
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_repair_visibility_scan_all" : development-only input-free MASK_SHOT scan from all current-team buildings to all current-team waypoints)");
 
-CBotCommandInline EmpiresEngineerRepairOnceCommand("empires_engineer_repair_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerRepairOnceCommand("empires_engineer_repair_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -2968,7 +2975,7 @@ CBotCommandInline EmpiresEngineerRepairOnceCommand("empires_engineer_repair_once
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_repair_once [building_index] [full]" : development-only bounded friendly-building repair through the normal Engineer kit primary input path; optional full waits for max health)");
 
-CBotCommandInline EmpiresEngineerResupplyOnceCommand("empires_engineer_resupply_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerResupplyOnceCommand("empires_engineer_resupply_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3000,7 +3007,7 @@ CBotCommandInline EmpiresEngineerResupplyOnceCommand("empires_engineer_resupply_
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_resupply_once" : development-only bounded same-team ammo-crate interaction through normal Engineer/IN_USE input; no ammo or player-state writes)");
 
-CBotCommandInline EmpiresEngineerResupplyGoalOnceCommand("empires_engineer_resupply_goal_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerResupplyGoalOnceCommand("empires_engineer_resupply_goal_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3032,7 +3039,7 @@ CBotCommandInline EmpiresEngineerResupplyGoalOnceCommand("empires_engineer_resup
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_resupply_goal_once" : development-only drains the current Engineer primary through normal input, then returns to normal out-of-ammo resupply goal selection; no ammo or player-state writes)");
 
-CBotCommandInline EmpiresEngineerBuildSelectionOnceCommand("empires_engineer_build_select_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerBuildSelectionOnceCommand("empires_engineer_build_select_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3064,7 +3071,7 @@ CBotCommandInline EmpiresEngineerBuildSelectionOnceCommand("empires_engineer_bui
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_build_select_once" : development-only one-shot Engineer-kit secondary input; observes build-item state without placing a building)");
 
-CBotCommandInline EmpiresEngineerBuildOnceCommand("empires_engineer_build_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerBuildOnceCommand("empires_engineer_build_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3116,7 +3123,7 @@ CBotCommandInline EmpiresEngineerBuildOnceCommand("empires_engineer_build_once",
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_build_once [target_waypoint] [full]" : development-only bounded Engineer MG-turret placement through current engSelect and normal primary input; optional full continues the normal build input until max health)");
 
-CBotCommandInline EmpiresEngineerBuildAtCommand("empires_engineer_build_at", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresEngineerBuildAtCommand("empires_engineer_build_at", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3179,7 +3186,7 @@ CBotCommandInline EmpiresEngineerBuildAtCommand("empires_engineer_build_at", CMD
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_engineer_build_at <x> <y> <z> [full]" : development-only bounded Engineer MG-turret placement at an explicit fixture target through normal input; optional full continues the normal build input until max health)");
 
-CBotCommandInline EmpiresVehicleInventoryCommand("empires_vehicle_inventory", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresVehicleInventoryCommand("empires_vehicle_inventory", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3205,7 +3212,7 @@ CBotCommandInline EmpiresVehicleInventoryCommand("empires_vehicle_inventory", CM
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_vehicle_inventory" : development-only read-only inventory of live Empires vehicle entities, spawners and presets)");
 
-CBotCommandInline EmpiresNavScanCommand("empires_nav_scan", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresNavScanCommand("empires_nav_scan", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)pClient;
@@ -3214,7 +3221,7 @@ CBotCommandInline EmpiresNavScanCommand("empires_nav_scan", CMD_ACCESS_DEDICATED
 		return COMMAND_ACCESSED;
 	}, "dev scan");
 
-CBotCommandInline EmpiresCommanderEntryCommand("empires_commander_entry_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresCommanderEntryCommand("empires_commander_entry_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -3236,7 +3243,7 @@ static bool EmpiresEntityMarkedForDeletion(edict_t* e)
 	return entity == nullptr || (*reinterpret_cast<const int*>(reinterpret_cast<const char*>(entity) + 0x118) & 0x1) != 0;
 }
 
-CBotCommandInline EmpiresCommanderPlaceBarracksCommand("empires_commander_place_barracks", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresCommanderPlaceBarracksCommand("empires_commander_place_barracks", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -3327,7 +3334,7 @@ CBotCommandInline EmpiresCommanderPlaceBarracksCommand("empires_commander_place_
 // enabled emp_resource_point. A rejected building is removed with the deferred UTIL_Remove: it is still
 // listed in the same frame (rejected=1 via EFL_KILLME); "empires_commander_build list" checks later.
 // Raw offsets (server_srv.so): entity team 0x208, CResourcePoint enabled 0x4a8 / m_iResIndex 0x4b0.
-CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* output = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3492,7 +3499,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		return COMMAND_ACCESSED;
 }, R"(usage "empires_commander_build <type> [x y z | spot] | list" : seated Commander bot submits emp_build (probe); list shows buildings and resource points)");
 
-CBotCommandInline EmpiresVehicleFactoryDriveOnceCommand("empires_vehicle_vf_drive_once", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresVehicleFactoryDriveOnceCommand("empires_vehicle_vf_drive_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
@@ -3524,7 +3531,7 @@ CBotCommandInline EmpiresVehicleFactoryDriveOnceCommand("empires_vehicle_vf_driv
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_vehicle_vf_drive_once" : development-only bounded bot tutorial completion, VF purchase, vehicle entry, normal UserCmd drive/stop/exit; no vehicle state writes)");
 
-CBotCommandInline EmpiresNormalRespawnProbeKillCommand("empires_normal_respawn_probe_kill", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresNormalRespawnProbeKillCommand("empires_normal_respawn_probe_kill", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -3545,7 +3552,7 @@ CBotCommandInline EmpiresNormalRespawnProbeKillCommand("empires_normal_respawn_p
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_normal_respawn_probe_kill" : development-only kill of the first normal Empires bot to test one bounded respawn cycle)");
 
-CBotCommandInline EmpiresBootstrapCountCheckCommand("empires_bootstrap_countcheck", CMD_ACCESS_DEDICATED,
+CBotCommandInline EmpiresBootstrapCountCheckCommand("empires_bootstrap_countcheck", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
 		(void)args;
@@ -3815,6 +3822,9 @@ CBotCommandInline EmpiresBootstrapSpawnConfirmCommand("empires_bootstrap_spawnco
 
 bool CBotCommand::hasAccess(const CClient* pClient) const
 {
+	if (m_iAccessLevel & CMD_ACCESS_CONSOLE_ONLY)
+		return false;
+
 	// check access level excluding dedicated server flag
 	const int iClientAccessLevel = this->m_iAccessLevel & ~CMD_ACCESS_DEDICATED;
 	return (iClientAccessLevel & pClient->accessLevel()) == iClientAccessLevel;
