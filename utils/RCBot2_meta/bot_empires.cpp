@@ -21500,6 +21500,35 @@ bool CBotEmpires::startGame()
 			"Empires normal bot lifecycle=team-requested index=%d requested_team=%d team_before=%d command=%s",
 			engine->IndexOfEdict(m_pEdict), requestedTeam, currentTeam, command);
 
+		// A fake client spawns alive in Unassigned (CEmpPlayer::Spawn puts team 0 at an
+		// emp_info_map_overview), and CBasePlayer::ChangeTeam 0x7eea75 kills every player whose
+		// m_lifeState is not LIFE_DEAD ("committed suicide" on join, plus emp_sv_respawn_penalty).
+		// Humans are made dead observers in FinishClientPutInServer 0x624900, which skips bots:
+		// mark the bot dead the same way before joining (RE spawn.md, expert 2026-11-15).
+		if (currentTeam == 0)
+		{
+			CClassInterfaceValue lifeProp("CEmpPlayer", "m_lifeState", 0);
+			lifeProp.findOffset();
+			byte* life = lifeProp.getBytePointer(m_pEdict);
+			if (life != nullptr && *life == 0)
+			{
+				*life = 2; // LIFE_DEAD
+				// pl.deadflag: SendProp offset, else CBasePlayer +0xa38 (FinishClientPutInServer) on
+				// the known binary.
+				unsigned deadOffset = 0;
+				ServerClass* cls = m_pEdict->GetNetworkable() != nullptr ? m_pEdict->GetNetworkable()->GetServerClass() : nullptr;
+				if (cls == nullptr || !UTIL_FindSendPropInfo(cls, "deadflag", &deadOffset) || deadOffset == 0)
+					deadOffset = EmpiresBinaryOffsetsTrusted() ? 0xa38u : 0u;
+				CBaseEntity* base = m_pEdict->GetUnknown() != nullptr ? m_pEdict->GetUnknown()->GetBaseEntity() : nullptr;
+				if (deadOffset != 0 && base != nullptr)
+					*(reinterpret_cast<char*>(base) + deadOffset) = 1;
+				m_pEdict->m_fStateFlags |= FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED;
+				logger->Log(LogLevel::INFO,
+					"Empires normal bot lifecycle=join-dead index=%d deadflag_offset=0x%x",
+					engine->IndexOfEdict(m_pEdict), deadOffset);
+			}
+		}
+
 		// This is the public Empires command route. Only team selection is
 		// performed here; class, loadout and spawn are separate stages.
 		helpers->ClientCommand(m_pEdict, command);

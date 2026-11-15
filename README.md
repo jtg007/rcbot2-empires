@@ -76,6 +76,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Follow move orders | From a human commander; completion distance near mesh edges needs further testing |
 | 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
 | 🟡 | Follow guard orders | Engineers repair the ordered building; not tested with a human commander yet |
+| ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |
 | 🟡 | Squads | Bots join and follow squads; coordinated vehicle passengers and roles are planned |
 | 🟡 | Mines, scout binoculars | Implemented, rarely used in matches |
 | ⬜ | Seismic grenades | Engineers against turrets |

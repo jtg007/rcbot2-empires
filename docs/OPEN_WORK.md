@@ -26,7 +26,8 @@ Check free space before long recordings and remove only recordings you created.
 6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
    range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
 7. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
-   after research, fire-group switching with missiles, base expansion, squad passengers).
+   after research, fire-group switching with missiles, base expansion, squad passengers, APC as a
+   forward spawn point after its research).
 8. Sporadic navigation/robustness cases only when they recur; items needing a human player; maps,
    game modes and long runs; cleanup.
 
