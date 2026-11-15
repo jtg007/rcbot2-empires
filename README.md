@@ -150,8 +150,10 @@ Ready-made builds (32-bit, Source SDK 2013) are made by GitHub Actions:
 - **[Actions](../../actions/workflows/build.yml)**: every push and pull request; the build
   artifacts are attached to each run (GitHub login required).
 
-The Windows build compiles but is untested in game. Features that read fixed offsets from the game
-binary only know the Linux `server_srv.so` and use their fallbacks on Windows.
+The Windows build is untested in game. Features that read fixed offsets from the game binary only
+know the Linux `server_srv.so` and use their fallbacks on Windows; do not set
+`rcbot_empires_force_offsets 1` there. What is affected and how to port it:
+[docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Install
 

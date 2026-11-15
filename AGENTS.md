@@ -55,6 +55,11 @@ scripts/dev_check.sh                       # regression checks in parallel, ~1 m
 scripts/run_*_tests.sh                     # unit tests of single headers
 ```
 
+GitHub Actions builds Linux and Windows (MSVC, x86) on every push; a push to `main` refreshes the
+`latest` release. Bundle commits before pushing. For MSVC: the SDK defines `min`/`max`/`snprintf` as
+macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain `snprintf(`; keep Linux-only
+APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
+
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
 Mixed loadout refit on the pad (~1 min): `scripts/dev_mixed.sh [map] [timescale]`.
 Empty cannon -> pad -> refit (~1.5 min): `scripts/dev_ammo.sh [map] [timescale]`. Empty cannon -> nearer team

@@ -416,12 +416,15 @@ public:
 //-----------------------------------------------------------------------------
 // traceline methods
 //-----------------------------------------------------------------------------
-class CTraceFilterSimple : public CTraceFilter
+// Own name in an anonymous namespace: navmesh/util/UtilTrace.h has a different CTraceFilterSimple,
+// and the shared name made the linker use that class's vtable for these filters (MSVC: LNK2005).
+namespace {
+class CBotTraceFilterPassTwo : public CTraceFilter
 {
 public:
-	virtual ~CTraceFilterSimple() = default;
+	virtual ~CBotTraceFilterPassTwo() = default;
 
-	CTraceFilterSimple( const IHandleEntity *passentity1, const IHandleEntity *passentity2, const int collisionGroup )
+	CBotTraceFilterPassTwo( const IHandleEntity *passentity1, const IHandleEntity *passentity2, const int collisionGroup )
 	{
 		m_pPassEnt1 = passentity1;
 		m_pPassEnt2 = passentity2;
@@ -456,6 +459,7 @@ private:
 	const IHandleEntity *m_pPassEnt2;
 	int m_collisionGroup;
 };
+} // namespace
 
 bool CBotGlobals :: checkOpensLater (const Vector& vSrc, const Vector& vDest)
 {
@@ -463,7 +467,7 @@ bool CBotGlobals :: checkOpensLater (const Vector& vSrc, const Vector& vDest)
 	VPROF_BUDGET("CBotGlobals::checkOpensLater", "RCBot2")
 #endif // RCBOT_VPROF_ENABLED
 
-	CTraceFilterSimple traceFilter(nullptr, nullptr, MASK_PLAYERSOLID );
+	CBotTraceFilterPassTwo traceFilter(nullptr, nullptr, MASK_PLAYERSOLID );
 
 	traceLine (vSrc,vDest,MASK_PLAYERSOLID,&traceFilter);
 
@@ -475,7 +479,7 @@ bool CBotGlobals :: isVisibleHitAllExceptPlayer ( edict_t *pPlayer, const Vector
 {
 	const IHandleEntity *ignore = pPlayer->GetIServerEntity();
 
-	CTraceFilterSimple traceFilter( ignore, (pDest== nullptr ? nullptr :pDest->GetIServerEntity()), MASK_ALL );
+	CBotTraceFilterPassTwo traceFilter( ignore, (pDest== nullptr ? nullptr :pDest->GetIServerEntity()), MASK_ALL );
 
 	traceLine (vSrc,vDest,MASK_SHOT|MASK_VISIBLE,&traceFilter);
 

@@ -76,7 +76,7 @@ bool CBotEmpires::handleEmpiresRevive()
 		return false;
 	// Revive skill active: the byte Command_emp_revive checks on the reviver.
 	const CBaseEntity* self = BaseOf(m_pEdict);
-	if (self == nullptr || reinterpret_cast<const char*>(self)[0x121f] == 0)
+	if (self == nullptr || !EmpiresBinaryOffsetsTrusted() || reinterpret_cast<const char*>(self)[0x121f] == 0)
 		return false;
 	const float now = gpGlobals->curtime;
 	const int team = getTeam();
@@ -239,7 +239,7 @@ bool CBotEmpires::holdRespawnForRevive()
 			continue;
 		CBotEmpires* eng = static_cast<CBotEmpires*>(bot);
 		const CBaseEntity* base = BaseOf(bot->getEdict());
-		if (base == nullptr || reinterpret_cast<const char*>(base)[0x121f] == 0)
+		if (base == nullptr || !EmpiresBinaryOffsetsTrusted() || reinterpret_cast<const char*>(base)[0x121f] == 0)
 			continue;
 		if (eng->m_iReviveTarget == me)
 			targeted = true;
