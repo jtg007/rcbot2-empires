@@ -70,6 +70,9 @@ macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain 
 APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
+Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with
+`QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL`, `QUICK_SHOW`): `scripts/dev_quick.sh [map] [minutes]`.
+`rcbot_empires_vehicle_shell_trace 1` logs shell flight and impact (`vehicle shell-end`) and turret aim.
 For the factory exit and subsequent route, use `scripts/dev_vf_drive.sh [0|1|place] [map] [nf|be] ["x y z"]`.
 The factory is the first building. The NF buyer joins when its terminal is ready.
 BE starts a rifleman early to give it time to leave the barracks.
@@ -185,9 +188,10 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 
 ## Known facts (measured, do not re-derive)
 
-- Mortar and fast-forward: `CEmpShell` stores `gpGlobals->realtime` at spawn and explodes
-  once `curtime - spawn > 30`. With `host_timescale` > 1 every shell explodes at the bot.
-  Mortar tests at timescale 1.
+- Mortars, tank cannons and fast-forward: both fire `CEmpShell`, which stores `gpGlobals->realtime`
+  at spawn and explodes once `curtime - spawn > 30`. With `host_timescale` > 1 every shell explodes
+  at the muzzle. Mortar and cannon tests at timescale 1; fast-forward only for driving/economy.
+- Tank turrets read the command view angles relative to the hull (see `reverse-engineering/notes/vehicle-driving.md`).
 - Engineer kit traces only 100 units from the eye; building: 1 clip round = 1 HP, ~4.7 HP/s.
 - A MOVE order ends in the game only within 100 units (3D) of its location.
 - Navmesh limits in `bot_navmesh_api.cpp`: climb max 40, drop max 200. The generated mesh

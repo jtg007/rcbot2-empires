@@ -1068,7 +1068,10 @@ void CBotEmpires::tickCommanderEconomy()
 		if (!engineer->isEmpiresEngineerClass())
 			continue;
 		++livingEngineers;
-		if (engineer->m_iBuildAssignStage == 0 && engineer->m_iTurretRefinery == 0) // a turret job finishes first
+		// A turret job finishes first; so does a claimed vehicle repair call (run 122757: the
+		// econ assignment pulled engineer #8 off a 27/150 tank twice, the tank waited 160 s).
+		if (engineer->m_iBuildAssignStage == 0 && engineer->m_iTurretRefinery == 0 &&
+			!engineer->empiresVehicleRepairClaimed())
 			freeEngineers.push_back(engineer);
 	}
 	const bool commanderEngineer = rcbot_empires_commander_engineer.GetBool() && isEmpiresEngineerClass();

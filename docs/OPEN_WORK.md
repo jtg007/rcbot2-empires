@@ -14,15 +14,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 0. Priority order
 
-1. Tank combat near enemy buildings (3.21): within about 550 HU of an enemy
-   refinery, tanks stall or collide instead of firing (Crossroads
-   `20261120-122757`, one reverse-recovery bail, one tank stopped without input).
-   Add a stand-off distance and fire-line check there, and confirm vehicle goal
-   selection beyond the CV drive (3.24) on a map with flags (Palmbay or Coast).
-2. Repair priority: commander economy assignments must not pull an engineer off a
-   running base vehicle repair for a distant build (a damaged NF tank waited about
-   160 s in the same match). Then complete infantry attacks on buildings and the CV
-   (3.23: rifleman sticky charges, scout sabotage).
+1. Confirm vehicle goal selection beyond the CV drive (3.24) and flag support on a map
+   with flags (Palmbay or Coast). Tanks now hit (see 3.21); remaining tank issues: another
+   tank's turret blocking the fire line, refineries destroyed while still under construction.
+2. Complete infantry attacks on buildings and the CV (3.23: rifleman sticky charges,
+   scout sabotage).
 3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
    and speed. For tank combat (3.21), use the same hit and damage measures for moving
    targets, armour facing and later changes. Measure commander orders with a reachable
@@ -91,8 +87,17 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   and vehicle clip brushes, and side-on facing is used only against armed targets in
   direct combat. Vehicles pick base defence, front flags, enemy refinery/barracks/
   factory/radar, then the CV. In `20261120-122757`: 6 vehicles bought (baseline 5),
-  no facing stalls, a 2-vs-1 tank fight, two cannon refills at an ammo crate. Open:
-  close range to buildings (see priority 1) and flag support on a flag map.
+  no facing stalls, a 2-vs-1 tank fight, two cannon refills at an ammo crate.
+  **Turret aim fixed:** the tank turret reads the command view angles relative to the
+  hull, not as world angles; cannon and MG shots flew rotated by the hull yaw and almost
+  all missed. The bot now rotates its aim into the hull frame. The fire-line check also
+  ignores resource points (shells pass through them in the game). Short test
+  (`scripts/dev_quick.sh`, 1x): 0 hits before, 8/8 after (refinery 150 -> 92). 10-bot
+  Crossroads match `20261120-132819`: tanks destroyed 4 refineries (before: 0), tank duels
+  now deal real damage, 0 bail-outs (before: 4). Commander build assignments no longer
+  pull an engineer off a running vehicle repair call. Buildings and the CV are targets only
+  when in sight and when no vehicle or infantry target is in range. Open: flag support on a
+  flag map, hits on moving targets and MG lead.
 - [ ] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky

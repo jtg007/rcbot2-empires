@@ -41,6 +41,8 @@ namespace
 {
 ConVar rcbot_empires_vehicle_turn_test("rcbot_empires_vehicle_turn_test", "0", 0,
 	"Debug purchases only: 1 normal turn, 2 handbrake pulse, 3 coast straight, 4 brake straight");
+ConVar rcbot_empires_vehicle_shell_trace("rcbot_empires_vehicle_shell_trace", "0", 0,
+	"Diagnosis: log where cannon shells/missiles end while a driver bot has a target");
 ConVar rcbot_empires_vehicle_curve_speed("rcbot_empires_vehicle_curve_speed", "0", 0,
 	"Experimental anticipatory curve speed for NF Light and BE AFV on ordinary routes");
 ConVar rcbot_empires_vehicle_maneuvers("rcbot_empires_vehicle_maneuvers", "0", 0,
@@ -922,6 +924,10 @@ public:
 		if (edict != m_target)
 		{
 			const char* cls = edict->GetClassName();
+			// The game's ShouldCollide ignores resource points (RE engineer.md); the volume under a
+			// refinery blocked every close shot at it (run 125722: blocker=emp_resource_point at 524 HU).
+			if (cls != nullptr && std::strcmp(cls, "emp_resource_point") == 0)
+				return false;
 			if (cls != nullptr && std::strncmp(cls, "emp_building_", 13) == 0 &&
 				(std::strstr(cls, "physbox") != nullptr || std::strstr(cls, "panel") != nullptr))
 				return false;
@@ -940,21 +946,105 @@ private:
 
 Vector EntityCenter(edict_t* e);
 
-bool HasClearFireLine(edict_t* self, edict_t* vehicle, const Vector& eye, edict_t* target)
+// why (optional): "world" / "entity" / "" plus fraction and blocking entity index for diagnosis.
+// Diagnosis (rcbot_empires_vehicle_shell_trace): follows cannon shells/missiles and logs their
+// last seen position when they disappear, with the distance to the target box.
+void TraceShells(int userId, edict_t* target)
+{
+	struct Tracked { int index = -1; int serial = -1; Vector first; Vector last; const char* cls = ""; };
+	static Tracked tracked[64];
+	if (gpGlobals == nullptr || engine == nullptr)
+		return;
+	for (Tracked& t : tracked)
+	{
+		if (t.index < 0)
+			continue;
+		edict_t* e = engine->PEntityOfEntIndex(t.index);
+		if (e != nullptr && !e->IsFree() && e->m_NetworkSerialNumber == t.serial)
+		{
+			t.last = CBotGlobals::entityOrigin(e);
+			continue;
+		}
+		Vector mins(0, 0, 0), maxs(0, 0, 0);
+		if (target != nullptr && !target->IsFree() && target->GetCollideable() != nullptr)
+			target->GetCollideable()->WorldSpaceSurroundingBounds(&mins, &maxs);
+		const float dx = (std::max)((std::max)(mins.x - t.last.x, t.last.x - maxs.x), 0.0f);
+		const float dy = (std::max)((std::max)(mins.y - t.last.y, t.last.y - maxs.y), 0.0f);
+		const float dz = (std::max)((std::max)(mins.z - t.last.z, t.last.z - maxs.z), 0.0f);
+		const Vector flight = t.last - t.first;
+		RCBOT_DIAG("[RCBOT2] vehicle shell-end userid=%d class=%s from=(%.0f %.0f %.0f) at=(%.0f %.0f %.0f) flight_yaw=%.1f "
+			"target=%d target_yaw=%.1f box_dist=%.0f\n", userId, t.cls, t.first.x, t.first.y, t.first.z, t.last.x, t.last.y,
+			t.last.z, RAD2DEG(std::atan2(flight.y, flight.x)), target != nullptr ? engine->IndexOfEdict(target) : -1,
+			target != nullptr ? YawTo(t.first, EntityCenter(target)) : 0.0f, std::sqrt(dx * dx + dy * dy + dz * dz));
+		t.index = -1;
+	}
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+			continue;
+		const char* cls = e->GetClassName();
+		if (std::strstr(cls, "shell") == nullptr && std::strstr(cls, "cannon") == nullptr &&
+			std::strstr(cls, "missile") == nullptr)
+			continue;
+		bool known = false;
+		Tracked* slot = nullptr;
+		for (Tracked& t : tracked)
+		{
+			if (t.index == i && t.serial == e->m_NetworkSerialNumber)
+				known = true;
+			else if (t.index < 0 && slot == nullptr)
+				slot = &t;
+		}
+		if (!known && slot != nullptr)
+		{
+			slot->index = i;
+			slot->serial = e->m_NetworkSerialNumber;
+			slot->last = CBotGlobals::entityOrigin(e);
+			slot->first = slot->last;
+			slot->cls = cls;
+		}
+	}
+}
+
+bool HasClearFireLine(edict_t* self, edict_t* vehicle, const Vector& eye, edict_t* target,
+	const char** why = nullptr, float* fraction = nullptr, int* blocker = nullptr, Vector* end = nullptr)
 {
 	if (enginetrace == nullptr || target == nullptr || target->IsFree())
 		return false;
 	trace_t hit;
 	Ray_t ray;
-	ray.Init(eye, EntityCenter(target));
+	const Vector centre = EntityCenter(target);
+	if (end != nullptr)
+		*end = centre;
+	ray.Init(eye, centre);
 	CTraceFilterWorldOnly worldFilter;
 	enginetrace->TraceRay(ray, MASK_SHOT, &worldFilter, &hit);
 	if (hit.fraction <= 0.97f)
+	{
+		if (why != nullptr)
+			*why = "world";
+		if (fraction != nullptr)
+			*fraction = hit.fraction;
 		return false;
+	}
 	FireLineFilter entities(self, vehicle, target);
 	enginetrace->TraceRay(ray, MASK_SHOT, &entities, &hit);
-	return hit.fraction > 0.97f ||
+	const bool clear = hit.fraction > 0.97f ||
 		(target->GetUnknown() != nullptr && hit.m_pEnt == target->GetUnknown()->GetBaseEntity());
+	if (!clear)
+	{
+		if (why != nullptr)
+			*why = "entity";
+		if (fraction != nullptr)
+			*fraction = hit.fraction;
+		if (blocker != nullptr && hit.m_pEnt != nullptr)
+		{
+			edict_t* e = servergameents != nullptr ? servergameents->BaseEntityToEdict(hit.m_pEnt) : nullptr;
+			*blocker = e != nullptr ? engine->IndexOfEdict(e) : -1;
+		}
+	}
+	return clear;
 }
 
 struct VehicleManeuver
@@ -1874,7 +1964,16 @@ Vector EntityCenter(edict_t* e)
 		Vector mins, maxs;
 		e->GetCollideable()->WorldSpaceSurroundingBounds(&mins, &maxs);
 		if (maxs.z > mins.z)
-			return (mins + maxs) * 0.5f;
+		{
+			Vector centre = (mins + maxs) * 0.5f;
+			// Building bounds reach far below the ground (map refinery 132: z -326..32, ground -190):
+			// the box centre sat 40 HU above ground and shells hit the pad in front (run 125847:
+			// 11 cannon shots, refinery stayed 150/150). Aim halfway between origin and roof.
+			const char* cls = e->GetClassName();
+			if (cls != nullptr && std::strncmp(cls, "emp_building_", 13) == 0 && maxs.z > origin.z)
+				centre.z = (std::max)(centre.z, origin.z + (maxs.z - origin.z) * 0.5f);
+			return centre;
+		}
 	}
 	return origin + Vector(0, 0, 40);
 }
@@ -3183,7 +3282,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (isBuilding && EmpiresVehicleReadInt(this, e, "m_iHealth", 1) <= 0)
 					continue;
 				const float score = Dist2D(origin, CBotGlobals::entityOrigin(e)) + (isCv ? 0.0f : 500.0f);
-				if (score < 4000.0f && score < bestScore)
+				// Last resort only (vehicles and infantry come first, user 20.11.), and only what the
+				// driver can see: no shelling through hills and other buildings.
+				if (score < 4000.0f && score < bestScore && inSight(e))
 				{
 					bestScore = score;
 					best = e;
@@ -4941,7 +5042,24 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 
 	// -------- aim and fire
-	QAngle view(0, chosen, 0);
+	// The tank turret reads the command's view angles relative to the hull, not as world angles
+	// (run 130949: aim 199.5 world, hull model yaw 170.6, shells flew 10 = 170.6 + 199.5; every
+	// cannon and MG shot missed). Turn a world direction into the hull frame before sending it.
+	const QAngle hullAngles = vehicle->GetCollideable() != nullptr ? vehicle->GetCollideable()->GetCollisionAngles() :
+		QAngle(0, 0, 0);
+	auto hullView = [&](const Vector& worldDir) {
+		matrix3x4_t hull;
+		AngleMatrix(hullAngles, hull);
+		Vector local;
+		VectorIRotate(worldDir, hull, local);
+		QAngle out;
+		VectorAngles(local, out);
+		out.z = 0.0f;
+		return out;
+	};
+	QAngle view = hullView(YawDir(chosen)); // no target: turret along the driving direction
+	if (rcbot_empires_vehicle_shell_trace.GetBool())
+		TraceShells(userId, target);
 	if (target != nullptr)
 	{
 		const Vector eye = origin + Vector(0, 0, 90);
@@ -4971,16 +5089,31 @@ void CBotEmpires::tickEmpiresVehicle()
 		Vector aim = centre + v.aimVel * flight;
 		if (!infantry)
 			aim.z += 0.5f * 0.5f * 600.0f * flight * flight; // drop at sv_gravity 600 (assumed)
-		VectorAngles(aim - eye, view);
-		view.z = 0.0f;
+		QAngle worldView;
+		VectorAngles(aim - eye, worldView);
+		view = hullView(aim - eye);
 		if (armed)
 		{
 			float heat = 0.0f;
 			ReadEntityFloat(vehicle, "m_flVehicleHeat", heat);
 			const float distance = Dist2D(origin, targetAt);
-			const bool lineClear = HasClearFireLine(m_pEdict, vehicle, eye, target);
+			const char* blockWhy = "";
+			float blockFrac = 1.0f;
+			int blockIndex = -1;
+			Vector blockEnd(0, 0, 0);
+			const bool lineClear = HasClearFireLine(m_pEdict, vehicle, eye, target, &blockWhy, &blockFrac,
+				&blockIndex, &blockEnd);
 			if (lineClear)
 				v.fightSight = now;
+			else if (!infantry && distance < 1500.0f && now >= v.nextAimLog)
+			{
+				v.nextAimLog = now + 5.0f;
+				edict_t* blockEdict = blockIndex > 0 ? engine->PEntityOfEntIndex(blockIndex) : nullptr;
+				RCBOT_DIAG("[RCBOT2] vehicle fire-blocked userid=%d target=%d dist=%.0f by=%s frac=%.2f blocker=%d(%s) "
+					"eye=(%.0f %.0f %.0f) end=(%.0f %.0f %.0f)\n", userId, targetIndex, distance, blockWhy, blockFrac,
+					blockIndex, blockEdict != nullptr && blockEdict->GetClassName() != nullptr ? blockEdict->GetClassName() : "-",
+					eye.x, eye.y, eye.z, blockEnd.x, blockEnd.y, blockEnd.z);
+			}
 			if (lineClear && now - v.aimSince > 1.2f && heat < 80.0f)
 			{
 				// Fallback when the turret arrays cannot be read: the bot's own loadout has the MG on
@@ -5029,6 +5162,69 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				else if (distance < 4000.0f)
 					buttons |= kCannon;
+				if (now >= v.nextAimLog - 3.5f && now >= v.nextAimCheck && rcbot_empires_vehicle_shell_trace.GetBool())
+				{
+					v.nextAimCheck = now + 1.5f;
+					// Diagnosis: where turret and cannon really point (world collision angles; models
+					// face local +Y, so the barrel's world yaw is entity yaw + 90).
+					int turretIndex = -1;
+					edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
+						turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+					edict_t* cannon = nullptr;
+					float cannonDist = 400.0f;
+					for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+					{
+						edict_t* e = engine->PEntityOfEntIndex(i);
+						if (!IsClass(e, "emp_tank_cannon"))
+							continue;
+						const float d = (CBotGlobals::entityOrigin(e) - origin).Length();
+						if (d < cannonDist)
+						{
+							cannonDist = d;
+							cannon = e;
+						}
+					}
+					const QAngle hullAng = vehicle->GetCollideable() != nullptr ? vehicle->GetCollideable()->GetCollisionAngles() : QAngle(0, 0, 0);
+					const QAngle turretAng = turret != nullptr && turret->GetCollideable() != nullptr ?
+						turret->GetCollideable()->GetCollisionAngles() : QAngle(0, 0, 0);
+					const QAngle cannonAng = cannon != nullptr && cannon->GetCollideable() != nullptr ?
+						cannon->GetCollideable()->GetCollisionAngles() : QAngle(0, 0, 0);
+					const Vector cannonAt = cannon != nullptr ? CBotGlobals::entityOrigin(cannon) : Vector(0, 0, 0);
+					float minYaw = -999.0f, maxYaw = -999.0f, wantYaw = -999.0f, turnSpeed = -999.0f;
+					float wantPitch = -999.0f, minPitch = -999.0f, maxPitch = -999.0f;
+					if (turret != nullptr)
+					{
+						ReadEntityFloat(turret, "m_fMinYaw", minYaw);
+						ReadEntityFloat(turret, "m_fMaxYaw", maxYaw);
+						ReadEntityFloat(turret, "m_fDesiredLocalYaw", wantYaw);
+						ReadEntityFloat(turret, "m_fTurretTurnSpeed", turnSpeed);
+					}
+					if (cannon != nullptr)
+					{
+						ReadEntityFloat(cannon, "m_fDesiredLocalPitch", wantPitch);
+						ReadEntityFloat(cannon, "m_fMinPitch", minPitch);
+						ReadEntityFloat(cannon, "m_fMaxPitch", maxPitch);
+					}
+					const float* turretRot = turret != nullptr ? EntityFloatProp(turret, "m_angRotation") : nullptr;
+					const float* hullRot = EntityFloatProp(vehicle, "m_angRotation");
+					const float* cannonRot = cannon != nullptr ? EntityFloatProp(cannon, "m_angRotation") : nullptr;
+					float targetTotal = -1.0f;
+					ReadEntityFloat(target, "m_flTotalHealth", targetTotal);
+					RCBOT_DIAG("[RCBOT2] vehicle target-health userid=%d target=%d m_iHealth=%d m_flTotalHealth=%.1f\n", userId,
+						targetIndex, EmpiresVehicleReadInt(this, target, "m_iHealth", -1), targetTotal);
+					RCBOT_DIAG("[RCBOT2] vehicle aim-props userid=%d turret=%d yaw_range=(%.1f %.1f) desired_local_yaw=%.1f "
+						"turn=%.1f desired_local_pitch=%.1f pitch_range=(%.1f %.1f) rot_hull=(%.1f %.1f) rot_turret=(%.1f %.1f) "
+						"rot_cannon=(%.1f %.1f)\n", userId, turretIndex, minYaw, maxYaw,
+						wantYaw, turnSpeed, wantPitch, minPitch, maxPitch, hullRot ? hullRot[0] : -999.0f,
+						hullRot ? hullRot[1] : -999.0f, turretRot ? turretRot[0] : -999.0f, turretRot ? turretRot[1] : -999.0f,
+						cannonRot ? cannonRot[0] : -999.0f, cannonRot ? cannonRot[1] : -999.0f);
+					RCBOT_DIAG("[RCBOT2] vehicle aim-check userid=%d want=(%.1f %.1f) hull=(%.1f %.1f %.1f) turret=(%.1f %.1f) "
+						"cannon=%d(%.1f %.1f %.1f) cannon_at=(%.0f %.0f %.0f) eye_z=%.0f aim=(%.0f %.0f %.0f) aimed_for=%.1f\n",
+						userId, worldView.x, worldView.y, hullAng.x, NormalizeYaw(hullAng.y + 90.0f), hullAng.z, turretAng.x,
+						NormalizeYaw(turretAng.y + 90.0f), cannon != nullptr ? engine->IndexOfEdict(cannon) : -1, cannonAng.x,
+						NormalizeYaw(cannonAng.y + 90.0f), cannonAng.z, cannonAt.x, cannonAt.y, cannonAt.z, eye.z,
+						aim.x, aim.y, aim.z, now - v.aimSince);
+				}
 				if (now >= v.nextAimLog)
 				{
 					v.nextAimLog = now + 5.0f;
@@ -5107,6 +5303,18 @@ bool CBotEmpires::empiresRepairCallAllowed(edict_t* hurt)
 	if (commanderOrderHoldsFrom(hurt))
 		return false;
 	return !EmpiresIsEngibot(m_pEdict) || EmpiresEngibotWithinLeash(m_pEdict, CBotGlobals::entityOrigin(hurt));
+}
+
+bool CBotEmpires::empiresVehicleRepairClaimed() const
+{
+	if (gpGlobals == nullptr || engine == nullptr || m_pEdict == nullptr)
+		return false;
+	const int team = CClassInterface::getTeam(m_pEdict);
+	if (team < 0 || team >= 4)
+		return false;
+	const RepairRequest& r = s_repairRequest[team];
+	return r.engineerUserId == engine->GetPlayerUserId(m_pEdict) && gpGlobals->curtime <= r.claimUntil &&
+		RepairRequestVehicle(team) != nullptr;
 }
 
 bool CBotEmpires::handleEmpiresVehicleRepairRequest()

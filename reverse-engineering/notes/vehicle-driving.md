@@ -35,9 +35,17 @@ Flow: `CEmpTank::SetupMove` 0x6a3fb0 → `CPropVehicleDriveable::SetupMove` 0x8b
 
 - `DriveVehicle` calls `GetControllable()` 0x6a48a0 and then `CEmpTankTurret::SetTargetRotation(&ucmd->viewangles)` 0x3e6940 (vtable +0x37c).
 - `SetTargetRotation`: target turret angle (local) = AngleNormalize(clamp(Normalize(viewYaw − 90), min +0x540, max +0x544) − turretAbsYaw (+0x32c)).
-  **viewangles are world angles.** Evidence: `SetupMove` 0x6a436e sets `SnapEyeAngles(pitch=turret.absPitch, yaw=turret.absYaw+90)` on entry → turret target 0 (straight ahead).
-  Vehicle models face local +Y: driving direction (world yaw) = entity yaw + 90.
-- Bot: viewangles = normal world aim angles to the target (as on foot). The turret follows at `"Turret Turn Rate"`; shots leave from the weapon attachment (`GetWeaponVectors` 0x69b380), so only fire once the turret is aligned. Pitch handling not read (**assumption**: viewangles.x directly).
+  **Correction 2026-11-20: viewangles act as angles relative to the hull, not world angles.** Measured (run 130949,
+  emp_shell flight tracked at 1x): sent world aim yaw 199.5, hull model yaw (collision angles) 170.6, shells flew at
+  10 = 170.6 + 199.5 (constant over 12 shots and an earlier run: 157.4 + 202.3 = 0). After rotating the aim direction
+  into the hull frame (AngleMatrix(hull) + VectorIRotate, then VectorAngles) all shots hit (refinery 150 -> 92 in 8 shots).
+  Vehicle models face local +Y: driving direction (world yaw) = entity yaw + 90, i.e. local view yaw 90 = straight ahead.
+- Turret props: `m_fMinYaw`/`m_fMaxYaw` (AFV -180/180), `m_fTurretTurnSpeed` (7000), `m_fDesiredLocalYaw`; cannon:
+  `m_fMinPitch`/`m_fMaxPitch` (AFV -25/15), `m_fDesiredLocalPitch`. Shots leave from `GetWeaponVectors` (attachment) and
+  `CEmpTank::FireCannon` → `CEmpShell::CreatePredicted` (entity `emp_shell`). Like mortars, tank shells explode at once with
+  host_timescale > 1 (curtime - realtime spawn > 30), so cannon tests need 1x.
+- `CResourcePoint::ShouldCollide` (0x679540) collides only with groups 24/25: shells pass through resource points.
+- Bot: viewangles = aim direction rotated into the hull frame. The turret follows at `"Turret Turn Rate"`; shots leave from the weapon attachment (`GetWeaponVectors` 0x69b380), so only fire once the turret is aligned. Pitch handling not read (**assumption**: viewangles.x directly).
 - `HandleWeaponButtons` 0x6942d0: `IN_ATTACK` → `FireWeapons(0, true, group, -1)`, `IN_ATTACK2` → `FireWeapons(0, false, group, -1)`, `IN_RELOAD` 0x2000 → `ReloadWeapons(true)`. `group` = player +0x534 (selected fire group).
 - **Observation in game (2026-11-12, rainbowroad):** a bot pressing only `IN_ATTACK` visibly fired the MG (bought as MG mode 0, cannon mode 1). In practice `IN_ATTACK` → mode 0, `IN_ATTACK2` → mode 1; the mode direction in the next line was probably misread. The bot now uses `IN_ATTACK2` for the cannon.
 - `FireWeapons` 0x69bc60 fires weapon i if: group flag[i][group] is set, **mode byte (+0xbb8+i) == bool** (static reading: IN_ATTACK fires weapons with mode=1, IN_ATTACK2 mode=0; `AddWeapon` 0x69a118 stores the mode unchanged), reload time elapsed, not `IsWeaponOverheated`, `+0x1050` (under water) == 0.

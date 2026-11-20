@@ -290,6 +290,9 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
 - `rcbot_empires_vehicle_curve_speed 1` enables the experimental route-based
   speed limit for NF Light and BE AFV drivers. It previews up to three corners
   using the existing route. The default is 0 while fixed-start tests are pending.
+- `scripts/dev_quick.sh [map] [minutes]` is a short targeted run instead of a full match: 3 bots,
+  instant vehicle purchase, timescale 1 (tank shells and mortars explode at once with fast-forward);
+  adapt it with `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL` and `QUICK_SHOW`.
 - `scripts/dev_buy.sh [map] [timescale]` is the short version (~30 s): instant factory, extra
   money, ends at the first real purchase; for purchase diagnostics, not for economy timing.
 - `scripts/dev_vf_drive.sh [0|1|place] [map] [nf|be] ["x y z"]` uses an instantly built factory

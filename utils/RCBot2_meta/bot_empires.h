@@ -571,6 +571,7 @@ struct EmpiresVehicleBrain
 	float aimLastTime = 0.0f;
 	Vector aimVel = Vector(0, 0, 0);
 	float nextAimLog = 0.0f;
+	float nextAimCheck = 0.0f; // diagnosis only (rcbot_empires_vehicle_shell_trace)
 	// Turret loadout of the active fire group, read from the turret's send props (see
 	// VehicleWeaponButtons in bot_empires_vehicle.cpp). Masks of IN_ATTACK / IN_ATTACK2.
 	float weaponReadAt = -1.0f;
@@ -718,6 +719,8 @@ public:
 	bool isEmpiresBillNye() const;
 	// Engineer walks to a team vehicle that called for repairs (getTasks).
 	bool handleEmpiresVehicleRepairRequest();
+	// True while this engineer holds the team's vehicle repair call (claim not expired).
+	bool empiresVehicleRepairClaimed() const;
 	EmpiresVehicleBrain m_vehicle;
 	// Engineer skills (changeskill <slot> <code>, CEmpPlayer::ChangeSkill).
 	void updateEmpiresEngineerSkills();
