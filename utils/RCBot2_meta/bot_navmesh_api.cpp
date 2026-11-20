@@ -149,6 +149,9 @@ std::map<std::pair<unsigned, unsigned>, float> s_vehicleBlockedEdges;
 // Areas whose water reaches head height (a player there swims and can drown; palmbay
 // flag 131: bots drowned on a route over the sea floor). Filled on demand per map.
 std::unordered_map<unsigned, float> s_waterDepth;
+// Areas where a vehicle of s_narrowWidth does not fit on the mesh around the area centre (cached per map).
+std::unordered_map<unsigned, bool> s_vehicleNarrow;
+float s_narrowWidth = 0.0f;
 constexpr float kWaterDepthStep = 8.0f;
 constexpr float kWaterDepthMax = 256.0f;
 
@@ -399,6 +402,7 @@ void ClearBlockedEdges()
 	s_timedBlockedEdges.clear();
 	s_vehicleBlockedEdges.clear();
 	s_waterDepth.clear();
+	s_vehicleNarrow.clear();
 	for (DangerCircle &circle : s_teamDanger)
 		circle.radius = 0.0f;
 }
@@ -1475,6 +1479,37 @@ bool FindDirectionTo(const CNavArea* from, const CNavArea* to, NavDirType& dir)
 	return false;
 }
 
+// True when a square of the vehicle's width around the area centre leaves the mesh (gap between walls,
+// rocks or fences that only infantry fits through). Same idea as the narrow mask of tools/nav_overview.py
+// (emp_coast (2150 4550): the NF tank reversed 12 times in such a gap on its way to the centre flag).
+bool AreaVehicleNarrow(const CNavArea* area, float width)
+{
+	if (std::fabs(width - s_narrowWidth) > 20.0f)
+	{
+		s_vehicleNarrow.clear();
+		s_narrowWidth = width;
+	}
+	const auto it = s_vehicleNarrow.find(area->GetID());
+	if (it != s_vehicleNarrow.end())
+		return it->second;
+	const Vector centre = area->GetCenter();
+	const float h = width * 0.5f;
+	static const float kDirs[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {0.7f, 0.7f}, {0.7f, -0.7f}, {-0.7f, 0.7f}, {-0.7f, -0.7f}};
+	bool narrow = false;
+	for (const auto& d : kDirs)
+	{
+		const Vector probe(centre.x + d[0] * h, centre.y + d[1] * h, centre.z + 40.0f);
+		const CNavArea* under = TheNavMesh->GetNavArea(probe, 160.0f);
+		if (under == nullptr || std::fabs(under->GetZ(probe) - centre.z) > 70.0f)
+		{
+			narrow = true;
+			break;
+		}
+	}
+	s_vehicleNarrow[area->GetID()] = narrow;
+	return narrow;
+}
+
 // Vehicles: no ladders, no jump steps, no crouch holes, no deep drops; narrow
 // links cost extra; links a vehicle got stuck on are closed for vehicles only.
 class VehicleNavMeshCost
@@ -1531,6 +1566,9 @@ public:
 		// Small areas mean clutter (generated meshes cut around props and walls).
 		if ((std::min)(area->GetSizeX(), area->GetSizeY()) < m_width * 0.6f)
 			cost += dist * 1.5f;
+		// No room for the vehicle: strongly prefer the way around (kept open, it may be the only one).
+		if (AreaVehicleNarrow(area, m_width))
+			cost += dist * 8.0f;
 		if (waterDepth > 0.0f)
 			cost += dist * (waterDepth > m_maxWaterDepth ? 4.0f : 0.5f);
 		return cost;

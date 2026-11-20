@@ -5069,7 +5069,9 @@ bool CBotEmpires::handleEmpiresCommanderMoveProviderNeutral()
 		// trap: no restart every 5 s, expert review 15.11.).
 		const bool failed = m_bEmpiresCommanderMoveFailed;
 		m_fEmpiresCommanderOrderRearmAt = engine->Time() + (failed ? 30.0f : 5.0f);
-		if ((getOrigin() - target).Length() > leash)
+		// A bot on its way to buy or drive a vehicle is not pulled back: the leash reset its walk to
+		// the factory every few seconds (Coast, run 20261120-164515: 8x other-owner, no tank).
+		if ((getOrigin() - target).Length() > leash && m_vehicle.stage == EmpiresVehicleStage::NONE)
 		{
 			RCBOT_DIAG("[RCBOT2] commander-order rearm type=%d dist=%.0f leash=%.0f after=%s\n", commandType,
 				(getOrigin() - target).Length(), leash, failed ? "fail" : "complete");

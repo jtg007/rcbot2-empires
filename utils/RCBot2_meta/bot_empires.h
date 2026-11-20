@@ -571,7 +571,12 @@ struct EmpiresVehicleBrain
 	float aimLastTime = 0.0f;
 	Vector aimVel = Vector(0, 0, 0);
 	float nextAimLog = 0.0f;
-	float nextAimCheck = 0.0f; // diagnosis only (rcbot_empires_vehicle_shell_trace)
+	float nextAimCheck = 0.0f;
+	int goalKind = -1; // strategic goal: 0 defend, 1 hunt, 2 front support, 3 push (building), 4 CV
+	Vector supportFlag = Vector(0, 0, 0); // front flag the support spot belongs to
+	Vector supportSpot = Vector(0, 0, 0);
+	bool supportKnown = false;
+	Vector goalLogged = Vector(0, 0, 0); // diagnosis only (rcbot_empires_vehicle_shell_trace)
 	// Turret loadout of the active fire group, read from the turret's send props (see
 	// VehicleWeaponButtons in bot_empires_vehicle.cpp). Masks of IN_ATTACK / IN_ATTACK2.
 	float weaponReadAt = -1.0f;

@@ -41,6 +41,8 @@ namespace
 {
 ConVar rcbot_empires_vehicle_turn_test("rcbot_empires_vehicle_turn_test", "0", 0,
 	"Debug purchases only: 1 normal turn, 2 handbrake pulse, 3 coast straight, 4 brake straight");
+ConVar rcbot_empires_vehicle_hold("rcbot_empires_vehicle_hold", "0", 0,
+	"Test only: bought vehicles wait in place (fire at targets) until set to 0, for a fair start of both teams");
 ConVar rcbot_empires_vehicle_shell_trace("rcbot_empires_vehicle_shell_trace", "0", 0,
 	"Diagnosis: log where cannon shells/missiles end while a driver bot has a target");
 ConVar rcbot_empires_vehicle_curve_speed("rcbot_empires_vehicle_curve_speed", "0", 0,
@@ -2408,7 +2410,11 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.goal = v.factoryRoute.front();
 			v.purchaseStep = 0;
 			takeMovement();
-			setStage(EmpiresVehicleStage::GOTO_FACTORY, 90.0f);
+			// Walk time grows with the distance (Coast, run 20261120-163321: buyers at the centre flag,
+			// ~11000 from the factory, timed out after a fixed 90 s again and again; 1 tank in 10 min).
+			const float walkLimit = (std::max)(90.0f, (std::min)(300.0f, Dist2D(getOrigin(),
+				CBotGlobals::entityOrigin(factory)) / 100.0f + 30.0f));
+			setStage(EmpiresVehicleStage::GOTO_FACTORY, walkLimit);
 			RCBOT_DIAG("[RCBOT2] vehicle factory-route userid=%d points=%zu first=(%.0f %.0f)\n", userId,
 				v.factoryRoute.size(), v.goal.x, v.goal.y);
 			if (RCBotNavMesh::IsLoaded())
@@ -2440,6 +2446,11 @@ void CBotEmpires::tickEmpiresVehicle()
 					const float yaw = toEnemy + k * 22.5f;
 					const Vector spot = me + YawDir(yaw) * radius;
 					if (!VehicleSpotFree(spot))
+						continue;
+					// Only a spot the buyer can walk to (emp_coast centre bunker: three 40 s timeouts).
+					Vector mesh;
+					if (radius > 0.0f && RCBotNavMesh::IsLoaded() &&
+						(!RCBotNavMesh::ClosestPointOnMesh(spot, 120.0f, mesh) || !RCBotNavMesh::CanReachComponent(me, mesh)))
 						continue;
 					const float score = radius + std::fabs(NormalizeYaw(yaw - toEnemy)) * 4.0f;
 					if (score < bestScore)
@@ -3305,6 +3316,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		// 3) Hit closer enemy forward buildings (refineries/barracks/VF/radar)
 		// 4) Fall back to the enemy command vehicle.
 		v.goalValid = false;
+		int goalKind = -1;
 		Vector ownCvOrigin(0, 0, 0), enemyCvOrigin(0, 0, 0);
 		bool ownCvKnown = false, enemyCvKnown = false;
 		const char* ownCvClass = team == 2 ? "emp_nf_commander" : "emp_imp_commander";
@@ -3334,67 +3346,174 @@ void CBotEmpires::tickEmpiresVehicle()
 		const float enemyCvDist = enemyCvKnown ? Dist2D(origin, enemyCvOrigin) : 1.0e9f;
 		if (armed && !v.billNye)
 		{
-			// 1. Defend own base/CV from invading enemy armour.
+			// Tank role in the game flow (user 20.11.): defend, hunt spotted armour, support the
+			// front from outside, push forward economy only when the front holds, CV last.
+			auto worldClear = [&](const Vector& from, const Vector& to) {
+				trace_t hit;
+				Ray_t ray;
+				ray.Init(from, to);
+				CTraceFilterWorldOnly worldOnly;
+				enginetrace->TraceRay(ray, MASK_SHOT, &worldOnly, &hit);
+				return hit.fraction > 0.97f;
+			};
+			std::vector<Vector> ownAssets;
 			if (ownCvKnown)
+				ownAssets.push_back(ownCvOrigin);
+			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 			{
-				float bestThreatDist = 1.0e9f;
-				for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+				edict_t* e = engine->PEntityOfEntIndex(i);
+				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
+					std::strncmp(e->GetClassName(), "emp_building_", 13) != 0 ||
+					std::strstr(e->GetClassName(), "refinery") == nullptr)
+					continue;
+				int buildingTeam = EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1);
+				if (buildingTeam != 2 && buildingTeam != 3)
+					buildingTeam = std::strncmp(e->GetClassName(), "emp_building_nf_", 16) == 0 ? 2 :
+						(std::strncmp(e->GetClassName(), "emp_building_imp_", 17) == 0 ? 3 : -1);
+				if (buildingTeam == team)
+					ownAssets.push_back(CBotGlobals::entityOrigin(e));
+			}
+			// 1. Defend: enemy armour within 3000 of the own CV or an own refinery.
+			// 2. Hunt: enemy armour within 6000 that this tank or a living teammate sees.
+			float bestDefend = 1.0e9f, bestHunt = 1.0e9f;
+			Vector defendAt(0, 0, 0), huntAt(0, 0, 0);
+			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+			{
+				edict_t* e = engine->PEntityOfEntIndex(i);
+				if (!IsClass(e, "emp_vehicle") || EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != enemyTeam ||
+					!EmpiresVehicleAlive(this, e) || IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)))
+					continue;
+				int driver = -1;
+				if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver < 0)
+					continue; // empty wrecks and parked vehicles are not a threat
+				const Vector at = CBotGlobals::entityOrigin(e);
+				const float d = Dist2D(origin, at);
+				bool nearAsset = false;
+				for (const Vector& asset : ownAssets)
+					nearAsset = nearAsset || Dist2D(asset, at) < 3000.0f;
+				if (nearAsset && d < bestDefend)
 				{
-					edict_t* e = engine->PEntityOfEntIndex(i);
-					if (!IsClass(e, "emp_vehicle") ||
-						EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != enemyTeam ||
-						!EmpiresVehicleAlive(this, e))
+					bestDefend = d;
+					defendAt = at;
+				}
+				if (d >= 6000.0f || d >= bestHunt)
+					continue;
+				const Vector centre = EntityCenter(e);
+				bool spotted = d < 4000.0f && worldClear(origin + Vector(0, 0, 90), centre);
+				for (int p = 1; p <= gpGlobals->maxClients && !spotted; ++p)
+				{
+					edict_t* mate = engine->PEntityOfEntIndex(p);
+					if (mate == nullptr || mate->IsFree() || mate == m_pEdict || CClassInterface::getTeam(mate) != team ||
+						!CBotGlobals::entityIsAlive(mate))
 						continue;
-					const Vector at = CBotGlobals::entityOrigin(e);
-					if (Dist2D(at, ownCvOrigin) > 3000.0f)
+					const Vector eye = CBotGlobals::entityOrigin(mate) + Vector(0, 0, 64);
+					spotted = (eye - centre).Length() < 3500.0f && worldClear(eye, centre);
+				}
+				if (spotted)
+				{
+					bestHunt = d;
+					huntAt = at;
+				}
+			}
+			if (bestDefend < 1.0e9f)
+			{
+				v.goal = defendAt;
+				v.goalValid = true;
+				goalKind = 0;
+			}
+			else if (bestHunt < 1.0e9f)
+			{
+				v.goal = huntAt;
+				v.goalValid = true;
+				goalKind = 1;
+			}
+			// 3. Front: a contested flag (own one under attack, or one we can take). The tank holds a
+			// reachable spot about 1200 HU before it on its own side and never drives in (emp_coast:
+			// centre flag in a bunker).
+			const CBotMod* pMod = CBotGlobals::getCurrentMod();
+			if (!v.goalValid && pMod != nullptr && pMod->getBotType() == BOTTYPE_EMPIRES)
+			{
+				bool found = false;
+				float bestFront = 1.0e9f;
+				Vector front(0, 0, 0);
+				for (const CEmpiresMod::CapturePointObservation& pt :
+					static_cast<const CEmpiresMod*>(pMod)->getCapturePoints())
+				{
+					if (!pt.originKnown)
 						continue;
-					const float d = Dist2D(origin, at);
-					if (d < bestThreatDist)
+					const bool ownPoint = pt.teamOwnerKnown && pt.teamOwner == team;
+					const bool attacked = ownPoint && (team == 2 ?
+						(!pt.beOccupantUserIds.empty() || (pt.beStatusKnown && pt.beStatus == 3)) :
+						(!pt.nfOccupantUserIds.empty() || (pt.nfStatusKnown && pt.nfStatus == 3)));
+					const bool cappable = !ownPoint && (team == 2 ?
+						(!pt.nfCappableKnown || pt.nfCappable != 0) :
+						(!pt.beCappableKnown || pt.beCappable != 0));
+					if (!attacked && !cappable)
+						continue;
+					// The front nearest to the own side first (own CV, else this tank).
+					const float d = Dist2D(ownCvKnown ? ownCvOrigin : origin, pt.origin) - (attacked ? 1500.0f : 0.0f);
+					if (d < bestFront)
 					{
-						bestThreatDist = d;
-						v.goal = at;
+						bestFront = d;
+						front = pt.origin;
+						found = true;
+					}
+				}
+				if (found)
+				{
+					if (Dist2D(front, v.supportFlag) > 50.0f || !v.supportKnown)
+					{
+						v.supportFlag = front;
+						v.supportKnown = false;
+						Vector home = (ownCvKnown ? ownCvOrigin : origin) - front;
+						home.z = 0.0f;
+						const float homeYaw = home.Length() > 1.0f ? RAD2DEG(std::atan2(home.y, home.x)) : 0.0f;
+						static const float kOffsets[] = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f, 90.0f, -90.0f};
+						Vector fallback(0, 0, 0);
+						bool fallbackKnown = false;
+						for (float radius : {1200.0f, 1600.0f})
+						{
+							for (float offset : kOffsets)
+							{
+								Vector mesh;
+								const Vector probe = front + YawDir(homeYaw + offset) * radius;
+								// Room for a vehicle, not only infantry mesh (emp_coast: BE tank stuck at the bunker
+								// support spot (1650 1275), run 143630).
+								if (!RCBotNavMesh::ClosestPointOnMesh(probe, 400.0f, mesh) || Dist2D(mesh, front) < 900.0f ||
+									!VehicleSpotFree(mesh))
+									continue;
+								if (!fallbackKnown)
+								{
+									fallback = mesh;
+									fallbackKnown = true;
+								}
+								if (worldClear(mesh + Vector(0, 0, 90), front + Vector(0, 0, 64)))
+								{
+									v.supportSpot = mesh;
+									v.supportKnown = true;
+									break;
+								}
+							}
+							if (v.supportKnown)
+								break;
+						}
+						if (!v.supportKnown && fallbackKnown)
+						{
+							v.supportSpot = fallback;
+							v.supportKnown = true;
+						}
+						RCBOT_DIAG("[RCBOT2] vehicle front userid=%d flag=(%.0f %.0f %.0f) support=(%.0f %.0f %.0f) known=%d\n", userId,
+							front.x, front.y, front.z, v.supportSpot.x, v.supportSpot.y, v.supportSpot.z, v.supportKnown ? 1 : 0);
+					}
+					if (v.supportKnown)
+					{
+						v.goal = v.supportSpot;
 						v.goalValid = true;
+						goalKind = 2;
 					}
 				}
 			}
-			// 2. Support contested/enemy capture points on flag maps.
-			if (!v.goalValid)
-			{
-				const CBotMod* pMod = CBotGlobals::getCurrentMod();
-				if (pMod != nullptr && pMod->getBotType() == BOTTYPE_EMPIRES)
-				{
-					std::vector<std::pair<float, Vector>> flagGoals;
-					for (const CEmpiresMod::CapturePointObservation& pt :
-						static_cast<const CEmpiresMod*>(pMod)->getCapturePoints())
-					{
-						if (!pt.originKnown)
-							continue;
-						const Vector flagAt = pt.groundApproachKnown ? pt.groundApproachOrigin : pt.origin;
-						const bool ownPoint = pt.teamOwnerKnown && pt.teamOwner == team;
-						const bool attacked = ownPoint && (team == 2 ?
-							(!pt.beOccupantUserIds.empty() || (pt.beStatusKnown && pt.beStatus == 3)) :
-							(!pt.nfOccupantUserIds.empty() || (pt.nfStatusKnown && pt.nfStatus == 3)));
-						const bool cappable = !ownPoint && (team == 2 ?
-							(!pt.nfCappableKnown || pt.nfCappable != 0) :
-							(!pt.beCappableKnown || pt.beCappable != 0));
-						if (!attacked && !cappable)
-							continue;
-						const float d = Dist2D(origin, flagAt) - (attacked ? 1500.0f : 0.0f);
-						if (d < enemyCvDist)
-							flagGoals.push_back({ d, flagAt });
-					}
-					if (!flagGoals.empty())
-					{
-						std::sort(flagGoals.begin(), flagGoals.end(),
-							[](const auto& a, const auto& b) { return a.first < b.first; });
-						const std::size_t pick = static_cast<std::size_t>(userId) %
-							(std::min)(flagGoals.size(), static_cast<std::size_t>(2));
-						v.goal = flagGoals[pick].second;
-						v.goalValid = true;
-					}
-				}
-			}
-			// 3. Closer enemy economy/spawn buildings (refinery/barracks/VF/radar).
+			// 4. Push: when the front holds, closer enemy economy/spawn buildings (refinery/barracks/VF/radar).
 			if (!v.goalValid)
 			{
 				float bestBldgDist = enemyCvDist - 1500.0f;
@@ -3426,6 +3545,7 @@ void CBotEmpires::tickEmpiresVehicle()
 						bestBldgDist = d;
 						v.goal = at;
 						v.goalValid = true;
+						goalKind = 3;
 					}
 				}
 			}
@@ -3434,6 +3554,15 @@ void CBotEmpires::tickEmpiresVehicle()
 		{
 			v.goal = enemyCvOrigin;
 			v.goalValid = true;
+			goalKind = 4;
+		}
+		if (v.goalValid && (goalKind != v.goalKind || Dist2D(v.goal, v.goalLogged) > 500.0f))
+		{
+			static const char* const kKinds[] = {"defend", "hunt", "front", "push", "cv"};
+			RCBOT_DIAG("[RCBOT2] vehicle goal userid=%d kind=%s at=(%.0f %.0f %.0f) dist=%.0f\n", userId,
+				goalKind >= 0 ? kKinds[goalKind] : "-", v.goal.x, v.goal.y, v.goal.z, Dist2D(origin, v.goal));
+			v.goalKind = goalKind;
+			v.goalLogged = v.goal;
 		}
 	}
 
@@ -3530,7 +3659,8 @@ void CBotEmpires::tickEmpiresVehicle()
 	v.fightMove = false;
 	float throttle = 1.0f;
 	bool ram = false;
-	float arrive = 600.0f;
+	// The front support spot is a chosen stand: arrive close to it, then hold there.
+	float arrive = v.goalKind == 2 ? 250.0f : 600.0f;
 	if (v.billNye && targetIsVehicle)
 	{
 		// Push toward the nearest drop from the target.
@@ -3663,6 +3793,14 @@ void CBotEmpires::tickEmpiresVehicle()
 					engine->IndexOfEdict(target), distance, v.fightDir, offset);
 			}
 		}
+	}
+
+	// Fair test start (rcbot_empires_vehicle_hold): wait where bought until both teams are ready.
+	if (rcbot_empires_vehicle_hold.GetBool() && target == nullptr && !v.commanderCV)
+	{
+		driveTo = origin;
+		arrive = 200.0f;
+		throttle = 0.0f;
 	}
 
 	// -------- badly damaged: back to a repair station or the base
@@ -4173,6 +4311,27 @@ void CBotEmpires::tickEmpiresVehicle()
 				Vector onMesh;
 				if (RCBotNavMesh::ClosestPointOnMesh(spot, 300.0f, onMesh))
 					spot = onMesh;
+				// The side towards the vehicle is chosen far from base; there a building may stand
+				// (Coast BE, run 20261120-152144: spot behind the barracks, 2-point route through it,
+				// give-up). Turn around the CV in 45° steps to the first free, reachable spot.
+				int turn = 0;
+				for (int k = 0; k < 8; ++k)
+				{
+					const float a = static_cast<float>((k + 1) / 2) * (k % 2 ? 0.785398f : -0.785398f);
+					const Vector dir(away.x * std::cos(a) - away.y * std::sin(a),
+						away.x * std::sin(a) + away.y * std::cos(a), 0.0f);
+					Vector candidate = home + dir * 700.0f;
+					if (!RCBotNavMesh::ClosestPointOnMesh(candidate, 300.0f, candidate))
+						continue;
+					if (RCBotNavMesh::PointNearBuilding(candidate, 200.0f) ||
+						!RCBotNavMesh::CanReachComponent(origin, candidate))
+						continue;
+					spot = candidate;
+					turn = k;
+					break;
+				}
+				RCBOT_DIAG("[RCBOT2] vehicle home-park userid=%d veh=%d spot=(%.0f %.0f %.0f) cv=(%.0f %.0f) turn=%d\n",
+					userId, v.vehicleIndex, spot.x, spot.y, spot.z, home.x, home.y, turn);
 				v.homePark = spot;
 				v.homeParkFor = home;
 				v.homeParkValid = true;

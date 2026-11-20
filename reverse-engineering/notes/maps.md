@@ -76,3 +76,9 @@ the turret dies.
 
 Consequence: generating the gates as passable is only correct when the runtime blocks those
 links while the gates are closed (otherwise routes run into closed gates and crushers).
+
+## emp_coast: centre flag inside a bunker
+
+- User (2026-11-20): the centre capture point sits inside a bunker. Vehicles cannot reach it; a tank's flag
+  goal there must be a vehicle-reachable support spot outside the bunker, not the flag origin or the
+  infantry ground approach.

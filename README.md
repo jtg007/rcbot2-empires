@@ -136,9 +136,9 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
 | ✅ | Drive | Follows the navmesh, makes three-point turns and replans when a reverse turn stalls. Avoids edges and fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
 | 🟡 | Fight | Leads targets and circles enemies; holds position and fires at static buildings from 550–1500 units; turns the side armour only towards armed targets; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target. Close range to buildings and group switching still need work |
-| 🟡 | Pick goals | Base defence, front flags, enemy refinery/barracks/factory/radar, then the CV; flag support not yet confirmed on a flag map |
+| 🟡 | Pick goals | Defend own CV/refineries against tanks, hunt spotted tanks, support the front from outside the flag, push on enemy buildings, then the CV; confirmed in a 10-bot Coast match, Palmbay pending |
 | ✅ | Run over infantry | |
-| ✅ | Retreat and repair | Back to the repair station when damaged |
+| ✅ | Retreat and repair | Back to the repair station when damaged; without one, parks at a free spot next to the own CV |
 | 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the nearest source: a team ammo crate (engineer or map crate) or the own repair pad, where it refits (refills every weapon); far from both it calls for ammo and an engineer places a supply crate |
 | 🟡 | Re-customize on the repair pad | Seen in 22-bot matches after a purchase at the factory; not yet confirmed on a server without `emp_sv_debug_build_vehicles 1`. Same loadout is free (the game charges only the difference). A light tank/AFV whose MG shares a fire button with another weapon drives to the pad and refits the bot loadout |
 | 🟡 | Bill Nye mode | One scout jeep rams enemy vehicles off the road (on `emp_rainbowroad`); still falls off itself sometimes |
@@ -293,6 +293,7 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
 - `scripts/dev_quick.sh [map] [minutes]` is a short targeted run instead of a full match: 3 bots,
   instant vehicle purchase, timescale 1 (tank shells and mortars explode at once with fast-forward);
   adapt it with `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL` and `QUICK_SHOW`.
+  `QUICK_FAIR=1` starts both teams' tanks at the same time (auto commander off).
 - `scripts/dev_buy.sh [map] [timescale]` is the short version (~30 s): instant factory, extra
   money, ends at the first real purchase; for purchase diagnostics, not for economy timing.
 - `scripts/dev_vf_drive.sh [0|1|place] [map] [nf|be] ["x y z"]` uses an instantly built factory

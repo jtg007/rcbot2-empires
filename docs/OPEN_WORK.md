@@ -14,8 +14,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 0. Priority order
 
-1. Confirm vehicle goal selection beyond the CV drive (3.24) and flag support on a map
-   with flags (Palmbay or Coast). Tanks now hit (see 3.21); remaining tank issues: another
+1. Repeat the 10-bot match on Palmbay with the new tank goals (3.24, confirmed on Coast).
+   Fix the engineer stand spot at the Coast refineries (5.8e). Remaining tank issues: another
    tank's turret blocking the fire line, refineries destroyed while still under construction.
 2. Complete infantry attacks on buildings and the CV (3.23: rifleman sticky charges,
    scout sabotage).
@@ -96,8 +96,20 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   Crossroads match `20261120-132819`: tanks destroyed 4 refineries (before: 0), tank duels
   now deal real damage, 0 bail-outs (before: 4). Commander build assignments no longer
   pull an engineer off a running vehicle repair call. Buildings and the CV are targets only
-  when in sight and when no vehicle or infantry target is in range. Open: flag support on a
-  flag map, hits on moving targets and MG lead.
+  when in sight and when no vehicle or infantry target is in range.
+  **Goals by game flow:** defend (enemy tank within 3000 of the own CV or a refinery), hunt
+  (enemy tank within 6000 seen by the tank or a teammate), support the front from a point
+  with room for the vehicle 1200–1600 before a contested flag (never into it), push on enemy
+  buildings only without a contested front, then the CV. Retreating without a repair station
+  parks at a free, reachable spot next to the own CV (no building within 200). Buyers get a
+  walk limit by distance (90–300 s) and the commander's order leash no longer pulls them back.
+  Commander buildings no engineer could take after 6 tries no longer stall the build order.
+  10-bot Coast match, 10 min, 1x: 0 tanks (`20261120-154142`, 15 min, stalled economy) ->
+  4 tanks (`20261120-165710`), all goal kinds used, 5 retreats, 3 repairs, 0 give-ups,
+  0 bail-outs. Open: Palmbay match, hits on moving targets and MG lead.
+- [ ] **Coast refineries without an engineer stand spot (5.8e):** the ground trace next to both
+  Coast refineries starts solid (64/64); starting it higher finds ground, but then no kit aim
+  reaches the building (64/64). Both refineries stay at 50/150.
 - [ ] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky

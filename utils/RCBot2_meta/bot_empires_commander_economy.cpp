@@ -1051,7 +1051,15 @@ void CBotEmpires::tickCommanderEconomy()
 	for (const BuildingInfo& info : buildings)
 	{
 		++inventory.count[info.type];
-		if (info.health < info.maxHealth)
+		if (info.health >= info.maxHealth)
+			continue;
+		// A building no Engineer could take after every try does not hold up the next one
+		// (Coast, run 20261120-154142: two refineries at 50/150 without a stand spot, no vehicle
+		// factory in 15 min with 9000 resources).
+		bool givenUp = false;
+		for (const auto& entry : state.assignTries)
+			givenUp = givenUp || (entry.entity == info.entity && entry.tries >= kMaxAssignTries);
+		if (!givenUp)
 			++unfinished;
 	}
 
