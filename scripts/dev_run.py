@@ -12,6 +12,7 @@ import math
 import os
 import pty
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -36,10 +37,14 @@ NO_RECORDER = bool(os.environ.get("DEV_NO_RECORDER"))
 #   DEV_CMDS="cmd;wait 5;waitfor 120 some regex;cmd"   waitfor = up to 120 game seconds
 #   "mark" in DEV_CMDS: later waitfor only match lines logged after it (repeated results)
 #   DEV_UNTIL="regex"    end the run as soon as a log line matches
+#   DEV_EXPECT="regex"   require a matching server log line for success
+#   DEV_FAIL="regex"     abort on a matching server log line
 #   DEV_SHOW="regex"     print matching log lines at the end (repeats collapsed)
 TIMESCALE = max(float(os.environ.get("DEV_TIMESCALE", "1")), 0.1)
 ROSTER = os.environ.get("DEV_ROSTER", "").split()
 UNTIL = os.environ.get("DEV_UNTIL")
+EXPECT = os.environ.get("DEV_EXPECT")
+FAIL = os.environ.get("DEV_FAIL")
 # One game minute after the bots are in, check that the run is worth waiting for
 # (runs with 6+ bots; DEV_NO_CHECK=1 skips it).
 CHECK_AFTER_S = 60.0
@@ -56,6 +61,10 @@ HUMAN_CONNECT_RE = re.compile(r'"(.+?)<(\d+)><((?!BOT>|HLTV>)[^>]*)><[^>]*>" con
 DUMP_DIR = "/tmp/dumps"
 
 
+class ScenarioFailed(Exception):
+    pass
+
+
 class Server:
     def __init__(self, args, log_path):
         master, slave = pty.openpty()
@@ -68,7 +77,7 @@ class Server:
         source_tv = os.environ.get("DEV_SOURCETV") == "1" or MANUAL
         self.source_tv = source_tv
         self.proc = subprocess.Popen(
-            ["./srcds_run", "-norestart", "-console", "-condebug", "-game", "empires",
+            ["./srcds_run", "-norestart", "-console", "-game", "empires",
              "-insecure", "-nomaster", *([] if source_tv else ["-nohltv"]), "-nojoy",
              "-ip", args.ip, "-port", SERVER_PORT, *os.environ.get("DEV_SRCDS_ARGS", "").split(),
              "+sv_lan", "1", "+rcbot_empires_debug_log", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
@@ -76,12 +85,18 @@ class Server:
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True, close_fds=True)
         os.close(slave)
         self.log = open(log_path, "w", errors="replace")
-        threading.Thread(target=self._reader, daemon=True).start()
+        self.reader_stop = threading.Event()
+        self.reader = threading.Thread(target=self._reader, daemon=True)
+        self.reader.start()
 
     def _reader(self):
         buffer = b""
         while True:
             try:
+                if not select.select([self.master], [], [], 0.2)[0]:
+                    if self.reader_stop.is_set():
+                        return
+                    continue
                 chunk = os.read(self.master, 65536)
             except OSError:
                 return
@@ -107,30 +122,43 @@ class Server:
             return len(self.lines)
 
     def find(self, pattern, start=0):
-        regex = re.compile(pattern)
-        with self.lock:
-            for line in self.lines[start:]:
-                match = regex.search(line)
-                if match:
-                    return match
-        return None
+        return self.scan(re.compile(pattern), start)[0]
 
-    def wait_for(self, pattern, timeout, start=0, resend=None):
+    def scan(self, regex, start):
+        """Return a match and the next unread offset, or the end if no line matched."""
+        with self.lock:
+            end = len(self.lines)
+            for index in range(start, end):
+                match = regex.search(self.lines[index])
+                if match:
+                    return match, index + 1
+        return None, end
+
+    def wait_for(self, pattern, timeout, start=0, resend=None, check_failure=None):
+        regex = re.compile(pattern) if pattern is not None else None
         deadline = time.monotonic() + timeout
         next_send = 0.0
-        while time.monotonic() < deadline and self.alive():
-            match = self.find(pattern, start)
-            if match:
-                return match
-            if resend and time.monotonic() >= next_send:
+        while True:
+            if check_failure:
+                check_failure()
+            if regex is not None:
+                match, start = self.scan(regex, start)
+                if match:
+                    return match
+            now = time.monotonic()
+            if now >= deadline or not self.alive():
+                return None
+            if resend and now >= next_send:
                 self.send(resend)
-                next_send = time.monotonic() + 2.0
-            time.sleep(0.2)
-        return self.find(pattern, start)
+                next_send = now + 2.0
+            time.sleep(min(0.2, deadline - now))
 
 
 def shutdown(server):
-    server.send("quit")
+    try:
+        server.send("quit")
+    except OSError:
+        pass
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and server.alive():
         time.sleep(0.5)
@@ -140,6 +168,7 @@ def shutdown(server):
             server.proc.wait(15)
         except subprocess.TimeoutExpired:
             os.killpg(server.proc.pid, signal.SIGKILL)
+            server.proc.wait()
 
 
 def show_lines(lines, pattern):
@@ -256,11 +285,77 @@ def dump_files():
     return set(glob.glob(os.path.join(DUMP_DIR, "*")))
 
 
+def run_scenario(server, args, session_dir, mark, started):
+    def stamp(text):
+        print(f"  +{(time.monotonic() - started) * TIMESCALE:6.1f}s game time  {text}", flush=True)
+
+    fail_pattern = re.compile(FAIL) if FAIL else None
+    fail_cursor = mark
+
+    def check_failure():
+        nonlocal fail_cursor
+        if fail_pattern:
+            match, fail_cursor = server.scan(fail_pattern, fail_cursor)
+            if match:
+                raise ScenarioFailed(match.string)
+
+    deadline = time.monotonic() + args.minutes * 60 / TIMESCALE
+    for part in os.environ.get("DEV_CMDS", "").split(";"):
+        # A waitfor pattern keeps its trailing blank: "userid=3 " must not match userid=31.
+        item = part.lstrip()
+        if not item.startswith("waitfor "):
+            item = item.rstrip()
+        if not item.strip():
+            continue
+        check_failure()
+        if not server.alive():
+            return mark
+        if item.startswith("waitfor "):
+            _, seconds, pattern = item.split(None, 2)
+            if not server.wait_for(pattern, float(seconds) / TIMESCALE, mark, check_failure=check_failure):
+                stamp("NOT found: " + pattern)
+                raise ScenarioFailed("missing prerequisite: " + pattern)
+            stamp("found: " + pattern)
+        elif item == "mark":
+            mark = server.mark()
+        elif item.startswith("wait "):
+            server.wait_for(None, float(item.split()[1]) / TIMESCALE, check_failure=check_failure)
+        else:
+            server.send(item)
+            stamp(item)
+
+    if MANUAL:
+        return mark
+    print(f"Bots added, running for up to {args.minutes:g} game minutes ...", flush=True)
+    check_at = None if NO_CHECK or args.bots < CHECK_MIN_BOTS else time.monotonic() + CHECK_AFTER_S / TIMESCALE
+    until_pattern = re.compile(UNTIL) if UNTIL else None
+    until_cursor = mark
+    while server.alive():
+        check_failure()
+        now = time.monotonic()
+        if check_at is not None and now >= check_at:
+            check_at = None
+            problems, facts = health_check(server, args, session_dir)
+            if problems:
+                raise ScenarioFailed("health check after 60 s: " + "; ".join(problems))
+            print("Health check after 60 s: OK (" + "; ".join(facts) + ")", flush=True)
+        if until_pattern:
+            match, until_cursor = server.scan(until_pattern, until_cursor)
+            if match:
+                stamp("Ende: " + UNTIL)
+                break
+        if now >= deadline:
+            break
+        time.sleep(0.5)
+    return mark
+
+
 def run_match(args):
     dumps_before = dump_files()
     server = Server(args, os.path.join(args.run_dir, "server.log"))
     crash_note = None
     session_dir = None
+    failure = None
     try:
         if not server.wait_for(r"^DEVSH_READY\s*$", 300, resend="echo DEVSH_READY"):
             raise SystemExit("Server did not become ready, see server.log")
@@ -268,6 +363,8 @@ def run_match(args):
         server.send("meta list")
         if not server.wait_for(r"RCBot2", 15, mark):
             raise SystemExit("RCBot2 not loaded, see server.log")
+        if args.deploy_lock_fd is not None:
+            os.close(args.deploy_lock_fd)
 
         # Diagnostic [RCBOT2] lines are off by default (public servers); every check here reads them.
         server.send("rcbot_empires_debug_log 1")
@@ -285,7 +382,7 @@ def run_match(args):
         demos = []
         if MANUAL:
             mark = server.mark()
-            demo = "manual-" + os.path.basename(args.run_dir.rstrip("/"))[:15]
+            demo = "manual-" + os.path.basename(args.run_dir.rstrip("/"))[:15] + "-p" + SERVER_PORT
             server.send("tv_record " + demo)
             if server.wait_for(r"Recording SourceTV demo", 20, mark):
                 demos.append(demo)
@@ -311,47 +408,14 @@ def run_match(args):
             server.send(f"rcbotd addbot {bot_class} {team} {names[team]}_{index // 2 + 1:02d}")
             time.sleep(max(ADD_BOT_GAP_S / TIMESCALE, 2.0))
 
-        def stamp(text):
-            print(f"  +{(time.monotonic() - started) * TIMESCALE:6.1f}s game time  {text}", flush=True)
-
-        deadline = time.monotonic() + args.minutes * 60 / TIMESCALE
-        aborted = False
-        for item in filter(None, (part.strip() for part in os.environ.get("DEV_CMDS", "").split(";"))):
-            if not server.alive():
-                break
-            if item.startswith("waitfor "):
-                _, seconds, pattern = item.split(None, 2)
-                match = server.wait_for(pattern, float(seconds) / TIMESCALE, mark)
-                stamp(("found: " if match else "NOT found: ") + pattern)
-                if not match:
-                    aborted = True
-                    break
-            elif item == "mark":
-                mark = server.mark()  # later waitfor only sees lines from here on
-            elif item.startswith("wait "):
-                time.sleep(float(item.split()[1]) / TIMESCALE)
-            else:
-                server.send(item)
-                stamp(item)
-
-        if MANUAL:
-            wait_for_human(server, args, demos)
-            aborted = True  # skip the timed loop below
-        else:
-            print(f"Bots added, running for up to {args.minutes} game minutes ...", flush=True)
-        check_at = None if MANUAL or NO_CHECK or args.bots < CHECK_MIN_BOTS else time.monotonic() + CHECK_AFTER_S / TIMESCALE
-        while not aborted and time.monotonic() < deadline and server.alive():
-            if check_at is not None and time.monotonic() >= check_at:
-                check_at = None
-                problems, facts = health_check(server, args, session_dir)
-                if problems:
-                    print("Health check after 60 s: ABORTED: " + "; ".join(problems), flush=True)
-                    break
-                print("Health check after 60 s: OK (" + "; ".join(facts) + ")", flush=True)
-            if UNTIL and server.find(UNTIL, mark):
-                stamp("Ende: " + UNTIL)
-                break
-            time.sleep(0.5)
+        try:
+            mark = run_scenario(server, args, session_dir, mark, started)
+            if MANUAL and server.alive():
+                wait_for_human(server, args, demos)
+            if EXPECT and not server.find(EXPECT, mark):
+                failure = "missing expected event: " + EXPECT
+        except ScenarioFailed as exc:
+            failure = str(exc)
         if demos and server.alive():
             stop_demo(server, args, demos)
         if not server.alive():
@@ -366,7 +430,10 @@ def run_match(args):
     finally:
         if server.alive():
             shutdown(server)
-    server.log.close()
+        server.reader_stop.set()
+        server.reader.join()
+        os.close(server.master)
+        server.log.close()
     if SHOW:
         show_lines(server.lines, SHOW)
 
@@ -376,7 +443,7 @@ def run_match(args):
             if CRASH_RE.search(line):
                 crash_lines.append(f"{number}: {line.strip()[:160]}")
     new_dumps = sorted(dump_files() - dumps_before)
-    return session_dir, crash_note, crash_lines, new_dumps
+    return session_dir, crash_note, crash_lines, new_dumps, failure
 
 
 def load_jsonl(path):
@@ -550,19 +617,25 @@ def main():
     parser.add_argument("--server-root")
     parser.add_argument("--ip")
     parser.add_argument("--run-dir")
+    parser.add_argument("--deploy-lock-fd", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--summarize", nargs=2, metavar=("RUN_DIR", "SESSION_DIR"))
     args = parser.parse_args()
     if args.summarize:
         summarize(args.summarize[1], args.summarize[0])
         return
-    session_dir, crash_note, crash_lines, new_dumps = run_match(args)
+    session_dir, crash_note, crash_lines, new_dumps, failure = run_match(args)
     if not session_dir:
         print("No recorder. Crashes:", "YES" if crash_note or crash_lines or new_dumps else "none")
         for detail in ([crash_note] if crash_note else []) + list(crash_lines)[:5] + list(new_dumps):
             print(" ", detail)
-        return
-    summarize(session_dir, args.run_dir, crash_note, crash_lines, new_dumps)
+    else:
+        summarize(session_dir, args.run_dir, crash_note, crash_lines, new_dumps)
+    if failure or crash_note or crash_lines or new_dumps:
+        print("Run result: FAIL (" + (failure or "server crash") + ")")
+        return 1
+    print("Run result: OK")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

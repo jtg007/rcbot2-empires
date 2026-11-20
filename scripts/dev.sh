@@ -12,9 +12,9 @@ fi
 MAP="$1" BOTS="$2" MINUTES="$3"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-CLEAN="${RCBOT_DEPS_DIR:-$(dirname "$ROOT")/rcbot2-clean}"
 # Local settings (not in git): scripts/dev.local can set EMPIRES_TEST_SERVER etc.
 [[ -f "$ROOT/scripts/dev.local" ]] && source "$ROOT/scripts/dev.local"
+MIRROR="${RCBOT_DEV_MIRROR:-$HOME/.cache/rcbot2-dev-build}"
 SERVER_ROOT="${EMPIRES_TEST_SERVER:?set EMPIRES_TEST_SERVER (or put it in scripts/dev.local) to an isolated Empires dedicated server}"
 SERVER_PORT="${DEV_PORT:-49925}"  # parallel runs need distinct ports (dev_check.sh)
 PLUGIN="$SERVER_ROOT/empires/addons/rcbot2/bin/rcbot.2.sdk2013.so"
@@ -35,8 +35,7 @@ fi
 
 if [[ "${DEV_SKIP_BUILD:-0}" == 1 ]]; then
   # dev_check.sh builds once, then starts several runs in parallel.
-  BUILT="${RCBOT_DEV_MIRROR:-$HOME/.cache/rcbot2-dev-build}/post/package/addons/rcbot2/bin/rcbot.2.sdk2013.so"
-  [[ -f "$BUILT" ]] || { echo "DEV_SKIP_BUILD=1 but no build at $BUILT" >&2; exit 1; }
+  BUILT="$MIRROR/post/package/addons/rcbot2/bin/rcbot.2.sdk2013.so"
 else
   echo "== Build"
   BUILD_LOG="$(mktemp)"
@@ -48,14 +47,34 @@ else
   rm -f "$BUILD_LOG"
 fi
 
-echo "== Deploy"
-[[ -e "$PLUGIN.pre-legacy-dev" ]] || cp -p "$PLUGIN" "$PLUGIN.pre-legacy-dev"
-# Replace atomically (new inode): overwriting in place would corrupt the .so
-# mapped by a server that is still running on another port.
-if ! cmp -s "$BUILT" "$PLUGIN"; then
-  cp "$BUILT" "$PLUGIN.tmp.$$" && mv -f "$PLUGIN.tmp.$$" "$PLUGIN"
+# Keep a parallel launch on the selected binary until Metamod reports it
+# loaded. Identical builds can launch together.
+[[ -d "$MIRROR" ]] || { echo "Missing build directory: $MIRROR" >&2; exit 1; }
+exec {build_lock}>"$MIRROR/.dev-build.lock"
+flock -s "$build_lock"
+[[ -f "$BUILT" ]] || { echo "Missing build: $BUILT" >&2; exit 1; }
+build_hash="$(sha256sum < "$BUILT")"
+build_hash="${build_hash%% *}"
+if [[ -n "${DEV_BUILD_HASH:-}" && "$DEV_BUILD_HASH" != "$build_hash" && "$DEV_BUILD_HASH" != "${build_hash:0:16}" ]]; then
+  echo "Build hash mismatch: expected $DEV_BUILD_HASH, found $build_hash" >&2
+  exit 1
 fi
-sha256sum "$PLUGIN" | cut -c1-16
+
+echo "== Deploy"
+exec {deploy_lock}>"$SERVER_ROOT/.rcbot-dev-deploy.lock"
+flock -s "$deploy_lock"
+if [[ ! -e "$PLUGIN.pre-legacy-dev" ]] || ! cmp -s "$BUILT" "$PLUGIN"; then
+  flock -u "$deploy_lock"
+  flock -x "$deploy_lock"
+  [[ -e "$PLUGIN.pre-legacy-dev" ]] || cp -p "$PLUGIN" "$PLUGIN.pre-legacy-dev"
+  # A live server still maps the old inode.
+  if ! cmp -s "$BUILT" "$PLUGIN"; then
+    cp "$BUILT" "$PLUGIN.tmp.$$"
+    mv -f "$PLUGIN.tmp.$$" "$PLUGIN"
+  fi
+fi
+exec {build_lock}>&-
+echo "${build_hash:0:16}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$SERVER_ROOT/dev-runs/$STAMP-$MAP-${BOTS}b-${MINUTES}m${DEV_PORT:+-p$DEV_PORT}"
@@ -64,11 +83,11 @@ mkdir -p "$RUN_DIR"
 {
   echo "sha=$(git -C "$ROOT" rev-parse --short HEAD)"
   if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then echo "dirty=1"; else echo "dirty=0"; fi
-  echo "plugin_sha256=$(sha256sum "$PLUGIN" | cut -c1-16)"
+  echo "plugin_sha256=${build_hash:0:16}"
 } > "$RUN_DIR/build-info.txt"
 # Loopback is enough: the bots are internal clients. Override with DEV_SERVER_IP.
 SERVER_IP="${DEV_SERVER_IP:-127.0.0.1}"
 
 echo "== Run: $MAP, $BOTS bots, $MINUTES minutes ($RUN_DIR)"
 exec python3 "$ROOT/scripts/dev_run.py" --map "$MAP" --bots "$BOTS" --minutes "$MINUTES" \
-  --server-root "$SERVER_ROOT" --ip "$SERVER_IP" --run-dir "$RUN_DIR"
+  --server-root "$SERVER_ROOT" --ip "$SERVER_IP" --run-dir "$RUN_DIR" --deploy-lock-fd "$deploy_lock"

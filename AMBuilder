@@ -19,6 +19,7 @@ sourceFiles = [
   "utils/RCBot2_meta/bot_dod_bot.cpp",
   "utils/RCBot2_meta/bot_dod_mod.cpp",
   "utils/RCBot2_meta/bot_empires.cpp",
+  "utils/RCBot2_meta/bot_empires_controller_probe.cpp",
   "utils/RCBot2_meta/bot_empires_native_placement.cpp",
   "utils/RCBot2_meta/bot_empires_spatial.cpp",
   "utils/RCBot2_meta/bot_empires_barracks_execution.cpp",

@@ -445,6 +445,8 @@ EmpiresAmmoRequest* EmpiresAmmoRequests(int team);
 EmpiresAmmoRequest* EmpiresAmmoRequestForVehicle(int team, int vehicle, bool create);
 void EmpiresAmmoRequestClear(int team, int vehicle);
 
+constexpr int kManeuverPassableSlots = 4;
+
 struct EmpiresVehicleBrain
 {
 	EmpiresVehicleStage stage = EmpiresVehicleStage::NONE;
@@ -472,6 +474,10 @@ struct EmpiresVehicleBrain
 	Vector lastVehicleOrigin = Vector(0, 0, 0);
 	float lastSampleTime = 0.0f;
 	Vector velocity = Vector(0, 0, 0);
+	float turnTestStart = 0.0f;
+	float turnTestNextSample = 0.0f;
+	float turnTestHeading = 0.0f;
+	int turnTestMode = 0;
 	float slowSince = 0.0f;
 	float reverseUntil = 0.0f;
 	float reverseSide = 0.0f;
@@ -490,6 +496,25 @@ struct EmpiresVehicleBrain
 	std::size_t routeIndex = 0;
 	Vector routeGoal = Vector(0, 0, 0);
 	float nextReplan = 0.0f;
+	float nextAdvanceLog = 0.0f;
+	float nextManeuver = 0.0f;
+	float maneuverRecoverUntil = 0.0f;
+	float maneuverSteer = 0.0f;
+	float maneuverSpeed = 0.0f; // signed, zero means stop
+	int maneuverBlocker = -1;
+	float nextManeuverBlockLog = 0.0f;
+	// Committed detour around an entity on the route: drive beside it, then to an exit point behind it.
+	bool detourActive = false;
+	int detourStage = 0; // 0 beside the obstacle, 1 exit point
+	int detourEntity = -1;
+	Vector detourPoint = Vector(0, 0, 0);
+	Vector detourExit = Vector(0, 0, 0);
+	Vector detourDir = Vector(1, 0, 0);
+	float detourUntil = 0.0f;
+	// Entities the vehicle overlapped while rolling on: not obstacles for it (expire after 20 s).
+	int maneuverPassable[kManeuverPassableSlots] = {-1, -1, -1, -1};
+	float maneuverPassableUntil[kManeuverPassableSlots] = {0.0f, 0.0f, 0.0f, 0.0f};
+	bool maneuverValid = false;
 	// Leaving the factory: straight out of the bay before the first route (human test 15.11.).
 	bool exitChecked = false;
 	Vector exitPoint = Vector(0, 0, 0);
@@ -534,6 +559,7 @@ struct EmpiresVehicleBrain
 	float cvNoPreySince = 0.0f;
 	float cvBackUntil = 0.0f; // three-point turn: reversing with opposite lock until then
 	float cvBackNext = 0.0f;  // no new three-point turn before then
+	Vector cvBackStart = Vector(0, 0, 0);
 	// Armed fight: keep moving at range, circling the target, direction changes now and then.
 	float fightDir = 0.0f;     // +1 / -1 around the target, 0 = not chosen yet
 	float fightSwitch = 0.0f;  // next change of direction
@@ -726,6 +752,7 @@ public:
 	bool m_bCommanderBuildTurret = false; // target is a refinery: stage 5 = refinery-turret job
 	bool m_bCommanderTurretStarted = false;
 	bool m_bCommanderHunt = false; // stages 3/4 for boomtanking instead of a building
+	bool m_bCommanderSiteDrive = false; // stages 3/4: drive the CV to a remote factory site, then back to the commander view
 	float m_fCommanderHuntZone = 0.0f;
 	// Automatic Commander (bot_empires_commander_economy.cpp, cvar rcbot_empires_auto_commander).
 	void tickCommanderEconomy();
@@ -766,6 +793,13 @@ public:
 		float nextResearchLog = 0.0f;
 		int lastResearchActive = -1;
 		bool lastResearchPaused = false;
+		// Remote factory site (TODO 5.8c): free 1200x1200 spot found by a ground scan when the base has none.
+		bool siteValid = false;
+		Vector site;
+		float siteRetryAt = 0.0f;
+		Vector siteScanOrigin = Vector(0, 0, 0); // CV position at the first factory search: the scan stays anchored at the base
+		bool siteScanOriginSet = false;
+		std::vector<Vector> siteExcluded;
 	} m_commanderEconomy;
 	// An Engineer walks to one assigned building and works on it until full.
 	bool requestEmpiresBuildAssignment(edict_t* building);
@@ -918,6 +952,7 @@ private:
 	float m_flTurretNextSearch = 0.0f;
 	float m_flTurretNextLog = 0.0f;
 	bool handleEmpiresGrenadierTurretAttack();
+	bool handleEmpiresBuildingAttack();
 	bool handleEmpiresDoorButton();
 	bool handleEmpiresTurretRocketFallback(edict_t* turret, float range, int health, bool logFailure);
 	void tickEmpiresTurretRocket();
@@ -1823,6 +1858,8 @@ private:
 	int m_iEmpiresTurretRocketHealth = 0;
 	bool m_bEmpiresTurretRocketFired = false;
 	bool m_bEmpiresTurretRocketApproach = false;
+	bool m_bEmpiresTurretRocketIsThreat = false;
+	float m_flEmpiresBuildingAttackNext = 0.0f;
 
 	// Pressing a map button that opens a closed door (as_escort base gate control1).
 	int m_iEmpiresDoorButton = -1;

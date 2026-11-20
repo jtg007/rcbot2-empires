@@ -1,40 +1,44 @@
 # Open work
 
-Work top to bottom inside each section. One item per step: baseline run, smallest fix,
-same run again, compare. Tick an item only with measured numbers and the run folder.
-Historical plans do not supersede this list.
+Follow the priority order below. One item per step: baseline run, smallest fix,
+same run again, compare. Reuse runs for related checks and close each item when its
+remaining case has measured results and a run reference.
 Check free space before long recordings and remove only recordings you created.
+Prioritize by match impact and timebox each topic; see
+[the contributor instructions](../AGENTS.md#working-with-an-ai-agent).
 
-## 0. Priority order (natural game flow first, enablers before what builds on them)
+**Parked** (no measured gain in the default setting): vehicle physics fine-tuning
+(handbrake steering, curve speed control, local maneuver selection, default 0;
+obstacles passed in 1.6–1.9 s instead of 9–20 s, but open-road speed dropped, match
+BE median 244 → 153 HU/s) and a scripted spectator camera for build-site screenshots.
 
-1. Shared team economy (commander reserve, bots buy from wages first); its production-economy runs
-   also measure research pauses. Research pause/resume is measured (see below).
-2. Done (measured): bots take an empty own vehicle only within 1500 of their CV or a building and after
-   30 s without a driver and without moving (`vehicle empty-skip` logs the rest). Found on the way: every
-   `m_hPassengers` read failed (Empires sends handle arrays as a DataTable "000", "001", ...), so empty
-   vehicles were never taken over before; fixed in the handle reader.
-3. Refinery MG turrets failing silently; commander vehicle drive getting stuck on the way to the factory.
-4. Mixed weapon loadouts: done for light tank/AFV (refit on the own pad, `scripts/dev_mixed.sh`); other
-   chassis need their own slot, engine and armour values.
-5. Ammunition: step 1 done for light tank/AFV (empty cannon/missiles -> own pad, the refit refills every
-   weapon; `scripts/dev_ammo.sh`, test command `rcbotd empires_vehicle_setammo <magazine> <reserve>`).
-   Step 2 done: a team ammo crate (engineer crate or the team's map ammo crate) nearer than the finished
-   pad is used instead; the tank stops within 850 and waits until the crate gives nothing for 8 s
-   (`scripts/dev_crate.sh`, test command `rcbotd empires_vehicle_crate <distance>`; measured: empty
-   cannon and MG back to 40/0 and 60/4 after 21-22 s). Step 3 done: without a nearer crate and with
-   the pad over 2500 away (or none) the tank calls "I need ammo" (`emp_menu_command 29`) and waits
-   while an engineer holds the call; the engineer walks over and places a supply crate (`engSelect 7`,
-   `scripts/dev_ammocall.sh`; measured: crate on the first try, tank full again after 22 s). Each vehicle has its own call (up to four per team); an engineer takes
-   the nearest call no other engineer holds (measured with two empty tanks: one engineer each; `DEV_AMMO_TANKS=2`). A call holds only while its
-   driver sits alive in the vehicle. Engineers often get stuck on the way (`walk-stuck`). Next:
-   other chassis, then infantry resupply for every class.
-6. Human-like tank combat instead of circling the target (cover, stop to fire, relocate, keep
-   range, strongest armour forward, advance with infantry); measured A/B by damage dealt/taken.
-7. Then team and commander behaviour (orders to bots, base defence, adapting to losses, better parts
-   after research, fire-group switching with missiles, base expansion, squad passengers, APC as a
-   forward spawn point after its research).
-8. Sporadic navigation/robustness cases only when they recur; items needing a human player; maps,
-   game modes and long runs; cleanup.
+## 0. Priority order
+
+1. Tank combat near enemy buildings (3.21): within about 550 HU of an enemy
+   refinery, tanks stall or collide instead of firing (Crossroads
+   `20261120-122757`, one reverse-recovery bail, one tank stopped without input).
+   Add a stand-off distance and fire-line check there, and confirm vehicle goal
+   selection beyond the CV drive (3.24) on a map with flags (Palmbay or Coast).
+2. Repair priority: commander economy assignments must not pull an engineer off a
+   running base vehicle repair for a distant build (a damaged NF tank waited about
+   160 s in the same match). Then complete infantry attacks on buildings and the CV
+   (3.23: rifleman sticky charges, scout sabotage).
+3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
+   and speed. For tank combat (3.21), use the same hit and damage measures for moving
+   targets, armour facing and later changes. Measure commander orders with a reachable
+   flag (5.4) and check reachable and unreachable off-mesh MOVE targets in one server
+   (3.18). Check a full refit with production settings (5.10) during the next loadout
+   change test.
+4. Extend refitting, vehicle and infantry resupply, fire groups and team behavior.
+   Reuse the engineer crate and request paths for infantry resupply. Agree on the
+   research order before selecting improved vehicle parts (5.2). Use the resulting
+   late-game match to measure the commander reserve and research pauses (5.5a/5.1).
+   APC spawning and squad transport have their own acceptance checks.
+5. When a human session is available, verify the EngiBot crash fix with SourceMod
+   first, then check commander orders, seat handover and other player interactions.
+   Investigate intermittent issues as they recur. Combine short map and mode checks
+   where possible, then run a long match with a map change. Leave cleanup until after
+   the affected test dependencies have been checked.
 
 ## 1. Being measured
 
@@ -67,6 +71,32 @@ Check free space before long recordings and remove only recordings you created.
   without reproducing the earlier premature-end situation.
   Final normal-speed match `20261114-141126-emp_crossroads-10b-20m`: both teams completed factories and each drove three purchased
   vehicles; one NF commander drive got stuck, then the next attempt reached the factory.
+- [ ] **Commander stalls on a refinery turret job (1.6):** in 677 saved logs, all 407
+  `LEFT_SEAT` events followed a logged building sortie by the same bot. In failed
+  pad runs `20261115-004044` and `20261115-130138`, the commander placed a turret
+  that stayed at 25/100 HP until the run ended, before a pad order. The pad check now
+  disables refinery turret jobs for its own run. Refit took 71.8 game seconds in
+  the passing baseline `20261118-091337` and 70.2 with the change in `20261118-091441`.
+  All five regression checks passed, including the separate turret check at 100/100 HP.
+  The stalled turret job during normal play still needs investigation if it recurs.
+- [x] **Resource goal reachability (5.20/5.18):** a generated-map run logged 185
+  `no-path` results for resource targets on navmesh islands. `navmesh-plan-failed`
+  now logs start/goal areas and components, goal candidates are filtered by
+  component reachability before selection, and an unreachable goal is dropped at
+  once. In the 10-bot Crossroads match `20261120-122757` there were 0
+  `navmesh-plan-failed` and 0 `no-path` results (baseline `20261120-120044`: 168
+  and 55). The remaining Rainbowroad resource failures are not re-measured.
+- [ ] **Tank combat (3.21) and vehicle goals (3.24):** tanks hold position and fire
+  at static buildings from 550–1500 HU, the fire-line check ignores physboxes, panels
+  and vehicle clip brushes, and side-on facing is used only against armed targets in
+  direct combat. Vehicles pick base defence, front flags, enemy refinery/barracks/
+  factory/radar, then the CV. In `20261120-122757`: 6 vehicles bought (baseline 5),
+  no facing stalls, a 2-vs-1 tank fight, two cannon refills at an ammo crate. Open:
+  close range to buildings (see priority 1) and flag support on a flag map.
+- [ ] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
+  from a stand point outside the building box; in `20261120-122757` a grenadier
+  destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky
+  charges and scout sabotage are open.
 - [ ] **Commander vehicle drive can get stuck:** in the production match an NF commander
   recovered on its second attempt. Identify the obstacle with a verified demo if it recurs.
   On `emp_slaughtered`, the CV stopped in front of the radar on the same approach at
@@ -77,10 +107,10 @@ Check free space before long recordings and remove only recordings you created.
   591 with only the self-vehicle exclusion (`20261115-180116`). Both new runs arrived
   after one planned reverse turn with no stall. All five checks in `dev_check` passed.
 - [ ] **Refinery MG turrets fail silently** (BE 5/5, NF 1/2 in one match). The same spots worked
-  in earlier runs, so it is a state, not the geometry; likely the turret allotment or the
-  engineer restriction state. The game's `TextMsg` rejections use a different engine
-  interface from the existing hook. Failure-state logging is in place but awaits a
-  reproduced failure; a 10-bot accelerated run built two turrets successfully.
+  in earlier runs. Turret allotment and engineer restrictions are possible causes.
+  The game's `TextMsg` rejections use a different engine interface from the existing
+  hook. Crossroads and Palmbay each reproduced a failed placement, then built the turret
+  from a different spot and angle. Capture the reason for the failed attempt.
 - [x] **Diagnostic logs off by default** (`rcbot_empires_debug_log`): two-bot runs
   `20261114-143708-emp_crossroads-2b-2m` and `20261114-143815-emp_crossroads-2b-2m`
   produced 23 and 90 `[RCBOT2]` lines with diagnostics explicitly off and on respectively;
@@ -138,10 +168,156 @@ Check free space before long recordings and remove only recordings you created.
 - [ ] Hand the CV seat to a human commander; "Roger"/"Negative" replies.
 - [ ] Vehicle MG effect, scout binocular spotting, engineer behaviour under a human commander.
 
-## 3. Known bugs waiting for a reproduction
+## 3. Driving and intermittent bugs
+
+- Compare normal steering and short handbrake inputs on open ground at matched entry
+  speeds. Measure yaw change, lateral speed, space used and time to stable forward travel.
+  The first two modes of `scripts/dev_turn.sh <1|2|3|4> [map] [nf|be]` sample the same steering input
+  with and without a 0.2-second handbrake pulse after an in-place debug purchase.
+  On Crossroads at normal speed, two pairs per chassis ran to completion on November 19.
+  The NF Light used 875/833 HU and 852/859 HU of lateral space after two seconds.
+  The BE AFV used 779/760 HU and 773/779 HU. Each pair lists steering alone first.
+  Neither chassis consistently used less space with the pulse. Starting positions
+  and entry speeds varied. Fixed starts and tighter speed matching remain open.
+- Trial an anticipatory speed cap on regular NF Light and BE AFV routes.
+  Straight braking from around 500 HU/s reduced speed below 80 HU/s in about
+  1.0–1.1 seconds on Crossroads. The experimental `rcbot_empires_vehicle_curve_speed 1`
+  setting uses up to three route corners to estimate the speed cap, with no
+  added collision traces. Four corridor runs completed without a logged reverse
+  recovery. A fixed-start comparison with measured clearance is still open.
+  With six NF Light drivers on one server, two 12-second windows per setting
+  averaged about 1.12 ms per tick off and 1.13 ms on, measured as server process
+  CPU time. The driving workload varied between windows.
+  Use `scripts/dev_vf_drive.sh [0|1] [map] [nf|be] ["x y z"]` for a short factory-first
+  comparison with a regular purchase and 25 seconds of driving after the first route.
+  All four Crossroads factory runs completed with no logged recoveries.
+  Across 13 route samples per run, median speed with the cap off/on was
+  783/642 HU/s for the NF Light and 784/567 HU/s for the BE AFV.
+  In a separate match, BE AFVs were much slower and logged more recoveries
+  during the two enabled windows. Combat and changing routes limit the
+  comparison. The setting defaults to 0 pending a fixed-start comparison.
+
+- Trial local maneuver selection for NF Light and BE AFV on regular routes
+  with `rcbot_empires_vehicle_maneuvers 1` (default 0). The driver scores
+  forward and reverse arcs, sweeps three body sections for obstacles and
+  checks ground support. It caps speed using the available stopping distance
+  and replans stalled approaches without blocking a navmesh connection.
+  Early enabled runs stopped on the vehicle's own turret and on map/world
+  geometry because every sampled arc was rejected. The trace now uses the
+  vehicle collision filter, and the regular steering resumes when no sampled
+  maneuver is valid. Both updated runs completed without recoveries or give-up,
+  but median sampled speed fell from 774 to 534 HU/s for the NF Light and from
+  772 to 478 HU/s for the BE AFV. Route progress measured between 2-second
+  samples also fell. Starts and routes differed, so this is not a controlled
+  A/B comparison. No driving gain is established, and the default remains off.
+  The next revision checks the regular steering arc first and keeps the route
+  controller's steering and throttle when it is clear. Alternative arcs are
+  scored for blocked approaches and recovery. In enabled runs `20261119-122700`
+  (NF) and `-122929` (BE), the driver still retried after stalls. Review found
+  that the special recovery path also intercepted stalls when no maneuver had
+  been applied. It now uses the existing reverse recovery in that case and
+  suspends maneuver control until the reverse window ends.
+  The confirmation runs `20261119-123633`/`-123746` (NF) and
+  `-123858`/`-124012` (BE) completed without retries, give-up or falls.
+  Median speed off/on was 794/498 HU/s for the NF Light and 779/689 HU/s for
+  the BE AFV. The summed two-second sample segments were 15621/11975 HU and
+  16017/14199 HU. Each run had 13 samples. The routes ended at different
+  positions, so the comparison does not establish a driving gain. `dev_check`
+  passed 5/5. The default remains 0 pending a fixed-start comparison.
+  Verify progress from a fixed approach, turning response on different
+  surfaces and server CPU cost before enabling it by default.
+  The next revision used the turn-test samples, which show yaw rates of about
+  85 deg/s at 680 HU/s (NF Light) and 67 deg/s at 725 HU/s (BE AFV), so the
+  planner assumed radii about three times too large. It now uses a
+  per-chassis lateral acceleration (800/680 HU/s², about 80 % of measured)
+  with a 0.3-second steering lag. The curve speed cap uses the same values.
+  Each step now sweeps one world-axis box sized to the exact body width at
+  any heading, instead of three slice boxes that widened the body by up to
+  40 units on diagonals. Arcs that leave the route line are penalized. A
+  shared per-tick budget limits evaluations, and `vehicle maneuver-perf`
+  reports the cost. `scripts/dev_vehicle_obstacle.sh` provides the fixed
+  obstacle comparison.
+  First obstacle round: the planner never saw the prop because the shared
+  `StandardFilterRules` (`navmesh/util/UtilTrace.cpp`) rejects every entity
+  when the trace mask contains `CONTENTS_MONSTER`, as `MASK_SOLID` does.
+  Centred NF Light runs gave up in both modes. Planner cost was 11–41 µs per
+  evaluation. The planner now has its own entity filter and 24 units of body
+  clearance, and treats walkable-slope hits (normal z ≥ 0.7) as ground.
+  `vehicle maneuver-block` logs what blocks the regular arc. The shared filter
+  issue does not affect infantry navmesh following, which uses its own trace
+  filters. It does affect the Local Explorer fallback, which Empires rarely
+  reaches, and navmesh generation. It stays unchanged there to avoid baking
+  props and brush entities into generated meshes.
+  Later rounds: the planner now brakes when no arc is usable, penalizes
+  blocked arcs, follows the route to its next corner, ignores kerbs up to
+  48 units, treats `emp_resource_point` and entities it overlaps while moving
+  as passable, and closes every link through a built engineer barricade
+  for 60 seconds. With selection on, every obstacle variant was passed, offset
+  ones in about 2 seconds without stopping, and NF factory drives matched the
+  speed with selection off. Other maps and full matches remain to be tested; the default stays 0.
+  A committed detour now picks one side of an entity on the route (smaller
+  clear offset) and holds it, at a capped speed of about 520 HU/s. In the
+  latest round, all four obstacle variants were passed in 1.6–1.9 seconds
+  without stopping (9–20 seconds with selection off, two give-ups).
+  Final check (10-bot matches at 1x, `dev_check` 5/5): on `emp_crossroads` the
+  BE AFV median fell from 244 to 153 HU/s with selection on, stall recoveries
+  dropped from 11 to 4, give-ups rose from 2 to 3, and planner cost peaked at
+  379 µs. One detour around a map brush timed out and one NF Light gave up at
+  the factory exit's vehicle physbox. On `emp_palmbay`, both BE obstacle runs
+  passed, but the enabled BE factory drive missed its exit. NF factory
+  placement failed (`NO_SPOT`) and the matches bought no vehicles. The default
+  stays 0. Open: factory exit with selection on, the vehicle physbox at the
+  exit, factory placement and vehicle purchases on `emp_palmbay`.
+  Focused driving checks for the narrower selection passed on Crossroads and
+  Palmbay. Crossroads VF medians with selection off/on were 768/728 HU/s for
+  NF Light and 746/725 HU/s for the BE AFV (13 samples each). The Palmbay BE
+  run with selection on reached the factory exit and averaged 561 HU/s; the
+  off run timed out at the exit. Fixed-obstacle checks passed in 1.86 s for NF
+  on Crossroads after the retry-release fix (the confirmation did not need a
+  retry), 1.69 s for BE on Crossroads, and 2.05 s for BE on Palmbay. The
+  confirmation runs had no stops. `dev_check` passed 5/5 with no crashes. A Sol 6.2 review
+  identified a recovery risk that appeared in the 10-bot match. All three NF
+  Light exits from the same Crossroads factory timed out, one with selection
+  off and two with selection on. The straight exit runs before maneuver selection.
+  The exit's ground and world traces reported clear while the vehicle stood still
+  at full throttle. The two enabled drivers then gave up at the factory or its
+  physbox. One committed a new detour at 71 HU during recovery, released it on
+  the next retry, and later got stuck on foot at its abandoned tank nine times.
+  The fixed Crossroads comparison reproduced the stall with the radar alone.
+  At yaw 0°, the NF tank timed out in 20.6 s with 1812 HU remaining, and the
+  sweep hit the radar's vehicle collision proxy. With the updated heading
+  selector, the same site with the radar present used 90° and cleared in 1.8 s
+  with 15 HU remaining. The BE control used −96° and cleared in 2.6 s with
+  38 HU remaining. Both drove their routes and `dev_check` passed 5/5.
+  Recovery and a second purchase from an occupied bay (3.17) still need a
+  separate comparison. The default is 0.
+
+- [ ] **Palmbay factory placement (5.8c):** the site search now starts at the
+  CV's home position and checks the chosen site with the game's own placement test;
+  BE built a remote factory on Palmbay (`20261120-112346`). The NF command vehicle
+  still stalled or fell off a cliff on its way in one run; parked after the timebox.
+  A map-built factory with an unexpected team number is now found by class name
+  (5.22, not yet confirmed on such a map).
+
+- [x] **Crossroads navigation around large props (3.4g):** a stall at prop 185
+  closed 398 edges for 60 s, and `prop_dynamic` 180 closed 2244 links twice in a
+  10-bot match. Box blocking is now limited to plausible entity sizes (doors up to
+  600 HU, `prop_dynamic` up to 256, others up to 450), skipped when the bot stands
+  inside the box (only the one edge is blocked), and an escape route out of the
+  block is kept. In `20261120-122757` the prop logged `links=0 box_skip=1` and
+  there were no navmesh plan failures.
+
+When the following cases recur, compare the relevant trace and route.
 
 - Bot stuck inside barracks after leaving the CV (one cause fixed above; others possible).
-- MG turret placement at map refineries on `emp_rainbowroad` fails sometimes.
+- On Palmbay, ten hull traces hit the same NF barracks before the first
+  commander timed out on foot. A replacement entered the same command vehicle.
+- MG turret placement sometimes fails on Rainbowroad, Crossroads and Palmbay.
+  In the latter two matches a retry from a different position built the turret
+  to full health. Capture the rejection at placement.
+- Three BE respawn attempts reported a timeout. All three bots later resumed
+  tasks, consistent with the existing late-respawn recovery. Revisit if a bot
+  remains idle after its next spawn opportunity.
 - Vehicle bail-out before a fall: rare false triggers; the Bill Nye jeep still falls off alone.
 - Repair-pad entry blocked when the CV stands in it.
 - A bot hangs at a map wall on `emp_rainbowroad` (-7461 -911); a parked vehicle is not
@@ -155,8 +331,10 @@ Check free space before long recordings and remove only recordings you created.
   unfinished buildings" and "check last emp_build" early returns, so it ran only once in a while
   (one start, then never again for minutes). It now runs before them. With the pool emptied during
   Structural Engineering the bot saw the pause (remaining time frozen), sent
-  `emp_comm_research_resume` once money returned, finished item 60 and started 61. Open: real
-  research duration without a speed-up, a destroyed radar.
+  `emp_comm_research_resume` once money returned, finished item 60 and started 61.
+  With the research multiplier at 1, an existing Crossroads match built both factories
+  and each team bought three vehicles. Observe a destroyed radar and new research
+  choices during later economy work.
 - Commander: more research (turret levels, chassis, armour) and better vehicle parts;
   rebuild lost buildings, choose resource points by value.
 - Shared team economy: commander and bots should share one view of team resources, income
@@ -182,8 +360,10 @@ Check free space before long recordings and remove only recordings you created.
   Buyer with the most wages first (built): a bot whose wages do not cover the price waits up to
   30 s (`vehicle skip reason=richer-buyer`) while a free teammate with at least 10 more wages that
   reached the purchase decision itself buys; measured in short buy runs (rich bot buys from wages
-  120 → 0; a richer bot stuck in a commander stage no longer blocks the purchase). Open: refit
-  price, a late or poor match.
+  120 → 0; a richer bot stuck in a commander stage no longer blocks the purchase).
+  In a 25-minute match with both pools reduced at the start, 17 vehicles were driven
+  and four research items started without pauses. The reserve blocked no purchases.
+  Compare resource use with later research and more expensive vehicles.
   Wages on request (built): when a human writes something containing "wage" in chat, every bot of
   his team hands over its wages, through the server's give plugin if `sm_give` exists (`!give
   #<userid>`), otherwise directly. Detected through the game event `player_say` (`say` is a
@@ -217,9 +397,6 @@ Check free space before long recordings and remove only recordings you created.
   refits the bot loadout and logs `vehicle loadout-check` (measured: `12:a2,0:a2` before, MG alone
   on IN_ATTACK after). Without a pad the trip gives up after 30 s and waits 120 s. Test cvar
   `rcbot_empires_vehicle_debug_mixed 1` buys such a loadout. Other chassis still open.
-- Taking empty vehicles: bots currently take any empty own vehicle within 2500 units of
-  themselves. Planned: only vehicles near the own base that have stood without a driver for a while,
-  so a player who just stepped out keeps their vehicle.
   Vehicles have multiple weapon slots assignable to primary or secondary fire; account
   for the actual loadout and groups instead of assuming a fixed slot or button. Requested
   setup: group 1 cannon primary and missile secondary for buildings and vehicles; group 2
@@ -228,33 +405,62 @@ Check free space before long recordings and remove only recordings you created.
   Run `20261114-144912-emp_crossroads-6b-25m` read one BE vehicle's weapon slots, group,
   magazines and reserve; actual shots and group/button behavior remain to be compared.
   The diagnostic build passed all five regression checks.
-- Vehicle ammunition: detect depletion, seek a repair pad or engineer ammo crate when
-  appropriate, and request ammo. The user confirms engineer crates refill vehicles;
-  verify the bot interaction and repair-pad resupply in game.
+- Taking empty vehicles (measured): an empty own vehicle is eligible within 1500 of the
+  team's CV or a building after 30 s without a driver or movement. The passenger-handle
+  reader now recognizes the game's DataTable array. A human handover and taking the vehicle
+  again after leaving the passenger seat still need a player check.
+- Vehicle ammunition: step 1 done for light tank/AFV (empty cannon/missiles -> own pad, the refit refills every
+   weapon; `scripts/dev_ammo.sh`, test command `rcbotd empires_vehicle_setammo <magazine> <reserve>`).
+   Step 2 done: a team ammo crate (engineer crate or the team's map ammo crate) nearer than the finished
+   pad is used instead; the tank stops within 850 and waits until the crate gives nothing for 8 s
+   (`scripts/dev_crate.sh`, test command `rcbotd empires_vehicle_crate <distance>`; measured: empty
+   cannon and MG back to 40/0 and 60/4 after 21-22 s). Step 3 done: without a nearer crate and with
+   the pad over 2500 away (or none) the tank calls "I need ammo" (`emp_menu_command 29`) and waits
+   while an engineer holds the call; the engineer walks over and places a supply crate (`engSelect 7`,
+   `scripts/dev_ammocall.sh`; measured: crate on the first try, tank full again after 22 s). Each vehicle has its own call (up to four per team); an engineer takes
+   the nearest call no other engineer holds (measured with two empty tanks: one engineer each; `DEV_AMMO_TANKS=2`). A call holds only while its
+   driver sits alive in the vehicle. Engineers often get stuck on the way (`walk-stuck`). Next:
+   other chassis, then infantry resupply for every class.
+- Two simultaneous vehicle ammo calls can still fail. In Crossroads run
+  `20261119-182605`, one engineer got stuck on the way and the other failed to
+  place a crate after four attempts. One tank refilled at the pad. With an
+  earlier call (`20261119-183356`), an engineer again failed to place a crate
+  and one driver gave up after four reverses. The single-crate and pad checks passed.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
   resupply for every class; the current normal resupply path covers engineers only and
   searches team map crates, not engineer-built crates.
-- Test-server inventory: 24 BSP maps, 10 with navmeshes. `con_district402` and
-  `con_glycencity` still need a run. After the navmesh crash fix (GitHub #4),
+- Test-server inventory excluding generated fixtures: 25 BSP maps, 12 with
+  navmeshes. Ten have a successful navmesh load in existing logs. Check
+  `con_district402` and `con_glycencity` for both loading and Conquest behavior in
+  the same runs. After the navmesh crash fix (GitHub #4),
   `con_urbanchaos` loaded all 6,467 areas with one active bot and no crash
   (run `20261115-145901-con_urbanchaos-1b-1m-p49979`).
 - Fairness: vehicle and objective targets are picked from the full entity list; limit to
   what a player could know.
-- Vehicle re-customizing on the repair pad on a server without debug purchase.
+- A production settings match recorded ten pad repairs and the start of a
+  refit. Confirm a full refit command during the next loadout change test.
 
 ## 5. Coverage
 
 - Generate navmeshes for the maps without one and run each map briefly.
 - Conquest maps (`con_*`) and `as_escort` objectives for both teams; end of round
   (tickets 0, sudden death).
-- A long run: 30+ minutes, 16–22 bots, with a map change.
+- A long run: 30+ minutes, 16–22 bots, with a map change. A 20-minute match
+  at normal speed and a 25-game-minute accelerated match already cover 10 bots.
+- Generated maps: the NF command vehicle entry failure was fixed in the map export by
+  raising the NF vehicle origin. With a 90-unit height, both commanders entered and
+  the run recorded zero path errors (`tg_nfcv1_20261116`). Revisit bot-side entry
+  recovery if a correctly exported map still reproduces the failure.
 
 ## 6. Cleanup
 
-- Remove old probe/fixture code from `bot_empires.cpp` in pieces (the current scripts use
-  only `empires_test_commander_move`, `empires_commander_entry_once`,
-  `empires_commander_place_barracks`, `empires_vehicle_scalehp`, `empires_test_botcmd`,
-  `empires_nav_scan`), running `dev_check.sh` after each piece. Keep `m_commanderMoveShadow`.
+- Clarify file open warnings when touching file loading. The profile and waypoint
+  directories exist, and the specific files were absent. Navmeshes loaded and all
+  four health checks passed despite the map material warnings.
+- The development-only controller probe (`empires_bootstrap_controllerprobe_*`) now lives
+  in `bot_empires_controller_probe.cpp` and is unused by the scripts. Removing it also
+  needs its member fields in `bot_empires.h`, its console commands and the
+  `m_bControllerProbeOnly` checks; run `dev_check.sh` afterwards.
 - Split the huge functions (`tickEmpiresVehicle`, `getTasks`, `tickCommanderEconomy`)
   only when touching them.
 
@@ -264,3 +470,5 @@ Answers help where logs and the binary cannot decide:
 - A sensible research order after Structural Engineering and Vehicle Factory (turret
   levels, chassis, armour, engine)? How much money should a commander keep in reserve?
 - Commander priorities when buildings are lost; good turret lines at refineries.
+
+Navigation diagnosis: compare spatial navmesh coverage and connected components with the matching map when a suitable external viewer is available; verify vehicle clearance and dynamic obstacles with in-game traces.

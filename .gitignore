@@ -29,3 +29,7 @@ apg-load
 *.code-workspace
 # Local dev settings
 scripts/dev.local
+
+# Vorarbeit kleiner Modelle (vorbereiter-Agent)
+prep/
+__pycache__/

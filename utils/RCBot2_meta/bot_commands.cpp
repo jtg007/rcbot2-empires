@@ -68,11 +68,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <string>
 #include <vector>
 
 extern IVDebugOverlay* debugoverlay;
 extern IServerTools* servertools;
+float EmpiresFactoryExitYaw(const Vector& at, int team, bool quiet);
 
 // include our subcommands
 #include "rcbot_subcmds/config.cpp"
@@ -1870,6 +1872,26 @@ CBotCommandInline EmpiresVehicleCrateCommand("empires_vehicle_crate", CMD_ACCESS
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_vehicle_crate <distance>" : test-only, puts a team supply crate beside the first vehicle)");
 
+bool EmpiresVehicleDebugObstacle(float ahead, float lateral, float entrySpeed, const char* model); // bot_empires_vehicle.cpp
+
+CBotCommandInline EmpiresVehicleObstacleCommand("empires_vehicle_obstacle", CMD_ACCESS_CONSOLE_ONLY,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		auto number = [&](int index, float fallback)
+		{
+			return args[index] != nullptr && *args[index] != '\0' ? static_cast<float>(std::atof(args[index])) : fallback;
+		};
+		const float ahead = number(0, 700.0f);
+		const float lateral = number(1, 0.0f);
+		const float entry = number(2, 450.0f);
+		const char* model = args[3] != nullptr && *args[3] != '\0' ? args[3] : nullptr;
+		const bool armed = EmpiresVehicleDebugObstacle(ahead, lateral, entry, model);
+		CBotGlobals::botMessage(pEntity, 0, "empires_vehicle_obstacle armed=%d ahead=%.0f lateral=%.0f entry=%.0f",
+			armed ? 1 : 0, ahead, lateral, entry);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_vehicle_obstacle [ahead] [lateral] [entry_speed] [model]" : test-only, the next NF Light/BE AFV driver at entry_speed gets a solid prop (default models/props/concretebarrier.mdl) on its route, ahead along the route and lateral to its left; logs vehicle obstacle placed/passed/timeout/abort)");
+
 int EmpiresTestWagesChat(int speakerUserId, float wages); // bot_empires_vehicle.cpp
 
 CBotCommandInline EmpiresTestWagesCommand("empires_test_wages", CMD_ACCESS_CONSOLE_ONLY,
@@ -3417,6 +3439,58 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 			return COMMAND_ACCESSED;
 		}
 #ifdef __linux__
+		if (std::strcmp(args[0], "obstruct_grid") == 0 && args.size() >= 4)
+		{
+			// Diagnosis only: GetAllObstructions on a ground grid around the CV (obstruct_grid <type> <radius> <step>);
+			// prints a flag histogram and every position without any flag except 0x8 (too far from the CV).
+			Dl_info info{};
+			const unsigned char expected[8] = {0x55, 0x89, 0xe5, 0x57, 0x56, 0x53, 0x83, 0xec};
+			extern IServerGameDLL* servergamedll;
+			if (servergamedll == nullptr || dladdr(*reinterpret_cast<void**>(servergamedll), &info) == 0 || info.dli_fbase == nullptr || enginetrace == nullptr)
+				return COMMAND_ERROR;
+			const unsigned char* fn = static_cast<const unsigned char*>(info.dli_fbase) + 0x387ed0;
+			if (std::memcmp(fn, expected, sizeof(expected)) != 0)
+				return COMMAND_ACCESSED;
+			using Fn = int (*)(int, const Vector&, int, int, const void*, const Vector&, void*);
+			const float radius = static_cast<float>(std::atof(args[2]));
+			const float step = std::max(50.0f, static_cast<float>(std::atof(args[3])));
+			const Vector cv = CBotGlobals::entityOrigin(vehicle);
+			// Optional scan centre (obstruct_grid <type> <radius> <step> [x y]); distances are still measured from the CV.
+			const Vector centre = args.size() >= 6 ? Vector(static_cast<float>(std::atof(args[4])), static_cast<float>(std::atof(args[5])), cv.z) : cv;
+			const int team = CClassInterface::getTeam(bot->getEdict());
+			CTraceFilterWorldOnly filter;
+			int total = 0, clear = 0, noGround = 0;
+			std::map<int, int> histogram;
+			for (float dx = -radius; dx <= radius; dx += step)
+				for (float dy = -radius; dy <= radius; dy += step)
+				{
+					if (dx * dx + dy * dy > radius * radius)
+						continue;
+					const Vector top(centre.x + dx, centre.y + dy, cv.z + 800.0f);
+					Ray_t ray;
+					ray.Init(top, top - Vector(0, 0, 1500.0f));
+					trace_t hit;
+					enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+					if (hit.startsolid || hit.fraction >= 1.0f)
+					{
+						++noGround;
+						continue;
+					}
+					const Vector at = hit.endpos + Vector(0, 0, 1.0f);
+					const int flags = reinterpret_cast<Fn>(const_cast<unsigned char*>(fn))(100000, at, std::atoi(args[1]), team, nullptr, cv, nullptr);
+					++total;
+					++histogram[flags];
+					if ((flags & ~0x8) == 0)
+					{
+						++clear;
+						Msg("[RCBOT2] commander-build obstruct_grid clear pos=(%.0f %.0f %.0f) cv_dist=%.0f flags=0x%x\n", at.x, at.y, at.z, (at - cv).Length(), flags);
+					}
+				}
+			Msg("[RCBOT2] commander-build obstruct_grid done type=%s radius=%.0f step=%.0f total=%d no_ground=%d clear_except_far=%d\n", args[1], radius, step, total, noGround, clear);
+			for (const auto& entry : histogram)
+				Msg("[RCBOT2] commander-build obstruct_grid flags=0x%x count=%d\n", entry.first, entry.second);
+			return COMMAND_ACCESSED;
+		}
 		if (std::strcmp(args[0], "obstruct") == 0 && args.size() >= 5)
 		{
 			// Diagnosis only: calls EmpBuildingPlacementRules::GetAllObstructions (server_srv.so 0x387ed0) like
@@ -3436,7 +3510,57 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 			const Vector at(static_cast<float>(std::atof(args[2])), static_cast<float>(std::atof(args[3])), static_cast<float>(std::atof(args[4])));
 			const Vector cv = CBotGlobals::entityOrigin(vehicle);
 			const int flags = reinterpret_cast<Fn>(const_cast<unsigned char*>(fn))(100000, at, std::atoi(args[1]), CClassInterface::getTeam(bot->getEdict()), nullptr, cv, nullptr);
-			Msg("[RCBOT2] commander-build obstruct type=%s pos=(%.0f %.0f %.0f) cv_dist=%.0f flags=0x%x\n", args[1], at.x, at.y, at.z, (at - cv).Length(), flags);
+			// Same box as GetBuildingHullTrace for type 5 (radius 600, height 500 NF / 300 BE, mask 0x4600402b):
+			// names the entity that makes flag 0x2 appear (worldspawn = terrain/map geometry).
+			extern IServerGameEnts* servergameents;
+			const char* hitClass = "none";
+			int hitIndex = -1;
+			float hitFrac = 1.0f, hitNz = 0.0f;
+			bool hitStart = false;
+			if (enginetrace != nullptr && servergameents != nullptr)
+			{
+				class AllFilter : public CTraceFilter
+				{
+				public:
+					bool ShouldHitEntity(IHandleEntity*, int) override { return true; }
+				} filter;
+				const float height = CClassInterface::getTeam(bot->getEdict()) == 2 ? 500.0f : 300.0f;
+				Ray_t ray;
+				ray.Init(at, at, Vector(-600, -600, 0), Vector(600, 600, height));
+				trace_t hit;
+				enginetrace->TraceRay(ray, 0x4600402b, &filter, &hit);
+				if (hit.startsolid || hit.fraction < 1.0f)
+				{
+					edict_t* e = hit.m_pEnt != nullptr ? servergameents->BaseEntityToEdict(hit.m_pEnt) : nullptr;
+					hitClass = e != nullptr ? e->GetClassName() : "unknown";
+					hitIndex = e != nullptr ? engine->IndexOfEdict(e) : -1;
+					hitFrac = hit.fraction;
+					hitNz = hit.plane.normal.z;
+					hitStart = hit.startsolid;
+				}
+			}
+			char variants[8] = "----";
+			if (enginetrace != nullptr)
+			{
+				class VarFilter : public CTraceFilter
+				{
+				public:
+					bool ShouldHitEntity(IHandleEntity*, int) override { return true; }
+				} vfilter;
+				const float h = CClassInterface::getTeam(bot->getEdict()) == 2 ? 500.0f : 300.0f;
+				// A full box from z+40 (above floor roughness), B floor slab 0..40, C half-width box from z+40, D box from z+200 (ceiling check)
+				const float vmins[4][3] = {{-600, -600, 40}, {-600, -600, 0}, {-300, -300, 40}, {-600, -600, 200}};
+				const float vmaxs[4][3] = {{600, 600, h}, {600, 600, 40}, {300, 300, h}, {600, 600, h}};
+				for (int v = 0; v < 4; ++v)
+				{
+					Ray_t vr;
+					vr.Init(at, at, Vector(vmins[v][0], vmins[v][1], vmins[v][2]), Vector(vmaxs[v][0], vmaxs[v][1], vmaxs[v][2]));
+					trace_t vh;
+					enginetrace->TraceRay(vr, 0x4600402b, &vfilter, &vh);
+					variants[v] = (vh.startsolid || vh.fraction < 1.0f) ? 'X' : '-';
+				}
+			}
+			Msg("[RCBOT2] commander-build obstruct type=%s pos=(%.0f %.0f %.0f) cv_dist=%.0f flags=0x%x hull_hit=%s#%d variants=%s\n", args[1], at.x, at.y, at.z, (at - cv).Length(), flags, hitClass, hitIndex, variants);
 			return COMMAND_ACCESSED;
 		}
 #endif
@@ -3500,7 +3624,12 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		if (type == 0 && resIndex >= 0)
 			snprintf(command, sizeof(command), "emp_build 0 %d 0\n", resIndex);
 		else
-			snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g 0\n", type, double(pos.x), double(pos.y), double(pos.z));
+		{
+			const float yaw = type == 5 && args[4] != nullptr && std::strcmp(args[4], "auto") == 0 ?
+				EmpiresFactoryExitYaw(pos, CClassInterface::getTeam(bot->getEdict()), false) : 0.0f;
+			snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g %.1f\n",
+				type, double(pos.x), double(pos.y), double(pos.z), double(yaw));
+		}
 		helpers->ClientCommand(bot->getEdict(), command);
 		const auto after = listBuildings();
 		for (const int index : after)
@@ -3512,7 +3641,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		Msg("[RCBOT2] commander-build type=%d res_index=%d pos=(%.0f %.0f %.0f) cv_dist=%.0f before=%d after=%d\n",
 			type, resIndex, pos.x, pos.y, pos.z, (pos - CBotGlobals::entityOrigin(vehicle)).Length(), int(before.size()), int(after.size()));
 		return COMMAND_ACCESSED;
-}, R"(usage "empires_commander_build <type> [x y z | spot] | list" : seated Commander bot submits emp_build (probe); list shows buildings and resource points)");
+}, R"(usage "empires_commander_build <type> [x y z [auto] | spot] | list" : seated Commander bot submits emp_build (probe); type 5 with auto uses the automatic factory yaw, and list shows buildings and resource points)");
 
 CBotCommandInline EmpiresVehicleFactoryDriveOnceCommand("empires_vehicle_vf_drive_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
@@ -4026,6 +4155,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresVehicleScaleHpCommand,
 	&EmpiresVehicleSetAmmoCommand,
 	&EmpiresVehicleCrateCommand,
+	&EmpiresVehicleObstacleCommand,
 	&EmpiresTestWagesCommand,
 	&EmpiresTestEngibotCommand,
 	&EmpiresTestUnitOrderCommand,

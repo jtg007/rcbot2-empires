@@ -26,6 +26,7 @@
 #include <string>
 #include "bot_cvars.h"
 
+extern IServerGameEnts* servergameents;
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
 
 namespace
@@ -1044,16 +1045,21 @@ namespace
 		const IHandleEntity* m_shooter;
 	};
 
-	bool empiresTurretRocketAim(const Vector& eye, edict_t* shooter, edict_t* turret, QAngle& aim)
+	bool empiresTurretRocketAim(const Vector& eye, edict_t* shooter, edict_t* turret, QAngle& aim,
+		const bool allowLargeBuilding = false)
 	{
 		if (enginetrace == nullptr || turret->GetUnknown() == nullptr)
 			return false;
 		const Vector origin = CBotGlobals::entityOrigin(turret);
 		CBaseEntity* target = turret->GetUnknown()->GetBaseEntity();
 		CTraceFilterTurretRocket filter(shooter->GetIServerEntity());
-		for (const float height : {40.0f, 24.0f, 56.0f})
+		const float turretHeights[] = {40.0f, 24.0f, 56.0f};
+		const float largeHeights[] = {64.0f, 96.0f, 40.0f, 128.0f, 24.0f};
+		const float* heights = allowLargeBuilding ? largeHeights : turretHeights;
+		const int count = allowLargeBuilding ? 5 : 3;
+		for (int i = 0; i < count; ++i)
 		{
-			const Vector point = origin + Vector(0, 0, height);
+			const Vector point = origin + Vector(0, 0, heights[i]);
 			VectorAngles(point - eye, aim);
 			Vector forward, right;
 			AngleVectors(aim, &forward, &right, nullptr);
@@ -1069,9 +1075,58 @@ namespace
 			enginetrace->TraceRay(ray, kMissileMask, &filter, &hit);
 			// Both RPGs have a 50-unit blast radius. Leave some margin for
 			// the collision hull and impact point.
-			if (!hit.startsolid && hit.DidHit() &&
-				(hit.m_pEnt == target || hit.endpos.DistToSqr(point) <= 40.0f * 40.0f))
+			if (hit.startsolid || !hit.DidHit())
+				continue;
+			if (hit.m_pEnt == target || hit.endpos.DistToSqr(point) <= 40.0f * 40.0f)
 				return true;
+			if (allowLargeBuilding && hit.m_pEnt != nullptr && servergameents != nullptr)
+			{
+				edict_t* hitEdict = servergameents->BaseEntityToEdict(hit.m_pEnt);
+				const char* hitClass = hitEdict != nullptr && !hitEdict->IsFree() ? hitEdict->GetClassName() : nullptr;
+				if (hitClass != nullptr && std::strncmp(hitClass, "emp_building_", 13) == 0 &&
+					std::strstr(hitClass, "physbox") != nullptr &&
+					CBotGlobals::entityOrigin(hitEdict).DistToSqr(origin) <= 300.0f * 300.0f)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	bool findEmpiresBuildingApproachPoint(edict_t* pEdict, const Vector& from, const float extraReach,
+		const bool allowFallback, Vector& goalOut)
+	{
+		const Vector origin = CBotGlobals::entityOrigin(pEdict);
+		const ICollideable* collision = pEdict->GetCollideable();
+		const Vector base = collision != nullptr ? collision->GetCollisionOrigin() : origin;
+		float reach = extraReach;
+		if (collision != nullptr)
+		{
+			const float hx = (std::max)(std::fabs(collision->OBBMins().x), std::fabs(collision->OBBMaxs().x));
+			const float hy = (std::max)(std::fabs(collision->OBBMins().y), std::fabs(collision->OBBMaxs().y));
+			reach += std::sqrt(hx * hx + hy * hy);
+		}
+		const float baseYaw = std::atan2(from.y - base.y, from.x - base.x);
+		for (int step = 0; step < 8; ++step)
+		{
+			const float yaw = baseYaw + static_cast<float>((step + 1) / 2) * (step % 2 ? 1.0f : -1.0f) *
+				static_cast<float>(M_PI) / 4.0f;
+			const Vector wanted = base + Vector(std::cos(yaw), std::sin(yaw), 0.0f) * reach;
+			Vector onMesh;
+			if (RCBotNavMesh::ClosestPointOnMesh(Vector(wanted.x, wanted.y, base.z + 16.0f), 96.0f, onMesh) &&
+				std::fabs(onMesh.z - base.z) < 80.0f)
+			{
+				goalOut = onMesh;
+				return true;
+			}
+		}
+		if (allowFallback)
+		{
+			Vector onMesh;
+			if (RCBotNavMesh::ClosestPointOnMesh(origin, 600.0f, onMesh))
+			{
+				goalOut = onMesh;
+				return true;
+			}
 		}
 		return false;
 	}
@@ -1133,6 +1188,7 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 		m_iEmpiresTurretRocketHealth = health;
 		m_bEmpiresTurretRocketFired = false;
 		m_bEmpiresTurretRocketApproach = false;
+		m_bEmpiresTurretRocketIsThreat = true;
 		m_flEmpiresTurretRocketUntil = gpGlobals->curtime + 12.0f;
 		selectWeaponName(weaponName);
 		RCBOT_DIAG("[RCBOT2] turret-rpg armed userid=%d turret=%d dist=%.0f health=%d\n",
@@ -1180,20 +1236,36 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 
 void CBotEmpires::tickEmpiresTurretRocket()
 {
-	edict_t* turret = m_hEmpiresTurretRocketTarget.get();
+	edict_t* target = m_hEmpiresTurretRocketTarget.get();
 	edict_t* weapon = m_hEmpiresTurretRocketWeapon.get();
 	const float now = gpGlobals->curtime;
+	const bool threatMode = m_bEmpiresTurretRocketIsThreat;
+	const char* targetClass = target != nullptr && !target->IsFree() && target->GetClassName() != nullptr ?
+		target->GetClassName() : "";
+	const bool isCv = std::strcmp(targetClass, "emp_nf_commander") == 0 ||
+		std::strcmp(targetClass, "emp_imp_commander") == 0;
 	int health = 0;
-	const bool targetAlive = readEmpiresEntityIntProperty(turret, "m_iHealth", health) && health > 0;
-	const bool hit = m_bEmpiresTurretRocketFired && health < m_iEmpiresTurretRocketHealth;
-	if (hit || !targetAlive || weapon == nullptr || m_hEmpiresTurretHitBy.get() != turret ||
+	const bool hasHealth = target != nullptr && !target->IsFree() &&
+		readEmpiresEntityIntProperty(target, "m_iHealth", health);
+	const bool targetAlive = isCv ? EmpiresVehicleAlive(this, target) : (hasHealth && health > 0);
+	const bool hit = m_bEmpiresTurretRocketFired && hasHealth && m_iEmpiresTurretRocketHealth > 0 &&
+		health < m_iEmpiresTurretRocketHealth;
+	const bool enemyInterrupt = !threatMode && hasSomeConditions(CONDITION_SEE_CUR_ENEMY) &&
+		m_pEnemy.get() != nullptr;
+	if (hit || !targetAlive || weapon == nullptr || enemyInterrupt ||
+		(threatMode && m_hEmpiresTurretHitBy.get() != target) ||
 		now >= m_flEmpiresTurretRocketUntil)
 	{
-		RCBOT_DIAG("[RCBOT2] turret-rpg result=%s userid=%d health_before=%d health=%d fired=%d\n",
-			hit ? "hit" : "fail", engine->GetPlayerUserId(m_pEdict), m_iEmpiresTurretRocketHealth,
-			health, m_bEmpiresTurretRocketFired);
+		RCBOT_DIAG("[RCBOT2] %s result=%s userid=%d target=%d class=%s health_before=%d health=%d fired=%d\n",
+			threatMode ? "turret-rpg" : "building-rpg",
+			hit ? "hit" : (enemyInterrupt ? "enemy-interrupt" : (m_bEmpiresTurretRocketFired ? "fired-done" : "fail")),
+			engine->GetPlayerUserId(m_pEdict), target != nullptr ? engine->IndexOfEdict(target) : -1,
+			targetClass, m_iEmpiresTurretRocketHealth, health, m_bEmpiresTurretRocketFired);
 		m_flEmpiresTurretRocketUntil = 0.0f;
-		m_flEmpiresTurretMortarNext = now + (hit ? 0.5f : 10.0f);
+		if (threatMode)
+			m_flEmpiresTurretMortarNext = now + (hit ? 0.5f : 10.0f);
+		else
+			m_flEmpiresBuildingAttackNext = now + (hit || m_bEmpiresTurretRocketFired ? 0.5f : 4.0f);
 		m_pButtons->letGo(IN_ATTACK);
 		m_pButtons->letGo(IN_RELOAD);
 		m_iButtons &= ~(IN_ATTACK | IN_RELOAD);
@@ -1215,8 +1287,11 @@ void CBotEmpires::tickEmpiresTurretRocket()
 	{
 		m_bEmpiresTurretRocketFired = true;
 		m_pButtons->letGo(IN_ATTACK);
-		RCBOT_DIAG("[RCBOT2] turret-rpg fired userid=%d turret=%d ammo=%d\n",
-			engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(turret),
+		if (!threatMode)
+			m_flEmpiresTurretRocketUntil = (std::min)(m_flEmpiresTurretRocketUntil, now + 2.5f);
+		RCBOT_DIAG("[RCBOT2] %s fired userid=%d target=%d class=%s ammo=%d\n",
+			threatMode ? "turret-rpg" : "building-rpg",
+			engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(target), targetClass,
 			getAmmo(m_iEmpiresTurretRocketAmmoType));
 	}
 	if (m_bEmpiresTurretRocketFired)
@@ -1231,12 +1306,14 @@ void CBotEmpires::tickEmpiresTurretRocket()
 		return;
 	}
 	float nextPrimary = 0.0f, nextAttack = 0.0f;
+	const bool rangeOk = threatMode ?
+		(empiresNavGoalDistance2D(getOrigin(), CBotGlobals::entityOrigin(target)) >=
+			empiresMgTurretRange(target) + 5.0f) :
+		(empiresNavGoalDistance2D(getOrigin(), CBotGlobals::entityOrigin(target)) >= 200.0f);
 	if (readEmpiresWeaponFloatProperty(weapon, "m_flNextPrimaryAttack", nextPrimary) &&
 		readEmpiresDebugFloatProperty(m_pEdict, "m_flNextAttack", nextAttack) &&
-		now >= nextPrimary && now >= nextAttack &&
-		empiresNavGoalDistance2D(getOrigin(), CBotGlobals::entityOrigin(turret)) >=
-			empiresMgTurretRange(turret) + 5.0f &&
-		empiresTurretRocketAim(getEyePosition(), m_pEdict, turret, m_qEmpiresTurretRocketAim))
+		now >= nextPrimary && now >= nextAttack && rangeOk &&
+		empiresTurretRocketAim(getEyePosition(), m_pEdict, target, m_qEmpiresTurretRocketAim, !threatMode))
 	{
 		m_pButtons->letGo(IN_RELOAD);
 		m_pButtons->tap(IN_ATTACK);
@@ -1670,6 +1747,203 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 	return false;
 }
 
+// Grenadier attacking visible enemy buildings and enemy CV (TODO 3.23):
+// uses RPG on direct sight (220..2600 HU) and falls back to mortar (600..3400 HU)
+// when out of RPG ammo or without a direct rocket line.
+bool CBotEmpires::handleEmpiresBuildingAttack()
+{
+	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
+		m_pEdict == nullptr || m_pEdict->IsFree())
+		return false;
+	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+		return false;
+	if (isEmpiresMortarActionActive() || m_flEmpiresTurretRocketUntil > 0.0f)
+		return true;
+	const float now = gpGlobals->curtime;
+	if (now < m_flEmpiresBuildingAttackNext)
+	{
+		// Between rapid follow-up shots on a building/CV, hold position instead of
+		// letting goal-roam walk away for half a second.
+		if (!m_bEmpiresTurretRocketIsThreat && m_hEmpiresTurretRocketTarget.get() != nullptr &&
+			(m_flEmpiresBuildingAttackNext - now) <= 1.0f)
+		{
+			stopMoving();
+			return true;
+		}
+		return false;
+	}
+	const int team = getTeam();
+	if (team != EMP_TEAM_NF && team != EMP_TEAM_BE)
+		return false;
+	int classId = -1;
+	bool classDesired = false;
+	bool classDesiredKnown = false;
+	const char* classProperty = nullptr;
+	if (!readEmpiresClass(m_pEdict, classId, classDesired, classDesiredKnown, classProperty) ||
+		classId != EMP_CLASS_GRENADIER)
+		return false;
+
+	const int enemyTeam = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
+	const char* enemyCvClass = enemyTeam == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";
+	const Vector origin = getOrigin();
+	const Vector eye = getEyePosition();
+
+	// Locate RPG launcher and ammo once.
+	const char* rpgName = team == EMP_TEAM_BE ? "weapon_emp_imp_rpg" : "weapon_emp_nf_rpg";
+	edict_t* launcher = nullptr;
+	int rpgAmmoType = -1;
+	if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+	{
+		for (int slot = 0; slot < MAX_WEAPONS; ++slot)
+		{
+			const int index = weapons[slot].GetEntryIndex();
+			edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
+			if (weapon != nullptr && !weapon->IsFree() && weapon->GetClassName() != nullptr &&
+				std::strcmp(weapon->GetClassName(), rpgName) == 0 &&
+				CClassInterface::getWeaponState(weapon) != WEAPON_NOT_CARRIED)
+			{
+				launcher = weapon;
+				int secondary = -1;
+				CClassInterface::getAmmoTypes(launcher, &rpgAmmoType, &secondary);
+				break;
+			}
+		}
+	}
+	const bool hasRpgAmmo = launcher != nullptr && rpgAmmoType >= 0 && getAmmo(rpgAmmoType) > 0;
+
+	struct TargetCandidate
+	{
+		edict_t* edict;
+		const char* className;
+		Vector origin;
+		float dist;
+		float score;
+		int health;
+		bool isCv;
+	};
+	std::vector<TargetCandidate> candidates;
+	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+	{
+		edict_t* e = INDEXENT(index);
+		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr)
+			continue;
+		const char* className = e->GetClassName();
+		const bool isCv = std::strcmp(className, enemyCvClass) == 0;
+		bool isBuilding = false;
+		if (!isCv)
+		{
+			if (std::strncmp(className, "emp_building_", 13) != 0 ||
+				std::strstr(className, "physbox") != nullptr ||
+				std::strstr(className, "panel") != nullptr)
+				continue;
+			int buildingTeam = -1;
+			if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", buildingTeam) ||
+				(buildingTeam != EMP_TEAM_NF && buildingTeam != EMP_TEAM_BE))
+			{
+				buildingTeam = std::strncmp(className, "emp_building_nf_", 16) == 0 ? EMP_TEAM_NF :
+					(std::strncmp(className, "emp_building_imp_", 17) == 0 ? EMP_TEAM_BE : -1);
+			}
+			if (buildingTeam != enemyTeam)
+				continue;
+			isBuilding = true;
+		}
+		int health = 0;
+		const bool hasHealth = readEmpiresEntityIntProperty(e, "m_iHealth", health);
+		if (isCv ? !EmpiresVehicleAlive(this, e) : (!hasHealth || health <= 0))
+			continue;
+		const Vector at = CBotGlobals::entityOrigin(e);
+		const float dist = empiresNavGoalDistance2D(origin, at);
+		if (dist < 220.0f || dist > 3400.0f)
+			continue;
+		float bonus = 0.0f;
+		if (isCv)
+			bonus = 800.0f;
+		else if (std::strstr(className, "barracks") != nullptr ||
+			std::strstr(className, "vehiclefactory") != nullptr)
+			bonus = 400.0f;
+		else if (std::strstr(className, "refinery") != nullptr ||
+			std::strstr(className, "radar") != nullptr ||
+			std::strstr(className, "turret") != nullptr)
+			bonus = 200.0f;
+		candidates.push_back({ e, className, at, dist, dist - bonus, health, isCv });
+	}
+	if (candidates.empty())
+	{
+		m_flEmpiresBuildingAttackNext = now + 1.0f;
+		return false;
+	}
+	std::sort(candidates.begin(), candidates.end(),
+		[](const TargetCandidate& a, const TargetCandidate& b) { return a.score < b.score; });
+
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+	// 1. RPG on direct line of sight (220..2600 HU).
+	if (hasRpgAmmo)
+	{
+		for (const TargetCandidate& c : candidates)
+		{
+			if (c.dist > 2600.0f)
+				continue;
+			QAngle aim;
+			if (!empiresTurretRocketAim(eye, m_pEdict, c.edict, aim, true))
+				continue;
+			cancelNavigationAttempt("building-rpg");
+			m_pSchedules->freeMemory();
+			if (m_bEmpiresNavGoalActive)
+				endEmpiresNavmeshGoal("drop", "building-rpg", 0.0f);
+			stopMoving();
+			m_pButtons->letGo(IN_ATTACK);
+			m_pButtons->letGo(IN_ATTACK2);
+			m_pButtons->letGo(IN_RELOAD);
+			m_iButtons = 0;
+			m_hEmpiresTurretRocketTarget = c.edict;
+			m_hEmpiresTurretRocketWeapon = launcher;
+			m_qEmpiresTurretRocketAim = aim;
+			m_iEmpiresTurretRocketAmmoType = rpgAmmoType;
+			m_iEmpiresTurretRocketAmmo = getAmmo(rpgAmmoType);
+			m_iEmpiresTurretRocketHealth = c.health;
+			m_bEmpiresTurretRocketFired = false;
+			m_bEmpiresTurretRocketApproach = false;
+			m_bEmpiresTurretRocketIsThreat = false;
+			m_flEmpiresTurretRocketUntil = now + 10.0f;
+			selectWeaponName(rpgName);
+			RCBOT_DIAG("[RCBOT2] building-rpg armed userid=%d target=%d class=%s dist=%.0f health=%d ammo=%d\n",
+				userId, engine->IndexOfEdict(c.edict), c.className, c.dist, c.health, m_iEmpiresTurretRocketAmmo);
+			return true;
+		}
+	}
+
+	// 2. Mortar fallback when no RPG line or out of RPG ammo (only at ~1x timescale).
+	if (gpGlobals->curtime - gpGlobals->realtime <= 25.0f)
+	{
+		for (const TargetCandidate& c : candidates)
+		{
+			if (c.dist < 600.0f || c.dist > 3400.0f)
+				continue;
+			const Vector targetPoint(c.origin.x, c.origin.y, c.origin.z + 24.0f);
+			QAngle angles;
+			Vector launchOrigin, hitPoint;
+			if (!findEmpiresMortarAim(origin + Vector(0, 0, 44), targetPoint, true, angles, launchOrigin, hitPoint))
+				continue;
+			cancelNavigationAttempt("building-mortar");
+			m_pSchedules->freeMemory();
+			if (m_bEmpiresNavGoalActive)
+				endEmpiresNavmeshGoal("drop", "building-mortar", 0.0f);
+			stopMoving();
+			if (requestEmpiresMortarAtPointOnce(targetPoint, true))
+			{
+				m_flEmpiresBuildingAttackNext = now + 2.0f;
+				RCBOT_DIAG("[RCBOT2] building-mortar fire userid=%d target=%d class=%s dist=%.0f health=%d\n",
+					userId, engine->IndexOfEdict(c.edict), c.className, c.dist, c.health);
+				return true;
+			}
+			break;
+		}
+	}
+
+	m_flEmpiresBuildingAttackNext = now + 1.5f;
+	return false;
+}
+
 bool CBotEmpires::handleEmpiresNavmeshGoal()
 {
 	if (m_pSchedules == nullptr || gpGlobals == nullptr || engine == nullptr ||
@@ -1781,10 +2055,16 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 		}
 		else if (m_iEmpiresNavGoalType == NAVGOAL_BUILDING)
 		{
-			int buildingTeam = -1;
-			if (readEmpiresEntityIntProperty(pTarget, "m_iTeamNum", buildingTeam) &&
-				buildingTeam == team)
-				dropReason = "building-now-friendly";
+			int buildingTeam = -1, health = 0;
+			if ((readEmpiresEntityIntProperty(pTarget, "m_iTeamNum", buildingTeam) &&
+				buildingTeam == team) ||
+				!readEmpiresEntityIntProperty(pTarget, "m_iHealth", health) || health <= 0)
+				dropReason = "building-gone-or-friendly";
+		}
+		else if (m_iEmpiresNavGoalType == NAVGOAL_COMMANDER)
+		{
+			if (!EmpiresVehicleAlive(this, pTarget))
+				dropReason = "commander-dead";
 		}
 		else if (m_iEmpiresNavGoalType == NAVGOAL_REPAIR)
 		{
@@ -1877,6 +2157,12 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 		// route different: that retry is free. as_escort BE base: gate, crate and
 		// wall used up both retries although each one moved the route.
 		const bool learned = RCBotNavMesh::BlockGeneration() != m_uEmpiresNavGoalBlockMark;
+		if (m_iEmpiresNavGoalAttempts == 0 && !learned && (now - m_flEmpiresNavGoalStart) < 0.5f &&
+			!hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && m_pEnemy.get() == nullptr)
+		{
+			endEmpiresNavmeshGoal("fail", "no-path", kNavGoalFailAvoid);
+			return true;
+		}
 		if (m_iEmpiresNavGoalAttempts < kNavGoalMaxAttempts &&
 			(learned || m_iEmpiresNavGoalRetries < kNavGoalMaxRetries))
 		{
@@ -2072,10 +2358,11 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		int type = -1;
 		if (std::strcmp(className, "emp_resource_point") == 0)
 			type = NAVGOAL_RESOURCE;
-		else if (std::strcmp(className, enemyCommanderClass) == 0)
+		else if (std::strcmp(className, enemyCommanderClass) == 0 && EmpiresVehicleAlive(this, pEdict))
 			type = NAVGOAL_COMMANDER;
 		else if (std::strncmp(className, "emp_building_", 13) == 0 &&
-			std::strstr(className, "physbox") == nullptr)
+			std::strstr(className, "physbox") == nullptr &&
+			std::strstr(className, "panel") == nullptr)
 		{
 			int buildingTeam = -1;
 			if (!readEmpiresEntityIntProperty(pEdict, "m_iTeamNum", buildingTeam) ||
@@ -2086,13 +2373,13 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 			}
 			if (buildingTeam == team && std::strstr(className, "refinery") != nullptr)
 				ownRefineries.push_back(CBotGlobals::entityOrigin(pEdict));
-			if (buildingTeam == enemyTeam)
-				type = NAVGOAL_BUILDING;
 			int health = 0, maxHealth = 0;
+			const bool hasHealth = readEmpiresEntityIntProperty(pEdict, "m_iHealth", health);
+			if (buildingTeam == enemyTeam && hasHealth && health > 0)
+				type = NAVGOAL_BUILDING;
 			if (engineer && buildingTeam == team &&
 				isEmpiresRepairableBuildingClass(className, team) &&
-				readEmpiresEntityIntProperty(pEdict, "m_iHealth", health) &&
-				readEmpiresEntityIntProperty(pEdict, "m_iMaxHealth", maxHealth) &&
+				hasHealth && readEmpiresEntityIntProperty(pEdict, "m_iMaxHealth", maxHealth) &&
 				health > 0 && health < maxHealth)
 				type = NAVGOAL_REPAIR;
 		}
@@ -2104,32 +2391,15 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 			// The kit reaches 100: stand right at the building, on its floor, on the
 			// side facing us (as_escort turret 292: routes to its origin ended one
 			// storey up, 300-430 away).
-			const ICollideable* collision = pEdict->GetCollideable();
-			const Vector base = collision != nullptr ? collision->GetCollisionOrigin() : goal;
-			// Outside the box in every direction: half diagonal plus a player's width.
-			float reach = 40.0f;
-			if (collision != nullptr)
-			{
-				const float hx = (std::max)(std::fabs(collision->OBBMins().x), std::fabs(collision->OBBMaxs().x));
-				const float hy = (std::max)(std::fabs(collision->OBBMins().y), std::fabs(collision->OBBMaxs().y));
-				reach += std::sqrt(hx * hx + hy * hy);
-			}
-			const float baseYaw = std::atan2(origin.y - base.y, origin.x - base.x);
-			bool found = false;
-			for (int step = 0; step < 8 && !found; ++step)
-			{
-				const float yaw = baseYaw + static_cast<float>((step + 1) / 2) * (step % 2 ? 1.0f : -1.0f) *
-					static_cast<float>(M_PI) / 4.0f;
-				const Vector wanted = base + Vector(std::cos(yaw), std::sin(yaw), 0.0f) * reach;
-				Vector onMesh;
-				if (RCBotNavMesh::ClosestPointOnMesh(Vector(wanted.x, wanted.y, base.z + 16.0f), 64.0f, onMesh) &&
-					std::fabs(onMesh.z - base.z) < 60.0f)
-				{
-					goal = onMesh;
-					found = true;
-				}
-			}
-			if (!found)
+			if (!findEmpiresBuildingApproachPoint(pEdict, origin, 40.0f, false, goal))
+				continue;
+		}
+		else if (type == NAVGOAL_BUILDING || type == NAVGOAL_COMMANDER)
+		{
+			// Building and CV origins sit inside solid hulls; route to a walkable mesh
+			// point outside the hull facing us instead of failing with route-ended.
+			const float extra = type == NAVGOAL_COMMANDER ? 180.0f : 120.0f;
+			if (!findEmpiresBuildingApproachPoint(pEdict, origin, extra, true, goal))
 				continue;
 		}
 		tiers[type].push_back({ index, goal, empiresNavGoalDistance2D(origin, goal), className });
@@ -2153,6 +2423,15 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		list.erase(std::remove_if(list.begin(), list.end(),
 			[&](const EmpiresNavGoalCandidate& candidate) { return isInsideEmpiresTurretThreat(candidate.origin); }),
 			list.end());
+
+	if (RCBotNavMesh::IsLoaded())
+	{
+		for (std::vector<EmpiresNavGoalCandidate>& list : tiers)
+			list.erase(std::remove_if(list.begin(), list.end(),
+				[&](const EmpiresNavGoalCandidate& candidate)
+				{ return !RCBotNavMesh::CanReachComponent(origin, candidate.origin); }),
+				list.end());
+	}
 
 	int tier = 0;
 	while (tier < NAVGOAL_TYPES && tiers[tier].empty())

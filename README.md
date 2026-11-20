@@ -8,7 +8,9 @@ real-time strategy. Built on [RCBot2][rcbot2-fork], running on a Linux dedicated
 > **Work in progress.** The bots already play whole matches – commander, engineers,
 > infantry and vehicles – but they are not finished and still make mistakes.
 > See [what works](#what-the-bots-can-do) and [known issues](#known-issues).
-> Current development priorities, test limitations and outstanding checks are listed in the public open-work document.
+> Current work starts with vehicle driving and aiming, followed by
+> resource goal reachability. The [open-work list](docs/OPEN_WORK.md) shows which checks
+> support later changes to resupply, research and team play.
 
 ## The goal
 
@@ -119,7 +121,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
 | ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human. A move ends within the game's 100 units (route extended straight to the spot when the mesh ends beside it) |
-| 🟡 | Destroy turrets | Grenadier can reach and destroy a turret with mortar fire; some older map/state combinations still found no firing position |
+| 🟡 | Destroy turrets and buildings | Grenadiers attack turrets, enemy buildings and the CV with RPG and mortar from outside the building; some map/state combinations still find no firing position. Rifleman sticky charges and scout sabotage are planned |
 | 🟡 | Follow guard and attack-target orders | Infantry follow the guarded unit or the attack target; engineers build or repair the guarded building (also refineries). Attack target on an enemy is accepted by the game only from a human commander's view, so it was tested with a test hook; a test with a real human is open |
 | 🟡 | Water | Bots come up for air after 5 s with the head under water and avoid deep water when there is a way over land. Flags reachable only by ladders from the water (palmbay boats) are skipped for now |
 | ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |
@@ -132,8 +134,9 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | | Feature | Notes |
 |:-:|---|---|
 | ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
-| ✅ | Drive | On the navmesh, three-point turns, keep away from edges ; fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
-| 🟡 | Fight | Leads targets and circles enemies; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target; group switching is not yet implemented |
+| ✅ | Drive | Follows the navmesh, makes three-point turns and replans when a reverse turn stalls. Avoids edges and fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
+| 🟡 | Fight | Leads targets and circles enemies; holds position and fires at static buildings from 550–1500 units; turns the side armour only towards armed targets; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target. Close range to buildings and group switching still need work |
+| 🟡 | Pick goals | Base defence, front flags, enemy refinery/barracks/factory/radar, then the CV; flag support not yet confirmed on a flag map |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged |
 | 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the nearest source: a team ammo crate (engineer or map crate) or the own repair pad, where it refits (refills every weapon); far from both it calls for ammo and an engineer places a supply crate |
@@ -213,7 +216,9 @@ know the Linux `server_srv.so` and use their fallbacks on Windows; do not set
 Detailed diagnostics default to off to keep ordinary server logs readable. The development
 test harness enables them automatically; set `rcbot_empires_debug_log 1` for manual diagnosis.
 Run Empires test and diagnostic commands such as `rcbotd empires_nav_scan` from the
-dedicated server console.
+dedicated server console. RCBot2 loads a map's navmesh only while at least one bot is on the server:
+with zero bots `empires_nav_scan` prints `scan route=navmesh-not-loaded`. Add a bot first
+(`rcbotd addbot 1 2 Scanner`) and wait a few seconds.
 
 ## Build
 
@@ -238,10 +243,13 @@ server, check out the `1.12-dev` branch there before building (reported working 
 
 ## Known issues
 
+
 - The Bill Nye jeep sometimes drives off edges on `emp_rainbowroad`.
 - Turret placement at map-owned refineries on `emp_rainbowroad` is still intermittent; unreachable stand points are skipped and retried at another angle.
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
+- Tanks very close to enemy buildings sometimes stall instead of firing.
+- On `emp_palmbay` the NF command vehicle can still get stuck on its way to a remote factory site.
 - Only Linux servers are tested.
 
 Planned work includes coordinated squad passengers, jeep attacks and refinery defenses.
@@ -252,10 +260,17 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   and prints a summary of the match. Set `EMPIRES_TEST_SERVER` (or put it in
   `scripts/dev.local`) to that server. The addon must already be installed there;
   the script replaces its binary. Use `DEV_UNTIL` to end a targeted run on a result.
+  Use `DEV_EXPECT` to require a success line and `DEV_FAIL` to end on a failure
+  line. Missing prerequisites and failed checks return a nonzero exit status.
+  Each run keeps its own `server.log`.
   Each run folder gets a `build-info.txt` with the git SHA and whether the tree was dirty.
 - `scripts/dev_check.sh` runs the commander chain, long-move, repair-pad, turret-build and
   revive checks in parallel, one server per test on its own port (about 1 minute;
   `DEV_CHECK_SERIAL=1` runs them one after another). The long-move check fails if the bot only arrives after retries.
+  The repair-pad check disables refinery turret jobs so the commander can place the pad first.
+  `scripts/dev_maps.sh` also builds once for the whole batch. Both wrappers
+  accept `DEV_SKIP_BUILD=1` to reuse a build and `DEV_BUILD_HASH` to verify the
+  selected binary. Build and server startup use `flock` (util-linux).
 - `scripts/dev_orders.sh [map] [timescale]` gives commander orders like the game UI (move, attack
   target on an enemy, guard on a refinery); `scripts/dev_cmdorders.sh [map]` checks the bot
   commander's own orders (map with a CV and capture points, e.g. emp_palmbay).
@@ -265,16 +280,65 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   vehicle purchase) and ends when a bot drives a vehicle it bought.
 - Bots hand their wages to a teammate who writes "wages" in chat (`!give #<userid>` when the
   server has a give plugin, otherwise directly).
+- `scripts/dev_turn.sh <1|2|3|4> [map] [nf|be]` samples the driving response
+  after an in-place debug purchase of an NF Light (default) or a BE AFV.
+  Mode 1 uses steering alone. Mode 2 adds a
+  0.2-second handbrake pulse. Modes 3 and 4 measure straight-line coasting and
+  braking from at least 500 HU/s. The `vehicle turn-test` log records pose and
+  velocity at roughly 0.1-second intervals. The underlying
+  `rcbot_empires_vehicle_turn_test` cvar defaults to 0 (disabled).
+- `rcbot_empires_vehicle_curve_speed 1` enables the experimental route-based
+  speed limit for NF Light and BE AFV drivers. It previews up to three corners
+  using the existing route. The default is 0 while fixed-start tests are pending.
 - `scripts/dev_buy.sh [map] [timescale]` is the short version (~30 s): instant factory, extra
   money, ends at the first real purchase; for purchase diagnostics, not for economy timing.
+- `scripts/dev_vf_drive.sh [0|1|place] [map] [nf|be] ["x y z"]` uses an instantly built factory
+  as the first building. A bot buys normally and drives for 25 seconds after
+  the first successful route.
+  The test runs at normal game speed. Use 0 or 1 to compare the experimental
+  curve speed cap, which defaults to off during normal play.
+  Supply build-command coordinates to place the factory at yaw 0, or use `place` to stop
+  at the first automatic placement result.
+  Set `DEV_VF_APPROACH="x y z"` with a fixed factory to start the buyer near
+  the ramp and keep the normal purchase and exit sequence.
+- For experimental local maneuver selection on ordinary NF Light and BE AFV
+  routes, set `rcbot_empires_vehicle_maneuvers 1`. The default is 0.
+  `rcbot_empires_vehicle_maneuver_budget` (default 2) caps planner evaluations
+  per server tick across all vehicles; `vehicle maneuver-perf` logs the cost.
+- `scripts/dev_vehicle_obstacle.sh [0|1] [map] [nf|be] [ahead] [lateral] [model]`
+  places a solid prop on a debug-bought driver's route
+  (`rcbotd empires_vehicle_obstacle [ahead] [lateral] [entry_speed] [model]`)
+  and logs how the driver gets past it.
+  The planner searches for alternatives when the regular arc hits a blocking
+  entity or during recovery from a maneuver stall. Regular steering handles
+  world geometry and ground clearance. After a maneuver retry, it releases the
+  committed detour so it can replan. Focused Crossroads and Palmbay obstacle
+  runs passed in 1.86–2.05 s without stopping; factory-drive speed on Crossroads
+  stayed within 6% of selection-off results. In the Crossroads matches all three
+  NF Light purchases at the same factory timed out at the straight exit before
+  maneuver selection began. The initial short NF factory test used a different site.
+  With selection enabled, both drivers later gave up at factory entities.
+  Palmbay's native site checks found no valid factory candidate, so no vehicles
+  were bought. At the same Crossroads factory pose, the empty bay cleared in
+  2.6 seconds, and adding the NF radar reproduced the stall. `vehicle factory-exit hull`
+  recorded contact with the radar and then its vehicle collision proxy. Automatic
+  factory heading selection now checks for existing buildings with a tank-width
+  sweep. With the radar present, the selected 90° heading cleared in 1.8 seconds
+  and the NF Light continued on its route. The BE control cleared in 2.6 seconds
+  at −96°, and `dev_check` passed 5/5. On Palmbay the first short placement
+  attempt failed for NF and succeeded for BE. See
+  [open work](docs/OPEN_WORK.md) for the existing baselines. The default is 0.
 - `scripts/run_*_tests.sh` are focused tests; some use test-server binaries or dependencies.
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p dev_run_test.py`
+  checks the runner's log matching and exit status offline.
 - `rcbot_analysis_start` records what the bots do: [EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md).
 - What we know about the game server's internals: [reverse-engineering/](reverse-engineering/).
 - Setup: copy `scripts/dev.local.example` to `scripts/dev.local`. Build dependencies (SDK 2013,
   Metamod:Source, SourceMod, HL2SDK manifests) go in `../rcbot2-clean` or `RCBOT_DEPS_DIR`.
-- Working with Claude Code or Codex: the rules and tools are in [AGENTS.md](AGENTS.md)
-  (Claude Code reads it through `CLAUDE.md`, with a `tester` and an `expert` agent in
-  `.claude/agents/`). Open work, in order: [docs/OPEN_WORK.md](docs/OPEN_WORK.md).
+- Working with Claude Code or Codex: see [AGENTS.md](AGENTS.md).
+  Claude Code reads it through `CLAUDE.md`. One agent changes, builds and tests itself;
+  topics without measured gain are timeboxed and parked.
+  See the [open-work priorities](docs/OPEN_WORK.md).
 
 ## License
 
@@ -308,3 +372,12 @@ Based on [RCBot2][rcbot2] by Cheeseh and its [fork by APGRoboCop][rcbot2-fork]:
 [rcbot2-fork]: https://github.com/APGRoboCop/rcbot2
 [mms]: https://www.sourcemm.net/
 [AMBuild]: https://wiki.alliedmods.net/AMBuild
+
+For spatial navigation debugging, `tools/` holds offline helpers (Python 3 with Pillow, they only read the `.nav`/`.bsp` files):
+
+- `tools/nav_overview.py <map>.nav --bsp <map>.bsp --output out.png` renders a top-down PNG of the navmesh: connected components, commanders, barracks, refineries and resource points.
+  `--crop x0,y0,x1,y1` zooms to a world rectangle, `--terrain` shades the displacement terrain below the mesh (amber 30-45 deg and red above 45 deg slope), `--vehicle-width 284` tints mesh a vehicle of that width cannot pass, and `--log server.log [--userid N]` marks stuck, reverse and route-block events and draws that vehicle's driven track.
+- `tools/check_nav.py <map>.nav --bsp <map>.bsp` prints component sizes and whether every spawn, commander, building and resource point is on the main component.
+- `tools/test_nav_tools.py` checks the terrain reader against the navmesh of `emp_palmbay`.
+
+The picture does not include static props or dynamic building obstacles, and terrain is only shown for displacement maps (walls of brush maps are not drawn). It does not replace a clearance trace in the game.

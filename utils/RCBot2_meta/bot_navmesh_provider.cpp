@@ -501,11 +501,12 @@ bool StartForIntent(CBot* bot, const std::uint64_t intentId,
 	if (pathResult != RCBotNavMesh::PathResult::SUCCESS ||
 		path.points.empty())
 	{
-		char detail[256];
+		char detail[320];
 		snprintf(detail, sizeof(detail),
-			"path_result=%s start=(%.1f %.1f %.1f) goal=(%.1f %.1f %.1f)",
+			"path_result=%s start=(%.1f %.1f %.1f) goal=(%.1f %.1f %.1f) start_area=%d goal_area=%d start_comp=%d goal_comp=%d",
 			RCBotNavMesh::PathResultName(pathResult), start.x, start.y,
-			start.z, goal.x, goal.y, goal.z);
+			start.z, goal.x, goal.y, goal.z,
+			path.startAreaId, path.goalAreaId, path.startComponent, path.goalComponent);
 		RCBOT_DIAG("[RCBOT2] navmesh-plan-failed %s userid=%d\n", detail,
 			engine != nullptr && bot->getEdict() != nullptr ? engine->GetPlayerUserId(bot->getEdict()) : -1);
 		bot->handleNavigationProviderFailure(
@@ -777,18 +778,35 @@ void Frame()
 					// The gate spans several mesh links (as_escort gate 228: 39->93, 39->6792,
 					// 39->967 one after the other, 12 stops in 6 min): block all of them.
 					int links = 0;
+					bool boxSkipped = false;
 					ICollideable* collide = closedDoor != nullptr ? closedDoor->GetCollideable() : nullptr;
 					Vector mins(0, 0, 0), maxs(0, 0, 0);
 					if (collide != nullptr)
 					{
 						collide->WorldSpaceSurroundingBounds(&mins, &maxs);
-						links = RCBotNavMesh::BlockEdgesThroughBox(mins - Vector(8, 8, 0), maxs + Vector(8, 8, 0), blockSeconds);
-						links += RCBotNavMesh::BlockEdgesBehindBox(here, mins - Vector(8, 8, 0), maxs + Vector(8, 8, 0), blockSeconds);
+						const Vector padMins = mins - Vector(8, 8, 0);
+						const Vector padMaxs = maxs + Vector(8, 8, 0);
+						const float sizeX = maxs.x - mins.x;
+						const float sizeY = maxs.y - mins.y;
+						const bool hereInsideBox = here.x >= padMins.x && here.x <= padMaxs.x &&
+							here.y >= padMins.y && here.y <= padMaxs.y;
+						const char* cls = closedDoor->GetClassName();
+						const bool isDoor = cls != nullptr &&
+							(std::strncmp(cls, "func_door", 9) == 0 || std::strncmp(cls, "prop_door", 9) == 0);
+						const bool isPropDynamic = cls != nullptr && std::strcmp(cls, "prop_dynamic") == 0;
+						const float maxBoxDim = isDoor ? 600.0f : (isPropDynamic ? 256.0f : 450.0f);
+						if (!hereInsideBox && sizeX <= maxBoxDim && sizeY <= maxBoxDim)
+						{
+							links = RCBotNavMesh::BlockEdgesThroughBox(padMins, padMaxs, blockSeconds, true, &here);
+							links += RCBotNavMesh::BlockEdgesBehindBox(here, padMins, padMaxs, blockSeconds);
+						}
+						else
+							boxSkipped = true;
 					}
-					RCBOT_DIAG("[RCBOT2] navmesh-door-closed door=%d class=%s block_seconds=%.0f links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n",
+					RCBOT_DIAG("[RCBOT2] navmesh-door-closed door=%d class=%s block_seconds=%.0f links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f) box_skip=%d\n",
 						closedDoor != nullptr ? engine->IndexOfEdict(closedDoor) : -1,
 						closedDoor != nullptr ? closedDoor->GetClassName() : "-", blockSeconds, links,
-						mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
+						mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z, boxSkipped ? 1 : 0);
 				}
 				if (worldBlocked)
 				{

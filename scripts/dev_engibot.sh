@@ -13,16 +13,19 @@ T="rcbotd empires_test_engibot"
 if [[ "${DEV_ENGIBOT_MODE:-}" == build ]]; then
   CMDS="wait 2;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2;$T 2;wait 3;$T 2;wait 20;rcbotd empires_commander_place_barracks"
   UNTIL="build-assign result="
+  EXPECT='^\[RCBOT2\] build-assign result=COMPLETE'
 elif [[ "${DEV_ENGIBOT_MODE:-}" == level ]]; then
   # Map change: both EngiBots are kicked (level-reset) and gone from status afterwards.
-  CMDS="wait 2;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2;$T 2;wait 3;$T 2;wait 10;changelevel ${1:-emp_streetsoffire};wait 40;status;wait 5"
-  UNTIL="no-such-line"
+  UNTIL='^ENGIBOT_LEVEL_DONE\s*$'
+  CMDS="wait 2;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2;$T 2;wait 3;$T 2;wait 10;mark;changelevel ${1:-emp_streetsoffire};wait 40;status;wait 5;echo ENGIBOT_LEVEL_DONE;waitfor 5 $UNTIL"
+  EXPECT='^\[RCBOT2\] engibot kick userid=[0-9]+ reason=level-reset'
 else
-  CMDS="wait 2;rcbotd addbot 1;rcbotd addbot 3 3;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2;$T 3;wait 2;$T 2;wait 3;$T 2;wait 3;$T 2;wait 40;rcbot_empires_engibot_limit 3;rcbot_empires_engibot_cost 999999;$T 2;wait 10"
-  UNTIL="engibot refuse.*reason=money"
+  CMDS="wait 2;rcbotd addbot 1;rcbotd addbot 3 3;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2;$T 3;wait 2;$T 2;wait 3;$T 2;wait 3;$T 2;wait 40;rcbot_empires_engibot_limit 3;rcbot_empires_engibot_cost 999999;mark;$T 2;waitfor 15 ^\[RCBOT2\] engibot refuse.*reason=money"
+  EXPECT='^\[RCBOT2\] engibot refuse.*reason=money'
+  UNTIL="$EXPECT"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="2:1 2:1" \
 DEV_PRE="rcbot_empires_auto_commander 0;rcbot_empires_vehicles 0;rcbot_empires_engineer_turrets 0" \
-DEV_CMDS="$CMDS" DEV_UNTIL="$UNTIL" \
-DEV_SHOW="commander-entry result|commander-place|engibot |EngiBot|build-assign result" \
+DEV_CMDS="$CMDS" DEV_UNTIL="$UNTIL" DEV_EXPECT="$EXPECT" \
+DEV_SHOW="commander-entry result|commander-place|engibot |EngiBot|build-assign result|^ENGIBOT_LEVEL_DONE" \
 exec scripts/dev.sh "${1:-emp_streetsoffire}" 2 6

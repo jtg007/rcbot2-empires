@@ -13,11 +13,12 @@ O="rcbotd empires_test_unit_order 2"
 MOVE="${DEV_ORDER_MOVE:-}"
 [[ -z "$MOVE" && "$MAP" == emp_streetsoffire ]] && MOVE="888 3085 -142"
 CMDS="wait 2;rcbotd empires_commander_entry_once;waitfor 180 commander-entry result=COMPLETE;wait 2"
-[[ -n "$MOVE" ]] && CMDS+=";$O 1 3 $MOVE;waitfor 300 commander-move result=(COMPLETE|FAIL)"
+[[ -n "$MOVE" ]] && CMDS+=";mark;$O 1 3 $MOVE;waitfor 300 ^\[RCBOT2\] commander-move result=COMPLETE"
 CMDS+=";mark;$O 3 3 0 0 0 4;waitfor 60 commander-order start type=3;wait 20"
 CMDS+=";mark;$O 4 5 0 0 0 r;waitfor 240 build-assign result="
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="2:1 2:1 3:1 2:3" \
 DEV_PRE="rcbot_empires_auto_commander 0;rcbot_empires_vehicles 0;rcbot_empires_engineer_turrets 0" \
-DEV_CMDS="$CMDS" DEV_UNTIL="build-assign result=" \
+DEV_CMDS="$CMDS" DEV_UNTIL="build-assign result=" DEV_EXPECT='^\[RCBOT2\] build-assign result=COMPLETE userid=5 ' \
+DEV_FAIL='^\[RCBOT2\] commander-move result=FAIL ' \
 DEV_SHOW="commander-entry result|test-unit-order|empires_test_unit_order|commander-move result|navmesh-path-extended|guard-order|build-assign (result|stage=work)|NOT found" \
 exec scripts/dev.sh "$MAP" 4 12

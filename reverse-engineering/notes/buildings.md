@@ -60,3 +60,17 @@ Measurements (emp_streetsoffire, NF CV at (-7548 -14179 -192), probe `empires_co
   networked as `CEmpTeam+0x3c0` (`CEmpTeam::Think` 0x680cf9); skipping it only hides the change from that
   "adjustments" value, the pool `+0x30` is correct. `CUtlVector<float>::InsertBefore` 0x39fad0 would add it. `emp_give_resources` needs a server admin (`UTIL_IsCommandIssuedByServerAdmin`),
   i.e. works from the server console.
+
+## Factory placement flags decoded (2026-11-20, static + probe `empires_commander_build obstruct` / `obstruct_grid`)
+
+- `GetAllObstructions` 0x387ed0 (non-refinery): `GetBuildingHullTrace` 0x387b30 = axis-aligned `TraceRay` box, mask `0x4600402b`
+  (solid|window|grate|water|moveable|monster|debris|detail), start == end. Box x/y = offset ± `CollisionRadius`, z = offset .. offset+`CollisionHeight`.
+  `GetCollisionObstructions` 0x386ed0 sets **0x2** when that trace hits or starts solid and the entity is not `emp_eng_crate` /
+  `prop_physics_multiplayer` (strcasecmp on the entity name); worldspawn counts. It also runs `ForUnevenCylinderTraces` (ring of traces, offset -50) which can add **0x20**.
+  `GetGeneralCollisions` 0x3872a0 adds 0x2 for a non-world hit that is solid/blocking. `CheckForEnemiesTooClose` 0x387730 returns **0x10**
+  (enemy player or enemy building within 1000, only evaluated when CV distance > 1000); 0x8 = > 4000 from CV without a teammate.
+- Measured on emp_palmbay, NF CV (9216 10464 -2254), type 5: of 53 automatic candidates all 53 hit `worldspawn` (not CV, not props);
+  ground grid (step 150, radius 3900, 1944 points): 0 points with flags 0, only 1 without bit 0x2 (but 0x20). Whole map (step 400, 1920 points):
+  only 27 points free of everything except 0x8, all 7000+ from the NF CV (mid map (3200..4800, 5000/-1100, -2950), east (10000..11600, 60..3700, -2063)).
+  Conclusion: the NF base on Palmbay is too cramped for the 1200 x 1200 box; neither the bot search nor a human can build the factory near the CV.
+  BE has one valid spot (-7444 -9281).

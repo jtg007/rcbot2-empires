@@ -6,14 +6,17 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/dev_cpu.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+[[ -f "$ROOT/scripts/dev.local" ]] && source "$ROOT/scripts/dev.local"
 CLEAN="${RCBOT_DEPS_DIR:-$(dirname "$ROOT")/rcbot2-clean}"
 MIRROR="${RCBOT_DEV_MIRROR:-$HOME/.cache/rcbot2-dev-build}"
 SDK="$CLEAN/alliedmodders"
 
 mkdir -p "$MIRROR"
+exec {build_lock}>"$MIRROR/.dev-build.lock"
+flock -x "$build_lock"
 # -t keeps mtimes, so untouched files stay up to date for AMBuild.
 rsync -rlt --delete \
-  --exclude=/.git --exclude=/post --exclude='.ambuild2' \
+  --exclude=/.git --exclude=/post --exclude=/.dev-build.lock --exclude='.ambuild2' \
   --exclude=/hl2sdk-manifests --exclude=/alliedmodders \
   "$ROOT/" "$MIRROR/"
 

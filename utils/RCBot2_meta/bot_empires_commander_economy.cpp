@@ -16,6 +16,7 @@
 #include "bot_empires_spatial.h"
 #include "bot_navmesh_api.h"
 #include "engine/IEngineTrace.h"
+#include "navmesh/util/UtilTrace.h"
 
 #include "dt_send.h"
 #include "server_class.h"
@@ -26,8 +27,10 @@
 
 extern IVEngineServer* engine;
 extern IServerPluginHelpers* helpers;
+extern IServerGameEnts* servergameents;
 
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
+bool CGameRulesShouldCollide(int collisionGroup0, int collisionGroup1);
 
 namespace
 {
@@ -164,13 +167,19 @@ bool ExitLaneClear(const Vector& at, float yaw)
 		return true;
 	const float r = yaw * 3.14159265f / 180.0f;
 	const Vector dir(std::cos(r), std::sin(r), 0.0f);
+	const Vector side(-dir.y, dir.x, 0.0f);
 	CTraceFilterWorldOnly filter;
 	trace_t hit;
 	Ray_t ray;
-	ray.Init(at + Vector(0, 0, 60), at + Vector(0, 0, 60) + dir * 1500.0f);
-	enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
-	if (hit.fraction < 1.0f)
-		return false;
+	// A clear centre ray can still leave an AFV's outer edge against the wall.
+	for (const float offset : {0.0f, -80.0f, 80.0f})
+	{
+		const Vector start = at + side * offset + Vector(0, 0, 60);
+		ray.Init(start, start + dir * 1500.0f);
+		enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+		if (hit.fraction < 1.0f)
+			return false;
+	}
 	for (float d = 600.0f; d <= 1500.0f; d += 300.0f)
 	{
 		const Vector p = at + dir * d;
@@ -180,6 +189,139 @@ bool ExitLaneClear(const Vector& at, float yaw)
 			return false;
 	}
 	return true;
+}
+
+class FactoryLaneBuildingFilter : public CTraceFilter
+{
+public:
+	TraceType_t GetTraceType() const override { return TRACE_ENTITIES_ONLY; }
+
+	bool ShouldHitEntity(IHandleEntity* handle, int) override
+	{
+		IServerUnknown* unknown = static_cast<IServerUnknown*>(handle);
+		IServerNetworkable* networkable = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
+		edict_t* entity = networkable != nullptr ? networkable->GetEdict() : nullptr;
+		if (!IsClass(entity, "emp_building_"))
+			return false;
+		const ICollideable* collide = entity->GetCollideable();
+		return collide != nullptr && collide->GetSolid() != SOLID_NONE &&
+			(collide->GetSolidFlags() & (FSOLID_NOT_SOLID | FSOLID_TRIGGER)) == 0 &&
+			CGameRulesShouldCollide(COLLISION_GROUP_VEHICLE, collide->GetCollisionGroup());
+	}
+};
+
+// The native factory placement and the world-only lane rays can accept a
+// heading that sends the tank into a neighboring building (Crossroads radar).
+const char* FactoryLaneBuilding(const Vector& at, float yaw)
+{
+	if (enginetrace == nullptr || servergameents == nullptr)
+		return nullptr;
+	const float r = yaw * 3.14159265f / 180.0f;
+	const Vector dir(std::cos(r), std::sin(r), 0.0f);
+	const float extent = 80.0f / (std::fabs(dir.x) + std::fabs(dir.y));
+	Ray_t ray;
+	ray.Init(at, at + dir * 1500.0f, Vector(-extent, -extent, 20), Vector(extent, extent, 110));
+	FactoryLaneBuildingFilter filter;
+	trace_t hit;
+	enginetrace->TraceRay(ray, MASK_SOLID, &filter, &hit);
+	if (!hit.DidHit())
+		return nullptr;
+	edict_t* entity = hit.m_pEnt != nullptr ? servergameents->BaseEntityToEdict(hit.m_pEnt) : nullptr;
+	return entity != nullptr ? entity->GetClassName() : "building";
+}
+
+// Fallback search centres for a building whose spot is not free near the CV (emp_palmbay NF: the
+// 1200 x 1200 factory box hits map geometry everywhere within 3900 of the CV, TODO 5.8c). The game
+// allows building far from the CV while a living non-Commander teammate is within 4000
+// (CEmpGameRules::CanBuildAt, RE buildings.md), so the search circles go around teammates, nearest to
+// the CV first, one per 2500 units, at most kMaxTeammateCenters.
+constexpr size_t kMaxTeammateCenters = 6;
+constexpr float kMaxTeammateCenterDistance = 4500.0f; // centres stay in the own base area
+std::vector<Vector> TeammateSearchCenters(int team, const Vector& cv, const edict_t* commander)
+{
+	std::vector<Vector> found;
+	for (int i = 1; i <= gpGlobals->maxClients; ++i)
+	{
+		edict_t* player = engine->PEntityOfEntIndex(i);
+		if (player == nullptr || player->IsFree() || player == commander || CClassInterface::getTeam(player) != team ||
+			!CBotGlobals::entityIsAlive(player))
+			continue;
+		const Vector at = CBotGlobals::entityOrigin(player);
+		if ((at - cv).Length2D() <= kMaxTeammateCenterDistance) // not a teammate far forward: the factory would stand mid-map
+			found.push_back(at);
+	}
+	std::sort(found.begin(), found.end(), [&](const Vector& a, const Vector& b) {
+		return (a - cv).LengthSqr() < (b - cv).LengthSqr();
+	});
+	std::vector<Vector> centers;
+	for (const Vector& candidate : found)
+	{
+		bool near = false;
+		for (const Vector& chosen : centers)
+			near = near || (candidate - chosen).Length() < 2500.0f;
+		if (!near)
+			centers.push_back(candidate);
+		if (centers.size() >= kMaxTeammateCenters)
+			break;
+	}
+	return centers;
+}
+
+// Remote factory site (TODO 5.8c, emp_palmbay NF): ground scan around the CV for a spot where the factory
+// box is free (native obstruction flags without the CV-distance flag 0x8). Prefers a cluster of free points
+// (at least 3 free neighbours within 450), nearest to the CV; spots near excluded ones are skipped.
+bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& context, const Vector& cv,
+	const Vector& enemyCv, const std::vector<Vector>& excluded, Vector& site)
+{
+	if (enginetrace == nullptr)
+		return false;
+	constexpr float kScanRadius = 8000.0f, kScanStep = 300.0f;
+	CTraceFilterWorldOnly filter;
+	std::vector<Vector> clear;
+	for (float dx = -kScanRadius; dx <= kScanRadius; dx += kScanStep)
+		for (float dy = -kScanRadius; dy <= kScanRadius; dy += kScanStep)
+		{
+			if (dx * dx + dy * dy > kScanRadius * kScanRadius)
+				continue;
+			const Vector top(cv.x + dx, cv.y + dy, cv.z + 800.0f);
+			Ray_t ray;
+			ray.Init(top, top - Vector(0, 0, 1500.0f));
+			trace_t hit;
+			enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+			if (hit.startsolid || hit.fraction >= 1.0f)
+				continue;
+			const Vector at = hit.endpos + Vector(0, 0, 1.0f);
+			// Own half only: closer to our CV than to the enemy's (no factory mid-map or at the enemy).
+			bool skip = (at - cv).Length2D() >= (at - enemyCv).Length2D();
+			for (const Vector& bad : excluded)
+				skip = skip || (at - bad).Length2D() < 1500.0f;
+			if (skip)
+				continue;
+			if (EmpiresNativePlacement::CanPlaceNative(context, at, 5, nullptr, true) == EmpiresNativePlacement::Result::Valid)
+				clear.push_back(at);
+		}
+	bool found = false;
+	float bestDistance = 0.0f;
+	for (const Vector& candidate : clear)
+	{
+		// Only clusters: a lone free sample is measurement noise (run site5: one point inside the base).
+		int neighbours = 0;
+		for (const Vector& other : clear)
+			if (&other != &candidate && (other - candidate).Length2D() < 450.0f)
+				++neighbours;
+		if (neighbours < 3)
+			continue;
+		const float d = (candidate - cv).Length2D();
+		if (!found || d < bestDistance)
+		{
+			site = candidate;
+			bestDistance = d;
+			found = true;
+		}
+	}
+	RCBOT_DIAG("[RCBOT2] commander-econ factory-site scan clear=%zu found=%d site=(%.0f %.0f %.0f) cv_distance=%.0f\n",
+		clear.size(), found ? 1 : 0, found ? site.x : 0.0f, found ? site.y : 0.0f, found ? site.z : 0.0f, found ? bestDistance : 0.0f);
+	return found;
 }
 
 Vector EnemyCommanderOrigin(const Vector& at, int team)
@@ -262,24 +404,43 @@ bool FrontYawUncached(const Vector& at, int team, float& yaw, const char*& sourc
 	return false;
 }
 
-float FactoryExitYaw(const Vector& at, int team, bool quiet = false)
+} // namespace
+
+float EmpiresFactoryExitYaw(const Vector& at, int team, bool quiet)
 {
 	float toFront = 0.0f;
 	const char* source = "none";
 	FrontYaw(at, team, toFront, source);
 	static const float kTurns[] = {0, 45, -45, 90, -90, 135, -135, 180};
+	float fallbackYaw = toFront;
+	const char* firstBuilding = nullptr;
 	for (const float turn : kTurns)
-		if (ExitLaneClear(at, toFront + turn))
+	{
+		const float yaw = toFront + turn;
+		if (!ExitLaneClear(at, yaw))
+			continue;
+		const char* building = FactoryLaneBuilding(at, yaw);
+		if (building == nullptr)
 		{
 			if (!quiet)
-				RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s yaw=%.0f\n", toFront, source, toFront + turn);
-			return toFront + turn;
+				RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s yaw=%.0f lane=clear first_building=%s\n",
+					toFront, source, yaw, firstBuilding != nullptr ? firstBuilding : "none");
+			return yaw;
 		}
+		if (firstBuilding == nullptr)
+		{
+			firstBuilding = building;
+			fallbackYaw = yaw;
+		}
+	}
 	if (!quiet)
-		RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s no-clear-lane\n", toFront, source);
-	return toFront;
+		RCBOT_DIAG("[RCBOT2] commander-econ factory-yaw front=%.0f src=%s yaw=%.0f no-clear-lane first_building=%s\n",
+			toFront, source, fallbackYaw, firstBuilding != nullptr ? firstBuilding : "none");
+	return fallbackYaw;
 }
 
+namespace
+{
 // Repair pad: drive-through along its local Y (both ends open, half length 850,
 // run 20261112-120808 side1/side3). Free length of the axis: a vehicle hull from
 // the centre out to 1150 on both ends (world and buildings), the shorter end
@@ -715,11 +876,12 @@ void CBotEmpires::tickCommanderEconomy()
 		edict_t* target = m_hCommanderBuildTarget.get();
 		edict_t* cv = m_hCommanderEntryVehicle.get();
 		const int userId = engine->GetPlayerUserId(m_pEdict);
-		if (m_bCommanderHunt)
+		if (m_bCommanderHunt || m_bCommanderSiteDrive)
 			target = cv; // no building; the CV stands in for the checks below
 		if (m_iCommanderEntryStage != 4 || cv == nullptr || target == nullptr)
 		{
 			m_bCommanderHunt = false;
+			m_bCommanderSiteDrive = false;
 			RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=%s userid=%d\n",
 				target == nullptr ? "target-gone" : "seat-lost", userId);
 			if (m_vehicle.commanderCV)
@@ -737,6 +899,7 @@ void CBotEmpires::tickCommanderEconomy()
 				if (now > m_fCommanderBuildDeadline)
 				{
 					RCBOT_DIAG("[RCBOT2] commander-build result=ABORT reason=driver-seat-deadline userid=%d\n", userId);
+					m_bCommanderSiteDrive = false;
 					m_iCommanderBuildStage = 0;
 				}
 				else
@@ -746,7 +909,13 @@ void CBotEmpires::tickCommanderEconomy()
 			if (startEmpiresCommanderDrive(cv, m_vCommanderBuildDriveGoal))
 			{
 				m_iCommanderBuildStage = 4;
-				m_fCommanderBuildDeadline = now + (m_bCommanderHunt ? kCommanderHuntSeconds : kCommanderDriveSeconds);
+				// Far targets (factory fallback) need more than the base-scale 90 s: 1 s per 200 units extra.
+				const float farExtra = m_bCommanderHunt || m_bCommanderSiteDrive ? 0.0f :
+					(std::max)(0.0f, (CBotGlobals::entityOrigin(target) - CBotGlobals::entityOrigin(cv)).Length() - 4000.0f) / 200.0f;
+				// Site drive: the CV covers only ~50 units/s on Palmbay (measured 5300 in 105 s), so 60 s + 1 s per 40 units.
+				const float siteSeconds = 60.0f + (m_vCommanderBuildDriveGoal - CBotGlobals::entityOrigin(cv)).Length() / 40.0f;
+				m_fCommanderBuildDeadline = now + (m_bCommanderHunt ? kCommanderHuntSeconds :
+					(m_bCommanderSiteDrive ? siteSeconds : kCommanderDriveSeconds + farExtra));
 				if (m_bCommanderHunt)
 				{
 					m_vehicle.cvHunt = true;
@@ -770,6 +939,25 @@ void CBotEmpires::tickCommanderEconomy()
 			m_bCommanderHunt = false;
 			m_iCommanderBuildStage = 0;
 			state.nextHuntCheck = now + 5.0f;
+			return;
+		}
+		if (m_bCommanderSiteDrive)
+		{
+			// Placement needs the CV within 4000 of the spot (3800 with margin); the search is centred on the site.
+			const float toSite = (m_commanderEconomy.site - CBotGlobals::entityOrigin(cv)).Length2D();
+			RCBOT_DIAG("[RCBOT2] commander-site-drive end userid=%d reason=%s site_distance=%.0f\n", userId, end, toSite);
+			resetEmpiresVehicle("commander-site-drive-end", 0.0f);
+			helpers->ClientCommand(m_pEdict, "emp_change_seat 1\n"); // back to the commander view
+			m_bCommanderSiteDrive = false;
+			m_iCommanderBuildStage = 0;
+			if (toSite > 3800.0f) // drive failed: this site is out
+			{
+				m_commanderEconomy.siteExcluded.push_back(m_commanderEconomy.site);
+				m_commanderEconomy.siteValid = false;
+			}
+			else
+				m_commanderEconomy.siteRetryAt = 0.0f; // arrived: place at once
+			m_commanderEconomy.nextTick = 0.0f;
 			return;
 		}
 		resetEmpiresVehicle("commander-drive-end", 0.0f);
@@ -1003,7 +1191,11 @@ void CBotEmpires::tickCommanderEconomy()
 					(CBotGlobals::entityOrigin(player) - at).Length() < kCommanderBuildEnemyRange;
 			}
 			const float homeDistance = (at - home).Length();
-			if (helper < 0 && !enemyNear && homeDistance < zone)
+			// A factory placed far from the base (teammate fallback, TODO 5.8c) is outside the zone:
+			// after two assignment rounds (about 20 s) the Commander drives there himself, unless an
+			// Engineer is already at it (helper), then he builds with that help.
+			const bool farFactory = info.type == VehicleFactory && tries->tries >= 2;
+			if (helper < 0 && !enemyNear && (homeDistance < zone || farFactory))
 			{
 				bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
 				Vector back = vehicleOrigin - at;
@@ -1381,7 +1573,7 @@ void CBotEmpires::tickCommanderEconomy()
 		Vector boxMins, boxMaxs;
 		Footprint(int(type), team, boxMins, boxMaxs);
 		auto yawAt = [&](const Vector& spot, bool quiet) {
-			return type == VehicleFactory ? FactoryExitYaw(spot, team, quiet) :
+			return type == VehicleFactory ? EmpiresFactoryExitYaw(spot, team, quiet) :
 				(type == Repair ? RepairPadYaw(spot, team, quiet) : 0.0f);
 		};
 		EmpiresSpatial::SearchResult search, first;
@@ -1398,10 +1590,26 @@ void CBotEmpires::tickCommanderEconomy()
 		EmpiresSpatial::Point at{};
 		int usedRing = -1;
 		size_t checked = 0;
-		for (int ring = 0; ring < 5 && !laneFree; ++ring)
+		// Rings 0-4 around the CV; if none has any valid factory spot, rings 5.. around teammates.
+		std::vector<Vector> teammateCenters;
+		bool teammateStage = false;
+		auto extendToTeammates = [&]() {
+			if (teammateStage || haveFirst || type != VehicleFactory)
+				return false;
+			teammateStage = true;
+			teammateCenters = TeammateSearchCenters(team, vehicleOrigin, m_pEdict);
+			if (state.siteValid && (state.site - vehicleOrigin).Length2D() <= 3800.0f)
+				teammateCenters.insert(teammateCenters.begin(), state.site);
+			RCBOT_DIAG("[RCBOT2] commander-econ factory-fallback team=%d teammate_centers=%zu\n", team, teammateCenters.size());
+			return !teammateCenters.empty();
+		};
+		for (int ring = 0; !laneFree && (ring < 5 || (ring == 5 && extendToTeammates()) ||
+			ring < 5 + int(teammateCenters.size())); ++ring)
 		{
 			Vector center = vehicleOrigin;
-			if (ring > 0)
+			if (ring >= 5)
+				center = teammateCenters[ring - 5];
+			else if (ring > 0)
 			{
 				const float angle = (ring - 1) * 1.5707963f;
 				center += Vector(std::cos(angle), std::sin(angle), 0.0f) * kShiftedSearchOffset;
@@ -1412,6 +1620,11 @@ void CBotEmpires::tickCommanderEconomy()
 			request.buildingType = int(type);
 			request.invalidSkipRadius = kInvalidSkipRadius;
 			search = EmpiresSpatial::SearchBarracksCandidates(context, request);
+			if (type == VehicleFactory)
+				RCBOT_DIAG("[RCBOT2] commander-econ factory-search team=%d ring=%d cv=(%.1f %.1f %.1f) center=(%.1f %.1f %.1f) result=%s areas=%u generated=%u plausible=%u queries=%u invalid=%u can_build_pass=%u truncated=%d\n",
+					team, ring, vehicleOrigin.x, vehicleOrigin.y, vehicleOrigin.z, center.x, center.y, center.z,
+					EmpiresSpatial::Name(search.status), search.areasInspected, search.generated, search.plausible,
+					search.nativeQueries, search.invalid, search.canBuildAtPassed, search.truncated);
 			if (search.status == EmpiresSpatial::Status::Unavailable)
 				break;
 			if (search.status != EmpiresSpatial::Status::Found || !search.hasSelected)
@@ -1460,6 +1673,69 @@ void CBotEmpires::tickCommanderEconomy()
 			at = fallback;
 			laneFree = true;
 			usedRing = fallbackRing;
+		}
+		if (!haveFirst && type == VehicleFactory && state.siteValid &&
+			(state.site - vehicleOrigin).Length2D() <= 3800.0f &&
+			EmpiresNativePlacement::CanPlaceNative(context, state.site, int(type)) == EmpiresNativePlacement::Result::Valid)
+		{
+			// FindRemoteFactorySite already proved this exact ground point clear; nav-area
+			// candidate search (128 areas, truncated) can miss it on large maps like Palmbay.
+			at = {state.site.x, state.site.y, state.site.z};
+			haveFirst = true;
+			laneFree = true;
+			usedRing = 99;
+		}
+		if (!haveFirst && type == VehicleFactory && now >= state.siteRetryAt && m_iCommanderBuildStage == 0)
+		{
+			// Neither the base nor the teammates' surroundings have a free spot: drive the CV to a free
+			// remote site (user 2026-11-20), then the normal search around it places the factory.
+			if (state.siteValid && (state.site - vehicleOrigin).Length2D() <= 3800.0f)
+			{
+				// Standing at the site and still no spot: do not come back here.
+				state.siteExcluded.push_back(state.site);
+				state.siteValid = false;
+			}
+			if (!state.siteValid)
+			{
+				// Anchor the scan at the base home (s_cvHome): vehicleOrigin can already be +1000 north
+				// from building an armory/radar before the first factory attempt (Palmbay NF run 110540).
+				if (!state.siteScanOriginSet)
+				{
+					state.siteScanOrigin = home;
+					state.siteScanOriginSet = true;
+				}
+				state.siteValid = FindRemoteFactorySite(context, state.siteScanOrigin, EnemyCommanderOrigin(state.siteScanOrigin, team), state.siteExcluded, state.site);
+			}
+			if (state.siteValid)
+			{
+				Vector toCv = vehicleOrigin - state.site;
+				toCv.z = 0.0f;
+				toCv = toCv.Length() > 1.0f ? toCv / toCv.Length() : Vector(1, 0, 0);
+				Vector goal = state.site + toCv * 1800.0f;
+				if (enginetrace != nullptr)
+				{
+					CTraceFilterWorldOnly groundFilter;
+					Ray_t groundRay;
+					trace_t groundHit;
+					groundRay.Init(goal + Vector(0, 0, 800.0f), goal - Vector(0, 0, 1500.0f));
+					enginetrace->TraceRay(groundRay, MASK_PLAYERSOLID_BRUSHONLY, &groundFilter, &groundHit);
+					if (!groundHit.startsolid && groundHit.fraction < 1.0f)
+						goal = groundHit.endpos + Vector(0, 0, 8.0f);
+				}
+				m_bCommanderSiteDrive = true;
+				m_bCommanderHunt = false;
+				m_bCommanderBuildTurret = false;
+				m_hCommanderBuildTarget = nullptr;
+				m_vCommanderBuildDriveGoal = goal;
+				m_iCommanderBuildStage = 3;
+				m_fCommanderBuildDeadline = now + 10.0f;
+				state.siteRetryAt = now + 20.0f; // a refused/aborted drive waits before the next try
+				state.nextTick = now + 0.1f;
+				RCBOT_DIAG("[RCBOT2] commander-econ factory-site drive userid=%d site=(%.0f %.0f %.0f) goal=(%.0f %.0f %.0f) cv_distance=%.0f\n",
+					engine->GetPlayerUserId(m_pEdict), state.site.x, state.site.y, state.site.z, goal.x, goal.y, goal.z,
+					(state.site - vehicleOrigin).Length2D());
+				return;
+			}
 		}
 		if (!haveFirst)
 		{

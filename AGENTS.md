@@ -9,16 +9,21 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 ## Rules
 
 - One problem per step: baseline run, smallest fix, the same run again, compare.
+- Never kill processes by name or pattern (`pkill`, `killall srcds`, …); only stop PIDs you started. Parallel test runs, a real server and the game client may be running alongside.
 - A change counts as working only with numbers from a real test run (log lines,
   counts, times). Write "built, not measured" when that is the state.
 - Build, deploy and test only on an **isolated** test server, never on a public one.
 - No speculative refactors. Read the existing logs, code and game binary before
   starting a new run.
-- Open work, in order: [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md). Keep it updated
-  (tick items, add the run folder and the measured numbers).
+- Follow the priority order in [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md). Reuse
+  measured runs for related checks. Close each item when its remaining case
+  has measured results, and record the numbers and run reference.
 - Mark historical plans clearly and link to the current work list.
 - Check available space before recording long test sessions.
 - Check map geometry and building access before adding expansion placement rules.
+- Verify straight factory departure after a regular purchase at normal game speed. Record the
+  factory placement and whether the vehicle cleared the bay before route following resumed.
+  When diagnosing a blocked exit, check both sides of the vehicle's path.
 - Distinguish an existing run folder from a verified successful map test.
 - Verify ammunition sources and depletion behavior in game before claiming resupply works.
 - Distinguish fire requests in logs from actual shots and damage.
@@ -34,6 +39,8 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 - Test harnesses should wait for the success condition they actually verify.
 - Record completion distance when measuring movement orders.
 - Retain recovery and failure counts even when a full-match outcome succeeds.
+- For vehicle handbrake tests, compare the same chassis and entry speed and track sideways
+  motion as well as heading change.
 - Confirm vehicle handling changes at normal game speed. Record arrivals, planned reverse
   turns, stalls and exits.
 
@@ -63,6 +70,60 @@ macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain 
 APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
+For the factory exit and subsequent route, use `scripts/dev_vf_drive.sh [0|1|place] [map] [nf|be] ["x y z"]`.
+The factory is the first building. The NF buyer joins when its terminal is ready.
+BE starts a rifleman early to give it time to leave the barracks.
+The test uses a normal purchase and runs at normal game speed.
+Choose 0 or 1 for the experimental curve speed setting. A completed run
+confirms the purchase, exit, and start of route driving. Assess corner clearance
+with a separate fixed-start comparison.
+Use `place` to stop at the first automatic factory placement result. Supply
+build-command coordinates in driving mode to place a factory through the game
+at yaw 0. For the Crossroads NF exit, use
+`DEV_VF_APPROACH="-300 -12760 -220" scripts/dev_vf_drive.sh 0 emp_crossroads nf "-1500 -12900 -223.96875"`.
+The factory's resulting origin is `(-1500 -12900 -234)`. The optional
+approach position starts the buyer near the ramp for the normal purchase.
+`vehicle factory-exit drive` includes speed, and `vehicle factory-exit hull`
+reports the forward hull sweep with the hit class and entity position.
+For a fixed build site with automatic heading selection, use
+`rcbotd empires_commander_build 5 x y z auto` in the dedicated server console.
+`factory-yaw` reports the selected heading and the first building that blocked a candidate lane.
+To compare local maneuver selection independently, use VF mode 0 and set
+`DEV_PRE="rcbot_empires_vehicle_maneuvers 1"` for the enabled run.
+The preview checks the regular steering arc first and searches for alternatives
+when that arc hits a blocking entity or recovery from a maneuver stall is in
+progress. Regular steering handles world geometry and ground clearance. In the drive logs,
+`local=1` marks eligible route driving and `maneuver_apply=1` marks an applied
+maneuver. Compare obstacle stops and route progress before enabling it by default.
+The default remains 0. Focused checks passed: after a retry-release code change,
+the Crossroads NF obstacle was passed in 1.86 seconds without needing a retry;
+Crossroads VF speed stayed within 6% of selection-off results, and the Palmbay
+BE exit was reached with selection on. In 10-bot Crossroads matches, the straight
+NF exit timed out before maneuver selection in all three purchases from the same
+factory. Both enabled drivers later gave up. At the same fixed NF site, the empty
+bay cleared in 2.6 s. Adding the radar reproduced the stall and the sweep hit its
+vehicle collision proxy. The updated heading selector chose 90° and the NF Light
+cleared the exit in 1.8 s. The BE control kept its −96° heading and cleared in 2.6 s.
+Both drove their routes and `dev_check` passed 5/5. On Palmbay, stop the placement
+diagnostic on the first `NO_SPOT` for type 5 and inspect native candidate rejections
+before running another match. See [open work](docs/OPEN_WORK.md) for these cases
+and the separate Crossroads infantry route failures.
+For a fixed obstacle on the route, run
+`scripts/dev_vehicle_obstacle.sh [0|1] [map] [nf|be] [ahead] [lateral] [model]` (debug purchase, 1x,
+0/1 = local maneuver selection off/on). Once the driver rolls at 450 HU/s or more,
+`rcbotd empires_vehicle_obstacle` places a solid `prop_dynamic` (default
+`models/props/concretebarrier.mdl`) `ahead` units along its route, offset `lateral` to the left.
+The log reports `vehicle obstacle placed|passed|timeout|abort` with time, minimum distance, time
+stopped near the obstacle, stall events and maneuver time. `vehicle maneuver-perf` reports planner
+calls, traces and microseconds every 10 seconds; `vehicle maneuver-block` shows what blocks the regular arc (class, distance, `normal_z`). `rcbot_empires_vehicle_maneuver_budget` (default 2)
+caps planner evaluations per server tick across all vehicles.
+For a clear-road turn diagnostic after an in-place debug purchase, run
+`scripts/dev_turn.sh <1|2|3|4> [map] [nf|be]` with an NF Light (default) or a BE AFV.
+Mode 1 uses steering alone, and mode 2
+adds a 0.2-second handbrake pulse. Modes 3 and 4 measure straight-line coasting
+and braking from at least 500 HU/s. Filter the server log for `vehicle turn-test`.
+Damaged tank to pad and refit (~40 s): `scripts/dev_pad.sh [map] [timescale]` disables
+refinery turret jobs for this run. `dev_check.sh` covers turrets in a separate test.
 Mixed loadout refit on the pad (~1 min): `scripts/dev_mixed.sh [map] [timescale]`.
 Empty cannon -> pad -> refit (~1.5 min): `scripts/dev_ammo.sh [map] [timescale]`. Empty cannon -> nearer team
 ammo crate (~1 min): `[DEV_CRATE_WAIT=s] scripts/dev_crate.sh [map] [timescale] [distance]`. Ammo call ->
@@ -74,11 +135,16 @@ Builds and test servers run on CPUs `RCBOT_CPUS` (default `4,5,10,11`, empty = a
 `RCBOT_NICE` (10), so a game client on the other cores stays smooth (`scripts/dev_cpu.sh`); `dev_check` then takes
 about 1.5 min instead of 1 (all PASS). Set `RCBOT_CPUS=` to use every core.
 Production economy quickly: `scripts/dev_econ.sh [map] [game-minutes]` (6 bots, fast-forward 4,
-ends when a bot drives a vehicle it bought, ~5 min). While iterating run only the matching
-single test; run `scripts/dev_check.sh` and one full match (10 bots, timescale 1) before a commit.
+ends when a bot drives a vehicle it bought, ~5 min). Use the matching short
+scenario for iteration and run all five checks with `scripts/dev_check.sh` for a
+testable set of changes. For changes that affect match play, run the full
+10-bot match at normal speed for acceptance after the short scenarios succeed.
 
 Environment variables for `dev.sh`:
 - `DEV_UNTIL="regex"`: end the run when the line appears. Always set it.
+- Set `DEV_EXPECT="regex"` to require a matching server log line at or after the
+  latest mark. `DEV_FAIL="regex"` ends the scenario on a failure line, including
+  during command waits. Check the exit status or the `Run result:` line.
 - `DEV_SHOW="regex"`: print matching log lines at the end. Keep output small.
 - `DEV_ROSTER="2:1 2:3"`: team:class per bot (team 2 = NF, 3 = BE; class 0 Scout,
   1 Rifleman, 2 Grenadier, 3 Engineer).
@@ -86,7 +152,9 @@ Environment variables for `dev.sh`:
   start of the run; `mark` resets that point (for repeated results such as `build-assign result=`). A `NOT found` stops the sequence.
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
 - `DEV_PORT=49926`: own server port so several runs can go at once (default 49925).
-  `DEV_SKIP_BUILD=1`: reuse the last build. The plugin is replaced atomically, so running servers survive.
+  `DEV_SKIP_BUILD=1`: reuse the last build, including in `dev_check.sh` and
+  `dev_maps.sh`. Set `DEV_BUILD_HASH` to verify its SHA-256 (16 or 64 characters).
+  The build and server startup use `flock` to protect the selected binary.
 
 A shared library links even with missing symbols; the run then only says "RCBot2 not loaded"
 (`undefined symbol` in `server.log`). Seen causes: a function defined in an anonymous namespace
@@ -107,7 +175,7 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 
 | What | How |
 |---|---|
-| Navmesh at a spot | console `rcbotd empires_nav_scan x y z x2 y2 z2`: route, areas, hull grid (`.` free, `#` world, `E` entity) |
+| Navmesh at a spot | console `rcbotd empires_nav_scan x y z x2 y2 z2`: route, areas, hull grid (`.` free, `#` world, `E` entity); needs at least one bot on the server, otherwise `navmesh-not-loaded` |
 | Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2; test hook, bypasses the game's order path) |
 | Order like a human | `rcbotd empires_test_unit_order <commander_userid> <type> <unit_userid> x y z [target_userid\|b\|bd]`: the seated commander bot selects the unit (`emp_unit_order_list`) and sends `emp_unit_order` (0 abort, 1 move, 2 attack location, 3 attack target, 4 guard); `b` = nearest own building below full health, `bd` = nearest full one, damaged to 100 |
 | Place a building | `rcbotd empires_commander_build <type> spot` (valid spot near the CV, no engineer assigned) |
@@ -131,11 +199,17 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 
 ## Working with an AI agent
 
-- Delegate long test runs to a cheap model/subagent that only runs the given command and
-  reports the requested lines and numbers (`.claude/agents/tester.md`).
-- Use the strongest model for root causes (game binary, navmesh geometry, engine behaviour)
-  when a cause is unclear after 1–2 attempts (`.claude/agents/expert.md`). Give it: symptom,
-  numbers, run folder and log lines, what was tried, the concrete question.
+- One agent runs the whole loop: change, build, test (in the background, output to a file,
+  filter only the needed lines), evaluate. No mandatory hand-offs between agents.
+- Prioritize by what a player notices in a 10-bot match at 1× (captures, vehicles bought
+  and arriving, no hangs) over technical fine-tuning.
+- Timebox: if a topic shows no measured gain in the default setting after about one
+  session, park it in the open-work list with a one-line finding and move on.
+- After two substantive failed attempts, ask an expert model once (symptom, measurements,
+  runs, both attempts, the concrete question). Without a viable approach, park the problem.
+- Keep `HANDOFF.md` to the current state (about 80 lines); history lives in git.
 - Bundle proven fixes into one run; one diagnostic run, repeat only to confirm.
 - Sandboxes: test runs need write access to the test server and `~/.cache/rcbot2-dev-build`,
   a PTY, a netlink socket and a local UDP port. Without that, only edit and build.
+
+For spatial problems, look at a picture first: `python3 -I tools/nav_overview.py <map>.nav --bsp <map>.bsp --terrain --vehicle-width 284 --log <run>/server.log --userid <uid> --crop x0,y0,x1,y1 --output out.png` draws navmesh, terrain slope, the driven lane and stall marks (vehicle bottlenecks highlighted); `tools/check_nav.py` checks components. Maps like Palmbay use displacement terrain, so cliffs are steep triangles, not brushes. Confirm with in-game scans and hull traces (`empires_nav_scan` uses the player hull, not the vehicle). An overview does not prove vehicle clearance or account for dynamic building obstacles. No external tool is a bot build dependency.

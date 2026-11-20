@@ -301,7 +301,7 @@ bool ReadCommanderMode(const ContextIdentity& context, bool& commander, Diagnost
 }
 
 Result CanPlaceNative(const ContextIdentity& context, const Vector& origin, int buildingType,
-	Diagnostics* diagnostics)
+	Diagnostics* diagnostics, bool skipRange)
 {
 	if (diagnostics != nullptr)
 	{
@@ -359,7 +359,7 @@ Result CanPlaceNative(const ContextIdentity& context, const Vector& origin, int 
 	const Vector nativeContextOrigin(nativeContext.contextOrigin.x,
 		nativeContext.contextOrigin.y, nativeContext.contextOrigin.z);
 	const Result result = Evaluate(true, nativeContext,
-		canBuildAt, getAllObstructions, origin, nativeContextOrigin, diagnostics, buildingType);
+		canBuildAt, getAllObstructions, origin, nativeContextOrigin, diagnostics, buildingType, skipRange);
 
 	// Re-read both identities after native calls; never return a classification
 	// from a context that changed during the query.
@@ -387,6 +387,7 @@ Result CanPlaceNative(const ContextIdentity& context, const Vector& origin, int 
 	(void)context;
 	(void)origin;
 	(void)buildingType;
+	(void)skipRange;
 	return Unavailable(diagnostics, UnavailableReason::UnsupportedPlatform);
 #endif
 }

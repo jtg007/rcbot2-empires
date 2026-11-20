@@ -1,6 +1,7 @@
 /* Minimal production-facing NavMesh path API for RCBot2. */
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include "bot_navmesh_api.h"
 
@@ -11,6 +12,9 @@
 #include <limits>
 #include <queue>
 #include <cstring>
+#include <cstdint>
+#include <cstdio>
+#include <string>
 #include <vector>
 
 #include "eiface.h"
@@ -284,13 +288,27 @@ int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &ma
 	return count;
 }
 
-int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float seconds, const bool learned)
+int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float seconds, const bool learned,
+	const Vector *keepEscapeFrom)
 {
 	if (!IsLoaded())
 		return 0;
 	const auto crosses = [&mins, &maxs](const Vector &a, const Vector &b)
 	{
 		return SegmentCrossesBox(a, b, mins, maxs);
+	};
+	CNavArea *escapeArea = nullptr;
+	if (keepEscapeFrom != nullptr)
+	{
+		escapeArea = TheNavMesh->GetNavArea(*keepEscapeFrom);
+		if (escapeArea == nullptr)
+			escapeArea = TheNavMesh->GetNearestNavArea(*keepEscapeFrom);
+	}
+	const auto pointInBox = [&mins, &maxs](const Vector &p)
+	{
+		return p.x >= mins.x && p.x <= maxs.x &&
+			p.y >= mins.y && p.y <= maxs.y &&
+			p.z >= mins.z && p.z <= maxs.z;
 	};
 	const Vector middle = (mins + maxs) * 0.5f;
 	const float reach = (maxs - mins).Length() + 1500.0f;
@@ -307,6 +325,15 @@ int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float sec
 				// Feet height of a walking player: the box test uses centres lifted by 20.
 				if (other == nullptr || !crosses(area->GetCenter() + Vector(0, 0, 20), other->GetCenter() + Vector(0, 0, 20)))
 					continue;
+				if (keepEscapeFrom != nullptr &&
+					(area == escapeArea || pointInBox(area->GetCenter() + Vector(0, 0, 20))))
+				{
+					Vector portal;
+					float halfWidth = 0.0f;
+					area->ComputePortal(other, static_cast<NavDirType>(dir), &portal, &halfWidth);
+					if (!crosses(*keepEscapeFrom + Vector(0, 0, 20), portal + Vector(0, 0, 20)))
+						continue;
+				}
 				BlockEdge(area->GetID(), other->GetID(), seconds, learned);
 				++count;
 			}
@@ -1070,7 +1097,7 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false, const edict
 			if (skipGoalBuilding && (drivenVehicle == nullptr || i + 2 == path.points.size()) &&
 				InPaddedBox(path.points.back(), box, 300.0f))
 				continue;
-			if (planeZ < box.mins.z || planeZ > box.maxs.z || !SegmentHitsBox(a, b, box, 16.0f))
+			if (planeZ < box.mins.z || planeZ > box.maxs.z || !SegmentHitsBox(a, b, box, (std::max)(16.0f, g_detourHalf)))
 				continue;
 			float fraction = 1.0f;
 			if (!HullClearOfBuilding(Vector(a.x, a.y, planeZ), Vector(b.x, b.y, planeZ), box, &fraction) &&
@@ -1299,6 +1326,9 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 	EnsureNavComponents();
 	const int startComponent = ComponentOf(startArea);
 	const int goalComponent = ComponentOf(goalArea);
+	path.goalAreaId = static_cast<int>(goalArea->GetID());
+	path.startComponent = startComponent;
+	path.goalComponent = goalComponent;
 	if (startComponent != goalComponent)
 	{
 		float gap = 0.0f;
@@ -1306,12 +1336,15 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 		{
 			LogIslandSnap("goal", goalArea, snapped, gap, to);
 			goalArea = snapped;
+			path.goalAreaId = static_cast<int>(goalArea->GetID());
+			path.goalComponent = ComponentOf(goalArea);
 		}
 		else if (CNavArea* snappedStart = NearestAreaInComponent(from, goalComponent, 300.0f, 100.0f, gap))
 		{
 			LogIslandSnap("start", startArea, snappedStart, gap, from);
 			startArea = snappedStart;
 			path.startAreaId = static_cast<int>(startArea->GetID());
+			path.startComponent = ComponentOf(startArea);
 		}
 		else
 			return PathResult::NO_PATH;
@@ -1405,6 +1438,30 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 	return PathResult::SUCCESS;
 }
 
+bool CanReachComponent(const Vector &from, const Vector &to)
+{
+	if (!IsLoaded())
+		return true;
+	CNavArea *startArea = TheNavMesh->GetNearestNavArea(from);
+	if (startArea == nullptr)
+		startArea = TheNavMesh->GetNearestNavArea(from, 10000.0f, false, false);
+	if (startArea == nullptr)
+		return false;
+	CNavArea *goalArea = TheNavMesh->GetNearestNavArea(to);
+	if (goalArea == nullptr)
+		goalArea = TheNavMesh->GetNearestNavArea(to, 10000.0f, false, false);
+	if (goalArea == nullptr)
+		return false;
+	EnsureNavComponents();
+	const int startComponent = ComponentOf(startArea);
+	const int goalComponent = ComponentOf(goalArea);
+	if (startComponent == goalComponent)
+		return true;
+	float gap = 0.0f;
+	return NearestAreaInComponent(to, startComponent, 600.0f, 200.0f, gap) != nullptr ||
+		NearestAreaInComponent(from, goalComponent, 300.0f, 100.0f, gap) != nullptr;
+}
+
 namespace
 {
 bool FindDirectionTo(const CNavArea* from, const CNavArea* to, NavDirType& dir)
@@ -1423,7 +1480,10 @@ bool FindDirectionTo(const CNavArea* from, const CNavArea* to, NavDirType& dir)
 class VehicleNavMeshCost
 {
 public:
-	VehicleNavMeshCost(float width, float maxWaterDepth) : m_width(width), m_maxWaterDepth(maxWaterDepth) {}
+	VehicleNavMeshCost(float width, float maxWaterDepth, const std::unordered_set<unsigned>* occupied = nullptr,
+		const CNavArea* startArea = nullptr, const std::unordered_set<unsigned>* blockedStartExits = nullptr)
+		: m_width(width), m_maxWaterDepth(maxWaterDepth), m_occupied(occupied), m_startArea(startArea),
+		m_blockedStartExits(blockedStartExits) {}
 	float operator()(CNavArea* area, CNavArea* fromArea, const CNavLadder* ladder,
 		const CFuncElevator* elevator, const float length) const
 	{
@@ -1432,6 +1492,12 @@ public:
 		if (ladder != nullptr || elevator != nullptr || area == nullptr)
 			return -1.0f;
 		if (area->GetAttributes() & (NAV_MESH_CROUCH | NAV_MESH_JUMP))
+			return -1.0f;
+		// The mesh predates the buildings: areas under a building are not drivable (Palmbay NF, 20.11.:
+		// a straight segment under the barracks left the CV standing at its route point).
+		if (m_occupied != nullptr && m_occupied->count(area->GetID()) != 0)
+			return -1.0f;
+		if (fromArea == m_startArea && m_blockedStartExits != nullptr && m_blockedStartExits->count(area->GetID()) != 0)
 			return -1.0f;
 		// Water: fords up to m_maxWaterDepth (measured per vehicle) are driven, deeper water stalls or wrecks the
 		// vehicle (user 15.11.). A vehicle already that deep may still drive on to get out.
@@ -1475,7 +1541,260 @@ private:
 	static constexpr float kVehicleMaxDrop = 160.0f;
 	float m_width;
 	float m_maxWaterDepth;
+	const std::unordered_set<unsigned>* m_occupied;
+	const CNavArea* m_startArea;
+	const std::unordered_set<unsigned>* m_blockedStartExits;
 };
+
+// Areas the vehicle cannot use because of a building (real collision model, the box only filters):
+// (1) a standing player hull does not fit at the centre, (2) farther than kKeepOutNearEnds from the start and
+// goal, a hull of the vehicle's half width does not fit. The mesh predates the buildings (Palmbay NF, 20.11.:
+// the route grazed the barracks corner with less than half a vehicle width and the CV stuck at its route point).
+// Start and goal area stay usable. Near the goal the second test is skipped (the vehicle has to get close to a
+// building site); near the start only when the vehicle itself is already boxed in (tight hull hits a building at
+// the start), so a vehicle parked between buildings can leave. Otherwise a gap narrower than the vehicle next to
+// the start would stay open (Palmbay NF: CV wedged between armory and radar).
+std::unordered_set<unsigned> AreasUnderBuildings(const edict_t* drivenVehicle, const Vector& from, const Vector& to,
+	const CNavArea* startArea, unsigned goalId, float vehicleHalf)
+{
+	constexpr float kKeepOutNearEnds = 400.0f;
+	std::unordered_set<unsigned> occupied;
+	const std::vector<BuildingBox> boxes = CollectSolidBuildings(drivenVehicle);
+	if (boxes.empty())
+		return occupied;
+	const float tightHalf = (std::max)(16.0f, vehicleHalf);
+	const unsigned startId = startArea->GetID();
+	bool startBoxedIn = false;
+	{
+		const Vector probe(from.x, from.y, startArea->GetCenter().z + 12.0f);
+		g_detourHalf = tightHalf;
+		for (const BuildingBox& box : boxes)
+			if (InPaddedBox(probe, box, tightHalf) && !HullClearOfBuilding(probe, probe, box))
+			{
+				startBoxedIn = true;
+				break;
+			}
+		g_detourHalf = 16.0f;
+	}
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea* area = TheNavAreas[i];
+		if (area == nullptr || area->GetID() == startId || area->GetID() == goalId)
+			continue;
+		const Vector center = area->GetCenter();
+		const bool nearEnd = (startBoxedIn && (center - from).Length2D() < kKeepOutNearEnds) ||
+			(center - to).Length2D() < kKeepOutNearEnds;
+		for (const BuildingBox& box : boxes)
+		{
+			if (!InPaddedBox(center, box, tightHalf) || center.z + 12.0f + 72.0f < box.mins.z || center.z + 12.0f > box.maxs.z)
+				continue;
+			const Vector probe(center.x, center.y, center.z + 12.0f);
+			g_detourHalf = 16.0f;
+			bool blockedHere = !HullClearOfBuilding(probe, probe, box);
+			if (!blockedHere && !nearEnd)
+			{
+				g_detourHalf = tightHalf;
+				blockedHere = !HullClearOfBuilding(probe, probe, box);
+			}
+			g_detourHalf = 16.0f;
+			if (blockedHere)
+			{
+				occupied.insert(area->GetID());
+				break;
+			}
+		}
+	}
+	return occupied;
+}
+
+// Exits of the start area whose first route leg (vehicle position to the portal point, as BuildVehiclePath
+// places it) runs into a building. A large start area hides the buildings standing on it; the first leg then
+// needs a detour around a whole building cluster, which PlanDetour's grid cannot hold (Palmbay NF, 20.11.:
+// CV east of armory/radar/repair station, route left the area to the west, nav-detour-fail no-exit, CV wedged).
+std::unordered_set<unsigned> StartExitsThroughBuildings(const edict_t* drivenVehicle, const Vector& from,
+	CNavArea* startArea, float width)
+{
+	std::unordered_set<unsigned> blocked;
+	const std::vector<BuildingBox> boxes = CollectSolidBuildings(drivenVehicle);
+	if (boxes.empty())
+		return blocked;
+	const float margin = width * 0.5f + 16.0f;
+	g_detourHalf = (std::max)(16.0f, width * 0.5f);
+	for (int dir = 0; dir < NUM_DIRECTIONS; ++dir)
+		for (int k = 0; k < startArea->GetAdjacentCount(static_cast<NavDirType>(dir)); ++k)
+		{
+			CNavArea* next = startArea->GetAdjacentArea(static_cast<NavDirType>(dir), k);
+			if (next == nullptr)
+				continue;
+			Vector center;
+			float halfWidth = 0.0f;
+			startArea->ComputePortal(next, static_cast<NavDirType>(dir), &center, &halfWidth);
+			Vector point = center;
+			const float room = (std::max)(0.0f, halfWidth - margin);
+			if (dir == NORTH || dir == SOUTH)
+				point.x = (std::max)(center.x - room, (std::min)(center.x + room, from.x));
+			else
+				point.y = (std::max)(center.y - room, (std::min)(center.y + room, from.y));
+			const float planeZ = startArea->GetZ(point) + kDetourFloorClearance;
+			for (const BuildingBox& box : boxes)
+			{
+				if (planeZ < box.mins.z || planeZ > box.maxs.z || !SegmentHitsBox(from, point, box, g_detourHalf))
+					continue;
+				if (!HullClearOfBuilding(Vector(from.x, from.y, planeZ), Vector(point.x, point.y, planeZ), box))
+				{
+					blocked.insert(next->GetID());
+					break;
+				}
+			}
+		}
+	g_detourHalf = 16.0f;
+	return blocked;
+}
+
+// Thin solid static props (palm trunks, dock poles) are no entities and the mesh only has a tiny hole there:
+// the big areas next to it are drivable, but a route through them can pass within a vehicle half width of the
+// trunk (Palmbay NF, 20.11.: CV stuck 85-167 ahead of palm01d (8704 8448), three of four stuck poses).
+// Positions come from the map's game lump 'sprp'; read once per map.
+struct StaticObstacle { Vector pos; float radius; };
+
+const std::vector<StaticObstacle>& StaticPropObstacles()
+{
+	static std::vector<StaticObstacle> props;
+	static std::string loadedMap;
+	if (gpGlobals == nullptr || engine == nullptr)
+		return props;
+	const char* map = STRING(gpGlobals->mapname);
+	if (map == nullptr || loadedMap == map)
+		return props;
+	loadedMap = map;
+	props.clear();
+	char gameDir[512] = {};
+	engine->GetGameDir(gameDir, sizeof(gameDir));
+	const std::string pathName = std::string(gameDir) + "/maps/" + map + ".bsp";
+	FILE* file = std::fopen(pathName.c_str(), "rb");
+	if (file == nullptr)
+		return props;
+	const auto readAt = [&](long offset, void* out, std::size_t size)
+	{
+		return std::fseek(file, offset, SEEK_SET) == 0 && std::fread(out, 1, size, file) == size;
+	};
+	struct Lump { int32_t offset, length, version, ident; };
+	Lump gameLump{};
+	if (readAt(8 + 16 * 35, &gameLump, sizeof(gameLump)) && gameLump.length > 4)
+	{
+		int32_t count = 0;
+		readAt(gameLump.offset, &count, 4);
+		struct Entry { char id[4]; uint16_t flags, version; int32_t offset, length; };
+		for (int32_t i = 0; i < count && i < 64; ++i)
+		{
+			Entry entry{};
+			if (!readAt(gameLump.offset + 4 + 16 * i, &entry, sizeof(entry)) ||
+				std::memcmp(entry.id, "prps", 4) != 0 || (entry.flags & 1) != 0 || entry.length <= 12)
+				continue;
+			std::vector<char> data(static_cast<std::size_t>(entry.length));
+			if (!readAt(entry.offset, data.data(), data.size()))
+				break;
+			std::size_t p = 0;
+			const auto readInt = [&](int32_t& value)
+			{
+				if (p + 4 > data.size())
+					return false;
+				std::memcpy(&value, &data[p], 4);
+				p += 4;
+				return true;
+			};
+			int32_t dictCount = 0, leafCount = 0, propCount = 0;
+			if (!readInt(dictCount) || dictCount < 0 || p + 128u * dictCount > data.size())
+				break;
+			std::vector<bool> thin(static_cast<std::size_t>(dictCount));
+			for (int32_t k = 0; k < dictCount; ++k)
+			{
+				const std::string model(&data[p + 128u * k], strnlen(&data[p + 128u * k], 128));
+				thin[k] = model.find("palm") != std::string::npos || model.find("trees/") != std::string::npos ||
+					model.find("polecluster") != std::string::npos;
+			}
+			p += 128u * dictCount;
+			if (!readInt(leafCount) || leafCount < 0)
+				break;
+			p += 2u * leafCount;
+			if (!readInt(propCount) || propCount <= 0)
+				break;
+			const std::size_t stride = (data.size() - p) / static_cast<std::size_t>(propCount);
+			if (stride < 32)
+				break;
+			for (int32_t k = 0; k < propCount; ++k)
+			{
+				const char* e = &data[p + stride * k];
+				float origin[3];
+				uint16_t type;
+				std::memcpy(origin, e, 12);
+				std::memcpy(&type, e + 24, 2);
+				const uint8_t solid = static_cast<uint8_t>(e[30]);
+				if (solid >= 2 && type < thin.size() && thin[type])
+					props.push_back({Vector(origin[0], origin[1], origin[2]), 48.0f});
+			}
+			break;
+		}
+	}
+	std::fclose(file);
+	RCBOT_DIAG("[RCBOT2] vehicle-nav static-props map=%s thin-solid=%zu\n", map, props.size());
+	return props;
+}
+
+// Moves route segments that pass within half a vehicle width of a thin static prop to the free side.
+int ApplyStaticPropDetours(Path& path, float halfWidth)
+{
+	const std::vector<StaticObstacle>& props = StaticPropObstacles();
+	if (props.empty())
+		return 0;
+	int inserted = 0;
+	for (std::size_t i = 0; i + 1 < path.points.size() && inserted < 12;)
+	{
+		const Vector a = path.points[i];
+		const Vector b = path.points[i + 1];
+		Vector seg = b - a;
+		seg.z = 0.0f;
+		const float len = seg.Length2D();
+		if (len < 1.0f)
+		{
+			++i;
+			continue;
+		}
+		const Vector dir(seg.x / len, seg.y / len, 0.0f);
+		const Vector side(-dir.y, dir.x, 0.0f);
+		const StaticObstacle* worst = nullptr;
+		float worstLateral = 0.0f;
+		float worstAlong = 0.0f;
+		for (const StaticObstacle& prop : props)
+		{
+			const float along = (prop.pos.x - a.x) * dir.x + (prop.pos.y - a.y) * dir.y;
+			const float lateral = (prop.pos.x - a.x) * side.x + (prop.pos.y - a.y) * side.y;
+			if (along < 0.0f || along > len || std::fabs(lateral) >= halfWidth + prop.radius ||
+				std::fabs(prop.pos.z - (a.z + (b.z - a.z) * (along / len))) > 250.0f)
+				continue;
+			if (worst == nullptr || along < worstAlong)
+			{
+				worst = &prop;
+				worstLateral = lateral;
+				worstAlong = along;
+			}
+		}
+		if (worst == nullptr)
+		{
+			++i;
+			continue;
+		}
+		// Pass on the side the route already leans to; clearance = half width + trunk + 60.
+		const float need = halfWidth + worst->radius + 60.0f;
+		const float sign = worstLateral > 0.0f ? -1.0f : 1.0f;
+		Vector waypoint(worst->pos.x + side.x * sign * need, worst->pos.y + side.y * sign * need,
+			a.z + (b.z - a.z) * (worstAlong / len));
+		path.points.insert(path.points.begin() + i + 1, waypoint);
+		++inserted;
+		// Segment i->waypoint may still hit another prop; do not skip it.
+	}
+	return inserted;
+}
 }
 
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial,
@@ -1498,8 +1817,26 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	path.goalAreaId = static_cast<int>(goalArea->GetID());
 
 	CNavArea *closestArea = nullptr;
-	const bool full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth), &closestArea) &&
-		closestArea == goalArea;
+	const auto occupiedStarted = std::chrono::steady_clock::now();
+	const std::unordered_set<unsigned> occupied = AreasUnderBuildings(drivenVehicle, from, to, startArea,
+		goalArea->GetID(), width * 0.5f);
+	const auto occupiedMicros = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - occupiedStarted).count();
+	if (!occupied.empty() && drivenVehicle != nullptr)
+		RCBOT_DIAG("[RCBOT2] vehicle-nav occupied-areas=%zu us=%lld\n", occupied.size(), static_cast<long long>(occupiedMicros));
+	const std::unordered_set<unsigned> blockedStartExits = drivenVehicle != nullptr ?
+		StartExitsThroughBuildings(drivenVehicle, from, startArea, width) : std::unordered_set<unsigned>();
+	bool full = false;
+	if (!blockedStartExits.empty())
+	{
+		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, &occupied,
+			startArea, &blockedStartExits), &closestArea) && closestArea == goalArea;
+		RCBOT_DIAG("[RCBOT2] vehicle-nav start-exits-blocked=%zu full=%d\n", blockedStartExits.size(), full ? 1 : 0);
+	}
+	// Every free exit failed: plan as before (the detour planner may still find a way).
+	if (!full)
+		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, &occupied), &closestArea) &&
+			closestArea == goalArea;
 	Vector goal = to;
 	if (!full)
 	{
@@ -1556,6 +1893,12 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	g_detourHalf = (std::max)(16.0f, width * 0.5f);
 	ApplyBuildingDetours(path, true, drivenVehicle);
 	g_detourHalf = 16.0f;
+	if (drivenVehicle != nullptr)
+	{
+		const int propDetours = ApplyStaticPropDetours(path, width * 0.5f);
+		if (propDetours > 0)
+			RCBOT_DIAG("[RCBOT2] vehicle-nav prop-detours=%d\n", propDetours);
+	}
 	for (std::size_t i = 1; i < path.points.size(); ++i)
 		path.length += (path.points[i] - path.points[i - 1]).Length();
 	return PathResult::SUCCESS;

@@ -133,6 +133,7 @@ struct Diagnostics
 	bool getAllObstructionsAvailable = false;
 	bool canBuildAtCalled = false;
 	bool getAllObstructionsCalled = false;
+	std::uint32_t obstructionMask = 0;
 };
 
 inline Result Unavailable(Diagnostics* diagnostics, UnavailableReason reason)
@@ -147,7 +148,7 @@ bool CaptureContext(int playerIndex, ContextIdentity& identity, Diagnostics* dia
 // buildingType follows CEmpBuildingParse::GetBuildingType (1 Barracks, 5 VehicleFactory, ...).
 // Refineries (type 0) are placed on resource points and are not covered by this origin query.
 Result CanPlaceNative(const ContextIdentity& context, const Vector& origin, int buildingType,
-	Diagnostics* diagnostics = nullptr);
+	Diagnostics* diagnostics = nullptr, bool skipRange = false);
 inline Result CanPlaceBarracksNative(const ContextIdentity& context, const Vector& origin,
 	Diagnostics* diagnostics = nullptr)
 {
@@ -169,7 +170,7 @@ template <typename VectorType>
 Result Evaluate(bool abiVerified, const TeamContext& context,
 	CanBuildAtFn canBuildAt, GetAllObstructionsFn getAllObstructions,
 	const VectorType& origin, const VectorType& contextOrigin, Diagnostics* diagnostics = nullptr,
-	int buildingType = 1)
+	int buildingType = 1, bool skipRange = false)
 {
 	if (diagnostics != nullptr) diagnostics->reason = UnavailableReason::None;
 	if (!abiVerified) return Unavailable(diagnostics, UnavailableReason::BinaryIdentityUnavailable);
@@ -183,13 +184,16 @@ Result Evaluate(bool abiVerified, const TeamContext& context,
 		return Unavailable(diagnostics, UnavailableReason::ContextOriginUnavailable);
 	if (diagnostics != nullptr) diagnostics->canBuildAtCalled = true;
 
-	if (canBuildAt(&origin, context.team) == 0)
+	// skipRange: only the geometry/obstruction flags matter (remote site scan); CanBuildAt's 4000
+	// range rule and obstruction flag 0x8 (too far from the CV) are ignored.
+	if (!skipRange && canBuildAt(&origin, context.team) == 0)
 		return Result::Invalid;
 
 	if (diagnostics != nullptr) diagnostics->getAllObstructionsCalled = true;
 	const std::uint32_t obstructionMask = getAllObstructions(
 		context.level, &origin, buildingType, context.team, nullptr, &contextOrigin, nullptr);
-	return obstructionMask == 0 ? Result::Valid : Result::Invalid;
+	if (diagnostics != nullptr) diagnostics->obstructionMask = obstructionMask;
+	return (skipRange ? (obstructionMask & ~0x8u) : obstructionMask) == 0 ? Result::Valid : Result::Invalid;
 }
 }
 

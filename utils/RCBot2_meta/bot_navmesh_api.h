@@ -26,6 +26,8 @@ struct Path
 	std::vector<unsigned int> areaIds;
 	int startAreaId = -1;
 	int goalAreaId = -1;
+	int startComponent = -1;
+	int goalComponent = -1;
 	Vector walkGoal = Vector(0.0f, 0.0f, 0.0f);
 	bool targetAboveWalkPlane = false;
 	float length = 0.0f;
@@ -41,6 +43,8 @@ struct Path
 		areaIds.clear();
 		startAreaId = -1;
 		goalAreaId = -1;
+		startComponent = -1;
+		goalComponent = -1;
 		walkGoal = Vector(0.0f, 0.0f, 0.0f);
 		targetAboveWalkPlane = false;
 		length = 0.0f;
@@ -76,7 +80,8 @@ bool BlockEdgeNearestOnPath(const Vector &position, const std::vector<unsigned i
 	unsigned &fromAreaId, unsigned &toAreaId, float seconds = 0.0f);
 // Blocks every area link whose line between the area centres passes through the box
 // (a closed door covers several links). Returns how many links were blocked.
-int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, float seconds, bool learned = true);
+int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, float seconds, bool learned = true,
+	const Vector *keepEscapeFrom = nullptr);
 // Links of areas under the box whose shared edge lies behind it, seen from 'from'.
 int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &maxs, float seconds);
 // Team-only no-go circle (2D), e.g. a hostile turret's range: routes of that team's
@@ -91,6 +96,7 @@ unsigned BlockGeneration();
 void ClearBlockedEdges();
 PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 	CBot* observer = nullptr);
+bool CanReachComponent(const Vector &from, const Vector &to);
 bool IsPointInPathAreas(const Path &path, const Vector &point);
 // True if point lies within pad (2D) of a building's collision box; commander vehicles are ignored.
 bool PointNearBuilding(const Vector &point, float pad);
