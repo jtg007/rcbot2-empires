@@ -4,6 +4,7 @@
 #include "bot.h"
 #include "bot_empires_capture_retry.h"
 #include "bot_empires_commander_economy.h"
+#include "bot_empires_vehicle_loadout.h"
 #include "bot_empires_combat_relevance.h"
 #include "bot_empires_combat_telemetry.h"
 #include "bot_empires_start_anchor_recovery.h"
@@ -458,6 +459,8 @@ struct EmpiresVehicleBrain
 	bool buyInPlace = false;
 	bool wantJeep = false;
 	int purchaseStep = 0;
+	EmpiresVehicleLoadout::Loadout purchaseLoadout;
+	EmpiresVehicleLoadout::Loadout refitLoadout;
 	float factoryProbeAt = 0.0f; // diagnostic: log the factory state once in WAIT_SPAWN
 	std::vector<Vector> factoryRoute; // corners around the factory to its ramp
 	std::size_t factoryRouteIndex = 0;
@@ -466,6 +469,9 @@ struct EmpiresVehicleBrain
 	float cooldownUntil = 0.0f;
 	float nextEmptyLog = 0.0f;
 	float deferredSince = 0.0f; // richer-buyer wait start (5.5a), bounded to 30 s
+	Vector walkFrom = Vector(0, 0, 0); // GOTO_FACTORY: position at the last progress check
+	int walkRequests = 0;       // GOTO_FACTORY: navigation requests (diagnostic)
+	float walkCheckAt = 0.0f;   // next progress check (a walk that still closes in gets more time)
 	float nextDecision = 0.0f;
 	int failures = 0;
 	int useTries = 0;
@@ -801,10 +807,12 @@ public:
 		float nextResearchLog = 0.0f;
 		int lastResearchActive = -1;
 		bool lastResearchPaused = false;
+		bool hadResearchBuilding = false;
 		// Remote factory site (TODO 5.8c): free 1200x1200 spot found by a ground scan when the base has none.
 		bool siteValid = false;
 		Vector site;
 		float siteRetryAt = 0.0f;
+		float forwardBarracksRetryAt = 0.0f; // forward barracks beside a far factory spot (user 20.11.)
 		Vector siteScanOrigin = Vector(0, 0, 0); // CV position at the first factory search: the scan stays anchored at the base
 		bool siteScanOriginSet = false;
 		std::vector<Vector> siteExcluded;
@@ -1868,6 +1876,12 @@ private:
 	bool m_bEmpiresTurretRocketApproach = false;
 	bool m_bEmpiresTurretRocketIsThreat = false;
 	float m_flEmpiresBuildingAttackNext = 0.0f;
+	MyEHandle m_hEmpiresBuildingActionTarget;
+	int m_iEmpiresBuildingActionMode = 0; // 0 none, 1 rifleman sticky, 2 scout sabotage
+	float m_flEmpiresBuildingActionUntil = 0.0f;
+	float m_flEmpiresBuildingActionReadyAt = 0.0f;
+	float m_flEmpiresBuildingActionPressUntil = 0.0f;
+	bool m_bEmpiresBuildingActionThrown = false;
 
 	// Pressing a map button that opens a closed door (as_escort base gate control1).
 	int m_iEmpiresDoorButton = -1;
@@ -1935,5 +1949,7 @@ private:
 	bool m_bSpawnConfirmationOriginKnown = false;
 	int m_iSpawnConfirmationStableSamples = 0;
 };
+
+bool EmpiresReadTeamResearch(int team, bool done[EmpiresCommanderEconomy::kResearchItemCount]);
 
 #endif // _BOT_EMPIRES_H_

@@ -12,8 +12,59 @@ enum BuildType { Refinery = 0, Barracks = 1, Radar = 2, Armory = 3, Repair = 4, 
 // Costs from scripts_000.vpk (buildings).
 // Research item indexes (scripts/research_items.txt order, server_srv.so GetResearch 0x3a8440).
 constexpr int kResearchItemCount = 128;
-constexpr int kResearchStructural = 60;      // Structural_Engineering
-constexpr int kResearchVehicleFactory = 61;  // Vehicle_Factory, needs 60
+constexpr int kResearchMechanical = 27;       // Mechanical_Engineering
+constexpr int kResearchUpgradedChassis = 28;  // Upgraded_Chassis, needs 27
+constexpr int kResearchMediumTank = 29;       // Medium_Tank_Chassis, needs 28
+constexpr int kResearchAdvancedChassis = 31;  // Advanced_Chassis, needs 28
+constexpr int kResearchHeavyTank = 32;        // Heavy_Tank_Chassis, needs 31
+constexpr int kResearchAdvancedMachining = 33;// Advanced_Machining, needs 27
+constexpr int kResearchCompositeArmor = 34;   // Composite_Armor, needs 33
+constexpr int kResearchGasTurbineEngine = 35; // Gas_Turbine_Engine, needs 33
+constexpr int kResearchApcSpawn = 39;         // APC_Spawn_Point, needs 38 (Start_Researched)
+constexpr int kResearchStructural = 60;       // Structural_Engineering
+constexpr int kResearchVehicleFactory = 61;   // Vehicle_Factory, needs 60
+constexpr int kResearchMgTurret2 = 62;        // Upgraded_Machine_Gun_Turrets_Lvl_2, needs 60
+constexpr int kResearchMgTurret3 = 63;        // Upgraded_Machine_Gun_Turrets_Lvl_3, needs 62
+constexpr int kResearchMlTurret2 = 64;        // Upgraded_Missile_Launcher_Turrets_Lvl_2, needs 60
+constexpr int kResearchMlTurret3 = 65;        // Upgraded_Missile_Launcher_Turrets_Lvl_3, needs 64
+
+// Ordered tech path (TODO 5.1): core VF unlock first, then turret upgrades, APC spawn,
+// and Mechanical chassis/armor/engine progression once the Vehicle Factory is standing.
+constexpr int kResearchOrder[] = {
+	kResearchStructural,
+	kResearchVehicleFactory,
+	kResearchMgTurret2,
+	kResearchMlTurret2,
+	kResearchApcSpawn,
+	kResearchMechanical,
+	kResearchUpgradedChassis,
+	kResearchMediumTank,
+	kResearchAdvancedMachining,
+	kResearchCompositeArmor,
+	kResearchGasTurbineEngine,
+	kResearchMgTurret3,
+	kResearchMlTurret3,
+	kResearchAdvancedChassis,
+	kResearchHeavyTank,
+};
+
+// Next research item to start, or 0 if nothing should be started yet / tree complete.
+// Post-VF items wait until the Vehicle Factory is built so research never starves VF placement.
+inline int NextResearch(const bool done[kResearchItemCount], bool hasVehicleFactory)
+{
+	if (!done[kResearchStructural])
+		return kResearchStructural;
+	if (!done[kResearchVehicleFactory])
+		return kResearchVehicleFactory;
+	if (!hasVehicleFactory)
+		return 0;
+	for (const int item : kResearchOrder)
+	{
+		if (item >= 0 && item < kResearchItemCount && !done[item])
+			return item;
+	}
+	return 0;
+}
 
 constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f};
 

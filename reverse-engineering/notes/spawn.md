@@ -95,3 +95,9 @@ Static analysis, same binary. Symptom: every bot logs `joined team "..."` follow
   `m_lifeState = 2` (byte, sendprop offset) and `pl.deadflag = true`
   (`IServerGameClients::GetPlayerState`), then set `FL_EDICT_CHANGED | FL_FULL_EDICT_CHANGED`.
   The `+0xfc` check then skips CommitSuicide; PreThink runs PlayerDeathThink for the spawn stage.
+
+## Commander-built Barracks spawns (2026-11-20)
+
+Static analysis of `CBarracks::SetHealth(int)` (0x6148a0):
+- When a barracks finishes construction, it calls `CEmpParams::AddBarracks(team)` (0x641c30) to obtain a spawn group ID, spawns `emp_info_player_nf` / `emp_info_player_imp` entities at its spawn attachments, writes that ID directly to `CEmpSpawn+0x358` (`pointNumber`), and enables them via `CEmpSpawn::SetEnabled(true, ...)` (0x67fd70, `+0x354`).
+- Consequently, `EntSelectSpawnPoint()` and `resolveBootstrapSpawnId()` both see Commander-built barracks as ordinary `emp_info_player_*` entities; selecting them only requires preferring closer enabled spawn origins when `pointNumber` is not tied to a map capture point.

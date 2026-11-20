@@ -408,7 +408,9 @@ bool CBotEmpires::tickEmpiresEngibot()
 	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
-		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || std::strncmp(e->GetClassName(), "emp_building", 12) != 0 ||
+		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
+			std::strncmp(e->GetClassName(), "emp_building_", 13) != 0 ||
+			std::strcmp(e->GetClassName(), "emp_building_vehicle_physbox") == 0 ||
 			CClassInterface::getTeam(e) != team)
 			continue;
 		const Vector at = CBotGlobals::entityOrigin(e);
@@ -416,7 +418,7 @@ bool CBotEmpires::tickEmpiresEngibot()
 			continue;
 		int health = -1, maxHealth = -1;
 		if (!readEmpiresEntityIntProperty(e, "m_iHealth", health) || !readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHealth) ||
-			maxHealth <= 0 || health < 0 || health >= maxHealth)
+			maxHealth <= 0 || health <= 0 || health >= maxHealth)
 			continue;
 		bool taken = std::find(busy.begin(), busy.end(), e) != busy.end();
 		for (int k = 0; k < t.count && !taken; ++k)
@@ -459,8 +461,8 @@ bool CBotEmpires::tickEmpiresEngibot()
 		t.claim[index] = 0;
 
 	const float home = (origin - anchor).Length2D();
-	// A standing commander order (attack location, guard) keeps it where the commander sent it.
-	if (order != 2 && order != 1 && home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
+	// A standing commander order (attack location = 2, guard = 4) keeps it where the commander sent it.
+	if (order != 2 && order != 4 && home > leash * 0.6f && (m_pSchedules == nullptr || m_pSchedules->isEmpty()))
 	{
 		// Wait 900 out, each EngiBot on its own side: standing next to the CV blocked the
 		// commander's building spots (run 20261115-030313: barracks 36/36 invalid, both at 328).

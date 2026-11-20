@@ -480,34 +480,58 @@ namespace
 		int equipment;
 	};
 
-	// Current Empires 2.39.4 command tuples, applied in the verified order:
-	// changeclass, changesidearm, changeprimary, changegrenade,
-	// changeequipment.  The final command is the server's
-	// ValidateLoadout(true) commit trigger. Personal skill selection remains
-	// gated by the game's progression/unlock rules and is not part of this
-	// normal loadout tuple. Squad-Leader skills are a separate squad-point
-	// system and are not represented here either.
+	// Current Empires 2.39.4 command tuples (scripts/emp_classes.txt + emp_weapons.txt,
+	// 1-indexed), applied in the verified order: changeclass, changesidearm, changeprimary,
+	// changegrenade, changeequipment. Variant 0 per (team, class) is the original baseline;
+	// additional variants give class diversity (TODO 5.25) including Rifleman stickies (3.23)
+	// and Scout sniper/shotgun roles.
 	constexpr EmpiresLoadoutSpec kEmpiresNormalLoadouts[] =
 	{
+		// NF Scout: SMG2+StickyStun, RangedRifle+Concussive, SMG3+StickyStun
 		{ EMP_TEAM_NF, EMP_CLASS_SCOUT, 1, 4, 17, 20 },
+		{ EMP_TEAM_NF, EMP_CLASS_SCOUT, 1, 7, 13, 20 },
+		{ EMP_TEAM_NF, EMP_CLASS_SCOUT, 2, 5, 17, 20 },
+		// NF Rifleman: Rifle+HE, 50cal+Sticky, HMG+Sticky
 		{ EMP_TEAM_NF, EMP_CLASS_RIFLEMAN, 1, 6, 12, 21 },
+		{ EMP_TEAM_NF, EMP_CLASS_RIFLEMAN, 1, 8, 16, 21 },
+		{ EMP_TEAM_NF, EMP_CLASS_RIFLEMAN, 2, 9, 16, 21 },
+		// NF Grenadier: 9mm/Buckshot + RPG + Mine + Detector
 		{ EMP_TEAM_NF, EMP_CLASS_GRENADIER, 1, 10, 18, 22 },
+		{ EMP_TEAM_NF, EMP_CLASS_GRENADIER, 2, 10, 18, 22 },
+		// NF Engineer: SMG1, SMG2, SMG3
 		{ EMP_TEAM_NF, EMP_CLASS_ENGINEER, 1, 3, 14, 19 },
+		{ EMP_TEAM_NF, EMP_CLASS_ENGINEER, 1, 4, 14, 19 },
+		{ EMP_TEAM_NF, EMP_CLASS_ENGINEER, 2, 5, 14, 19 },
+		// BE Scout: SMG2+StickyStun, RangedRifle+Concussion, Shotgun+StickyStun
 		{ EMP_TEAM_BE, EMP_CLASS_SCOUT, 23, 26, 38, 41 },
+		{ EMP_TEAM_BE, EMP_CLASS_SCOUT, 23, 29, 34, 41 },
+		{ EMP_TEAM_BE, EMP_CLASS_SCOUT, 46, 45, 38, 41 },
+		// BE Rifleman: Rifle+HE, Carbine+Sticky, HMG+Sticky
 		{ EMP_TEAM_BE, EMP_CLASS_RIFLEMAN, 23, 28, 33, 42 },
+		{ EMP_TEAM_BE, EMP_CLASS_RIFLEMAN, 23, 27, 37, 42 },
+		{ EMP_TEAM_BE, EMP_CLASS_RIFLEMAN, 46, 30, 37, 42 },
+		// BE Grenadier: 9mm/MachinePistol + RPG + Mine + Detector
 		{ EMP_TEAM_BE, EMP_CLASS_GRENADIER, 23, 31, 39, 43 },
-		{ EMP_TEAM_BE, EMP_CLASS_ENGINEER, 23, 25, 35, 40 }
+		{ EMP_TEAM_BE, EMP_CLASS_GRENADIER, 46, 31, 39, 43 },
+		// BE Engineer: SMG1, SMG2, Shotgun
+		{ EMP_TEAM_BE, EMP_CLASS_ENGINEER, 23, 25, 35, 40 },
+		{ EMP_TEAM_BE, EMP_CLASS_ENGINEER, 23, 26, 35, 40 },
+		{ EMP_TEAM_BE, EMP_CLASS_ENGINEER, 46, 45, 35, 40 }
 	};
 
-	const EmpiresLoadoutSpec* findEmpiresNormalLoadout(const int team, const int classId)
+	const EmpiresLoadoutSpec* findEmpiresNormalLoadout(const int team, const int classId, const int variantSeed = 0)
 	{
+		const EmpiresLoadoutSpec* matches[4] = {};
+		int count = 0;
 		for (const EmpiresLoadoutSpec& loadout : kEmpiresNormalLoadouts)
 		{
-			if (loadout.team == team && loadout.classId == classId)
-				return &loadout;
+			if (loadout.team == team && loadout.classId == classId && count < 4)
+				matches[count++] = &loadout;
 		}
-
-		return nullptr;
+		if (count == 0)
+			return nullptr;
+		const int idx = variantSeed >= 0 ? (variantSeed % count) : 0;
+		return matches[idx];
 	}
 
 	const char* empiresMortarProbeStateName(const EmpiresMortarProbeState state)
@@ -988,6 +1012,12 @@ void CBotEmpires::setup()
 	m_bEmpiresTurretRocketApproach = false;
 	m_bEmpiresTurretRocketIsThreat = false;
 	m_flEmpiresBuildingAttackNext = 0.0f;
+	m_hEmpiresBuildingActionTarget = nullptr;
+	m_iEmpiresBuildingActionMode = 0;
+	m_flEmpiresBuildingActionUntil = 0.0f;
+	m_flEmpiresBuildingActionReadyAt = 0.0f;
+	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionThrown = false;
 	m_iEmpiresLastHealth = 0;
 	m_commanderMoveShadow.Reset();
 	m_commanderMoveShadow.SetTelemetrySink(
@@ -1825,7 +1855,7 @@ void CBotEmpires::handleWeapons()
 
 	// The ammo-crate action (3.10b step 3) owns the kit attack while it aims and observes;
 	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
-	if (m_iAmmoCrateStage >= 3)
+	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0)
 		return;
 
 	const bool coverScheduleActive =
@@ -2379,6 +2409,12 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	m_bEmpiresTurretRocketApproach = false;
 	m_bEmpiresTurretRocketIsThreat = false;
 	m_flEmpiresBuildingAttackNext = 0.0f;
+	m_hEmpiresBuildingActionTarget = nullptr;
+	m_iEmpiresBuildingActionMode = 0;
+	m_flEmpiresBuildingActionUntil = 0.0f;
+	m_flEmpiresBuildingActionReadyAt = 0.0f;
+	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionThrown = false;
 	m_flVoidNextCheck = 0.0f;
 	m_flVoidSince = -1.0f;
 	m_bVoidKilled = false;
@@ -6252,20 +6288,79 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 // Engineer skill plan (user request 2026-11-11): with two engineers one
 // takes Repair Upgrade first, the other Revive; the second slot gets the
 // other one, the third Turret Upgrade, the fourth Healing Upgrade. Skill codes
-// from scripts EmpiresSkills (SkillCode); slots unlock with rank, the game
-// keeps the wish (CEmpPlayer::ChangeSkill 0x65a530 stores slot 1-4).
+// from scripts SkillDescriptionData (SkillCode); slots unlock with rank (0/10/30/60), the game
+// keeps the wish (CEmpPlayer::ChangeSkill 0x65a530 stores slot 1-4). Covers all four classes (TODO 5.25).
 void CBotEmpires::updateEmpiresEngineerSkills()
 {
 	const float now = gpGlobals->curtime;
 	if (now < m_flEmpiresSkillsCheck)
 		return;
 	m_flEmpiresSkillsCheck = now + 5.0f;
-	if (!isEmpiresEngineerClass())
+	int classId = -1;
+	bool classDesired = false, classDesiredKnown = false;
+	const char* classProp = nullptr;
+	if (!readEmpiresClass(m_pEdict, classId, classDesired, classDesiredKnown, classProp))
 		return;
+	const int myId = engine->GetPlayerUserId(m_pEdict);
+	if (classId != EMP_CLASS_ENGINEER)
+	{
+		// SkillCode values from scripts_000.vpk SkillDescriptionData.
+		constexpr int kRadar = 64;
+		constexpr int kDamageIncrease = 1024;
+		constexpr int kDefusal = 4096;
+		constexpr int kIncreasedArmor = 32768;
+		constexpr int kHealthUpgrade = 2097152;
+		constexpr int kHealthRegen = 4194304;
+		constexpr int kAmmoIncrease = 8388608;
+		constexpr int kSpeedUpgrade = 33554432;
+		constexpr int kAccuracyUpgrade = 67108864;
+		int wanted[4] = {0, 0, 0, 0};
+		if (classId == EMP_CLASS_SCOUT)
+		{
+			wanted[0] = kRadar;
+			wanted[1] = kAccuracyUpgrade;
+			wanted[2] = kSpeedUpgrade;
+			wanted[3] = kHealthRegen;
+		}
+		else if (classId == EMP_CLASS_RIFLEMAN)
+		{
+			wanted[0] = kDamageIncrease;
+			wanted[1] = kHealthUpgrade;
+			wanted[2] = kAccuracyUpgrade;
+			wanted[3] = kHealthRegen;
+		}
+		else if (classId == EMP_CLASS_GRENADIER)
+		{
+			wanted[0] = kAmmoIncrease;
+			wanted[1] = kHealthUpgrade;
+			wanted[2] = kDefusal;
+			wanted[3] = kIncreasedArmor;
+		}
+		else
+		{
+			return;
+		}
+		bool changed = false;
+		for (int i = 0; i < 4; ++i)
+		{
+			if (m_iEmpiresSkillsSent[i] == wanted[i])
+				continue;
+			char command[64];
+			snprintf(command, sizeof(command), "changeskill %d %d\n", i + 1, wanted[i]);
+			helpers->ClientCommand(m_pEdict, command);
+			m_iEmpiresSkillsSent[i] = wanted[i];
+			changed = true;
+		}
+		if (changed)
+		{
+			RCBOT_DIAG("[RCBOT2] class-skills userid=%d class=%d want=%d,%d,%d,%d\n",
+				myId, classId, wanted[0], wanted[1], wanted[2], wanted[3]);
+		}
+		return;
+	}
 	constexpr int kRepair = 131072, kRevive = 262144, kTurret = 524288, kHealing = 65536;
 	// Rank among this team's engineer bots by userid: even = repair first.
 	const int team = getTeam();
-	const int myId = engine->GetPlayerUserId(m_pEdict);
 	int lower = 0;
 	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
 	{
@@ -13363,23 +13458,39 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 	edict_t* selectedEdict = nullptr;
 	bool selectedEnabled = false;
 	int selectedFrontScore = 1 << 20;
+	float selectedFrontDist2D = 1.0e9f;
 
 	// Front line: spawn groups share pointNumber with capture points, and on
 	// linear maps the numbers follow the front (as_escort: BE holds 6, NF 1-5, NF
 	// must spawn at 5). Score = numeric gap to the nearest point this team does
-	// not own; groups without a capture point keep the old first-found order.
+	// not own; groups without a capture point (base spawns and Commander-built
+	// barracks, which CBarracks::SetHealth creates as emp_info_player_* with
+	// CEmpParams::AddBarracks IDs — TODO 5.24) break ties by 2D distance to the
+	// front (nearest non-owned capture point, or own Vehicle Factory fallback).
 	std::vector<int> foreignPoints;
 	std::vector<int> knownPoints;
+	std::vector<Vector> frontAnchors;
 	if (const CBotMod* mod = CBotGlobals::getCurrentMod(); mod != nullptr)
 		for (const CEmpiresMod::CapturePointObservation& point :
 			static_cast<const CEmpiresMod*>(mod)->getCapturePoints())
 		{
-			if (!point.pointIndexKnown)
-				continue;
-			knownPoints.push_back(point.pointIndex);
-			if (point.teamOwnerKnown && point.teamOwner != team)
-				foreignPoints.push_back(point.pointIndex);
+			if (point.pointIndexKnown)
+			{
+				knownPoints.push_back(point.pointIndex);
+				if (point.teamOwnerKnown && point.teamOwner != team)
+					foreignPoints.push_back(point.pointIndex);
+			}
+			if (point.originKnown && (!point.teamOwnerKnown || point.teamOwner != team))
+				frontAnchors.push_back(point.origin);
 		}
+	if (frontAnchors.empty())
+	{
+		edict_t* vfEdict = nullptr;
+		Vector vfOrigin = vec3_origin;
+		int vfIndex = -1;
+		if (findEmpiresVehicleFactory(team, vfEdict, vfOrigin, vfIndex))
+			frontAnchors.push_back(vfOrigin);
+	}
 	auto spawnFrontScore = [&](const int id)
 	{
 		if (foreignPoints.empty() || std::find(knownPoints.begin(), knownPoints.end(), id) == knownPoints.end())
@@ -13387,6 +13498,22 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		int best = 1 << 19;
 		for (const int foreign : foreignPoints)
 			best = (std::min)(best, std::abs(foreign - id));
+		return best;
+	};
+	auto spawnFrontDist2D = [&](edict_t* edict)
+	{
+		if (edict == nullptr || frontAnchors.empty())
+			return 1.0e9f;
+		const Vector pos = CBotGlobals::entityOrigin(edict);
+		float best = 1.0e9f;
+		for (const Vector& anchor : frontAnchors)
+		{
+			const float dx = pos.x - anchor.x;
+			const float dy = pos.y - anchor.y;
+			const float d = std::sqrt(dx * dx + dy * dy);
+			if (d < best)
+				best = d;
+		}
 		return best;
 	};
 
@@ -13422,13 +13549,16 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		{
 			++candidateCount;
 			const int frontScore = spawnFrontScore(candidateId);
+			const float frontDist2D = spawnFrontDist2D(pCandidateEdict);
 			if (selectedEdict == nullptr || (enabled && !selectedEnabled) ||
-				(enabled == selectedEnabled && frontScore < selectedFrontScore))
+				(enabled == selectedEnabled && frontScore < selectedFrontScore) ||
+				(enabled == selectedEnabled && frontScore == selectedFrontScore && frontDist2D + 200.0f < selectedFrontDist2D))
 			{
 				selectedId = candidateId;
 				selectedEdict = pCandidateEdict;
 				selectedEnabled = enabled;
 				selectedFrontScore = frontScore;
+				selectedFrontDist2D = frontDist2D;
 			}
 		}
 
@@ -15387,8 +15517,9 @@ bool CBotEmpires::startGame()
 	// sufficient: the four loadout commands must follow changeclass, with
 	// changeequipment as the final validation/commit trigger.
 	helpers->ClientCommand(m_pEdict, command);
+	const int loadoutSeed = engine != nullptr ? (std::max)(0, engine->IndexOfEdict(m_pEdict) - 1) : 0;
 	const EmpiresLoadoutSpec* loadout =
-		findEmpiresNormalLoadout(currentTeam, requestedClass);
+		findEmpiresNormalLoadout(currentTeam, requestedClass, loadoutSeed);
 	if (loadout != nullptr && !m_bNormalLoadoutRequested)
 	{
 		char loadoutCommand[32];
@@ -15739,6 +15870,12 @@ void CBotEmpires::freeMapMemory()
 	m_bEmpiresTurretRocketApproach = false;
 	m_bEmpiresTurretRocketIsThreat = false;
 	m_flEmpiresBuildingAttackNext = 0.0f;
+	m_hEmpiresBuildingActionTarget = nullptr;
+	m_iEmpiresBuildingActionMode = 0;
+	m_flEmpiresBuildingActionUntil = 0.0f;
+	m_flEmpiresBuildingActionReadyAt = 0.0f;
+	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionThrown = false;
 	m_iEmpiresDoorButton = -1;
 	m_iEmpiresDoorButtonDoor = -1;
 	m_vEmpiresDoorButtonOrigin = Vector(0, 0, 0);

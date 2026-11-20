@@ -200,7 +200,7 @@ constexpr std::array<const char*, 29> g_szCSWeapons = {
 // current Empires VPK; the table supplies the existing RCBot2 weapon model
 // with public entity classnames and conservative ranges, without signatures
 // or fixed offsets.
-static constexpr std::array<const char*, 36> g_szEMPWeapons = {
+static constexpr std::array<const char*, 38> g_szEMPWeapons = {
 	"weapon_emp_nf_pistol",
 	"weapon_emp_nf_shot_pistol",
 	"weapon_emp_nf_sticky_Stun_grenade",
@@ -239,39 +239,44 @@ static constexpr std::array<const char*, 36> g_szEMPWeapons = {
 	"weapon_emp_nf_mine_grenade",
 	"weapon_emp_imp_engineer_kit",
 	"weapon_emp_imp_binoculars",
-	"weapon_emp_imp_mine_grenade"
+	"weapon_emp_imp_mine_grenade",
+	"weapon_emp_nf_sticky_grenade",
+	"weapon_emp_imp_sticky_grenade"
 };
 
 WeaponsData_t EMPWeaps[] = {
 	// slot, id, classname, flags, minimum, maximum, ammo, preference, projectile speed
-	{1, 0,  g_szEMPWeapons[0],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 2, 0},
-	{1, 1,  g_szEMPWeapons[1],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 3072, -1, 2, 0},
-	{3, 2,  g_szEMPWeapons[2],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 3,  g_szEMPWeapons[3],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 3, 0},
-	{2, 4,  g_szEMPWeapons[4],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 3, 0},
-	{2, 5,  g_szEMPWeapons[5],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 4096, -1, 3, 0},
-	{2, 6,  g_szEMPWeapons[6],  WEAP_FL_PRIM_ATTACK | WEAP_FL_SCOPE | WEAP_FL_ZOOMABLE, 512, 8192, -1, 3, 0},
-	{3, 7,  g_szEMPWeapons[7],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 8,  g_szEMPWeapons[8],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 3, 0},
-	{3, 9,  g_szEMPWeapons[9],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 10, g_szEMPWeapons[10], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 11, g_szEMPWeapons[11], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 12, g_szEMPWeapons[12], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 13, g_szEMPWeapons[13], WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_PRIM_ATTACK, 400, 8192, -1, 3, 1000.0f},
-	{1, 14, g_szEMPWeapons[14], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 2, 0},
-	{1, 15, g_szEMPWeapons[15], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 2, 0},
-	{1, 16, g_szEMPWeapons[16], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 2, 0},
-	{3, 17, g_szEMPWeapons[17], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 18, g_szEMPWeapons[18], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 3, 0},
-	{2, 19, g_szEMPWeapons[19], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 4096, -1, 3, 0},
-	{2, 20, g_szEMPWeapons[20], WEAP_FL_PRIM_ATTACK | WEAP_FL_SCOPE | WEAP_FL_ZOOMABLE, 512, 8192, -1, 3, 0},
-	{3, 21, g_szEMPWeapons[21], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 22, g_szEMPWeapons[22], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 8192, -1, 3, 0},
-	{3, 23, g_szEMPWeapons[23], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 2048, -1, 1, 0},
-	{2, 24, g_szEMPWeapons[24], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 25, g_szEMPWeapons[25], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 26, g_szEMPWeapons[26], WEAP_FL_PRIM_ATTACK, 0, 8192, -1, 3, 0},
-	{2, 27, g_szEMPWeapons[27], WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_PRIM_ATTACK, 400, 8192, -1, 3, 1000.0f},
+	// Ranges tuned to Empires infantry roles (TODO 3.25): pistols <= 1400, shotguns <= 700,
+	// SMGs <= 1600-1800, rifles/HMGs <= 2800-3000, sniper rifles 350..4500, RPG 300..3200,
+	// grenades <= 550-800.
+	{1, 0,  g_szEMPWeapons[0],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1400, -1, 2, 0},
+	{1, 1,  g_szEMPWeapons[1],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 900, -1, 2, 0},
+	{3, 2,  g_szEMPWeapons[2],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
+	{2, 3,  g_szEMPWeapons[3],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1600, -1, 3, 0},
+	{2, 4,  g_szEMPWeapons[4],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1800, -1, 3, 0},
+	{2, 5,  g_szEMPWeapons[5],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 700, -1, 3, 0},
+	{2, 6,  g_szEMPWeapons[6],  WEAP_FL_PRIM_ATTACK | WEAP_FL_SCOPE | WEAP_FL_ZOOMABLE, 350, 4500, -1, 3, 0},
+	{3, 7,  g_szEMPWeapons[7],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
+	{2, 8,  g_szEMPWeapons[8],  WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1600, -1, 3, 0},
+	{3, 9,  g_szEMPWeapons[9],  WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 800, -1, 1, 0},
+	{2, 10, g_szEMPWeapons[10], WEAP_FL_PRIM_ATTACK, 0, 2800, -1, 3, 0},
+	{2, 11, g_szEMPWeapons[11], WEAP_FL_PRIM_ATTACK, 0, 3000, -1, 3, 0},
+	{2, 12, g_szEMPWeapons[12], WEAP_FL_PRIM_ATTACK, 0, 2800, -1, 3, 0},
+	{2, 13, g_szEMPWeapons[13], WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_PRIM_ATTACK, 300, 3200, -1, 3, 1000.0f},
+	{1, 14, g_szEMPWeapons[14], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1400, -1, 2, 0},
+	{1, 15, g_szEMPWeapons[15], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1100, -1, 2, 0},
+	{1, 16, g_szEMPWeapons[16], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1400, -1, 2, 0},
+	{3, 17, g_szEMPWeapons[17], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
+	{2, 18, g_szEMPWeapons[18], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1600, -1, 3, 0},
+	{2, 19, g_szEMPWeapons[19], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 700, -1, 3, 0},
+	{2, 20, g_szEMPWeapons[20], WEAP_FL_PRIM_ATTACK | WEAP_FL_SCOPE | WEAP_FL_ZOOMABLE, 350, 4500, -1, 3, 0},
+	{3, 21, g_szEMPWeapons[21], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
+	{2, 22, g_szEMPWeapons[22], WEAP_FL_PRIM_ATTACK | WEAP_FL_MELEE_SEC_ATT, 0, 1600, -1, 3, 0},
+	{3, 23, g_szEMPWeapons[23], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 800, -1, 1, 0},
+	{2, 24, g_szEMPWeapons[24], WEAP_FL_PRIM_ATTACK, 0, 2800, -1, 3, 0},
+	{2, 25, g_szEMPWeapons[25], WEAP_FL_PRIM_ATTACK, 0, 2800, -1, 3, 0},
+	{2, 26, g_szEMPWeapons[26], WEAP_FL_PRIM_ATTACK, 0, 2800, -1, 3, 0},
+	{2, 27, g_szEMPWeapons[27], WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_PRIM_ATTACK, 300, 3200, -1, 3, 1000.0f},
 	// Mortars are recognized so the normal inventory/active-weapon path can
 	// identify them.  Their tactical range is deliberately disabled until a
 	// ballistic policy exists; no guessed range or preference is supplied.
@@ -286,6 +291,8 @@ WeaponsData_t EMPWeaps[] = {
 	{4, 33, g_szEMPWeapons[33], WEAP_FL_SPECIAL, 0, 0, -1, 0, 0},
 	{4, 34, g_szEMPWeapons[34], WEAP_FL_SPECIAL, 0, 0, -1, 0, 0},
 	{4, 35, g_szEMPWeapons[35], WEAP_FL_SPECIAL, 0, 0, -1, 0, 0},
+	{3, 36, g_szEMPWeapons[36], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
+	{3, 37, g_szEMPWeapons[37], WEAP_FL_PRIM_ATTACK | WEAP_FL_PROJECTILE | WEAP_FL_EXPLOSIVE | WEAP_FL_GRENADE, 0, 550, -1, 1, 0},
 	{0, 0, "\0", 0, 0, 0, 0, 0, 0}
 };
 

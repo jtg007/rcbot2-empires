@@ -50,6 +50,7 @@ constexpr float kHullClearance = 250.0f;     // a player inside the refinery hul
 constexpr float kSearchRadius = 2048.0f;
 constexpr float kShiftedSearchOffset = 1500.0f;
 constexpr float kInvalidSkipRadius = 250.0f;
+constexpr float kForwardBarracksDistance = 3500.0f; // factory farther from every own barracks: barracks first
 constexpr float kEscortSeconds = 120.0f; // one escort at a time, then pick again
 constexpr int kMaxAssignTries = 6;
 // Commander Engineer leaves the CV only for buildings this close to it, with no enemy
@@ -278,6 +279,11 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 	constexpr float kScanRadius = 8000.0f, kScanStep = 300.0f;
 	CTraceFilterWorldOnly filter;
 	std::vector<Vector> clear;
+	// The site needs walkable, reachable ground: Palmbay BE picked a navmesh-less rock plateau
+	// (-1168 -7628) ringed by cliffs; the engineer never got there and no vehicle could leave.
+	Vector cvOnMesh;
+	const bool cvMesh = RCBotNavMesh::ClosestPointOnMesh(cv, 600.0f, cvOnMesh);
+	int offMesh = 0;
 	for (float dx = -kScanRadius; dx <= kScanRadius; dx += kScanStep)
 		for (float dy = -kScanRadius; dy <= kScanRadius; dy += kScanStep)
 		{
@@ -297,6 +303,13 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 				skip = skip || (at - bad).Length2D() < 1500.0f;
 			if (skip)
 				continue;
+			Vector mesh;
+			if (cvMesh && (!RCBotNavMesh::ClosestPointOnMesh(at, 150.0f, mesh) || std::fabs(mesh.z - at.z) > 64.0f ||
+				!RCBotNavMesh::CanReachComponent(cvOnMesh, mesh)))
+			{
+				++offMesh;
+				continue;
+			}
 			if (EmpiresNativePlacement::CanPlaceNative(context, at, 5, nullptr, true) == EmpiresNativePlacement::Result::Valid)
 				clear.push_back(at);
 		}
@@ -319,8 +332,8 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 			found = true;
 		}
 	}
-	RCBOT_DIAG("[RCBOT2] commander-econ factory-site scan clear=%zu found=%d site=(%.0f %.0f %.0f) cv_distance=%.0f\n",
-		clear.size(), found ? 1 : 0, found ? site.x : 0.0f, found ? site.y : 0.0f, found ? site.z : 0.0f, found ? bestDistance : 0.0f);
+	RCBOT_DIAG("[RCBOT2] commander-econ factory-site scan clear=%zu off_mesh=%d found=%d site=(%.0f %.0f %.0f) cv_distance=%.0f\n",
+		clear.size(), offMesh, found ? 1 : 0, found ? site.x : 0.0f, found ? site.y : 0.0f, found ? site.z : 0.0f, found ? bestDistance : 0.0f);
 	return found;
 }
 
@@ -684,6 +697,23 @@ bool ReadTeamResearch(int team, TeamResearch& out)
 	}
 	return false;
 }
+}
+
+bool EmpiresReadTeamResearch(int team, bool done[EmpiresCommanderEconomy::kResearchItemCount])
+{
+	static ConVar* researchComplete = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
+	if (researchComplete != nullptr && researchComplete->GetBool())
+	{
+		for (int idx = 0; idx < EmpiresCommanderEconomy::kResearchItemCount; ++idx)
+			done[idx] = true;
+		return true;
+	}
+	TeamResearch research;
+	if (!ReadTeamResearch(team, research))
+		return false;
+	for (int idx = 0; idx < EmpiresCommanderEconomy::kResearchItemCount; ++idx)
+		done[idx] = research.done[idx];
+	return true;
 }
 
 bool CBotEmpires::isEmpiresEngineerClass() const
@@ -1073,7 +1103,7 @@ void CBotEmpires::tickCommanderEconomy()
 			CClassInterface::getTeam(bot->getEdict()) != team)
 			continue;
 		CBotEmpires* engineer = static_cast<CBotEmpires*>(bot);
-		if (!engineer->isEmpiresEngineerClass())
+		if (!engineer->isEmpiresEngineerClass() || EmpiresIsEngibot(bot->getEdict()))
 			continue;
 		++livingEngineers;
 		// A turret job finishes first; so does a claimed vehicle repair call (run 122757: the
@@ -1343,8 +1373,8 @@ void CBotEmpires::tickCommanderEconomy()
 	if (!ReadTeamResources(team, resources))
 		return;
 
-	// --- Research (TODO 5.1): the game only lets a team build a vehicle factory after the
-	// research building (radar) stands and Structural_Engineering + Vehicle_Factory are researched.
+	// --- Research (TODO 5.1): unlock Vehicle Factory first, then continue with turret,
+	// APC-spawn and Mechanical tank upgrades once the factory stands and resources allow.
 	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
 	// Before the build waits below: an unfinished building or a pending emp_build check must not
 	// stop research (run 20261114-2040: one start, then never reached again).
@@ -1355,9 +1385,32 @@ void CBotEmpires::tickCommanderEconomy()
 		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
 			ReadTeamResearch(team, research))
 		{
+			if (research.building)
+			{
+				state.hadResearchBuilding = true;
+			}
+			else if (state.hadResearchBuilding)
+			{
+				// Radar was destroyed: clear any stale Radar placement backoff so NextBuild rebuilds it promptly.
+				state.hadResearchBuilding = false;
+				state.failures[Radar] = 0;
+				state.blockedUntil[Radar] = 0.0f;
+				RCBOT_DIAG("[RCBOT2] commander-econ radar-lost team=%d resources=%.0f active=%d\n",
+					team, resources, research.active);
+			}
 			researchUnlocked = research.done[kResearchVehicleFactory];
-			const int next = research.done[kResearchStructural] ? kResearchVehicleFactory : kResearchStructural;
-			if (!researchUnlocked && research.building && (research.active == 0 || research.paused) && now >= state.nextResearch)
+			bool hasFinishedFactory = false;
+			for (const BuildingInfo& info : buildings)
+				if (info.type == VehicleFactory && info.maxHealth > 0 && info.health >= info.maxHealth)
+				{
+					hasFinishedFactory = true;
+					break;
+				}
+			const int next = NextResearch(research.done, hasFinishedFactory);
+			const bool postFactory = researchUnlocked;
+			const bool affordResearch = !postFactory || resources >= 350.0f;
+			if (research.building && affordResearch && now >= state.nextResearch &&
+				((research.active != 0 && research.paused) || (research.active == 0 && next != 0)))
 			{
 				EmpiresNativePlacement::ContextIdentity researchContext;
 				bool researchCommander = false;
@@ -1387,9 +1440,9 @@ void CBotEmpires::tickCommanderEconomy()
 				state.nextResearchLog = now + 30.0f;
 				state.lastResearchActive = research.active;
 				state.lastResearchPaused = research.paused;
-				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d\n",
+				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d next=%d\n",
 					research.active, research.remaining, int(research.paused), int(research.building),
-					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]));
+					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]), next);
 			}
 		}
 	}
@@ -1531,7 +1584,43 @@ void CBotEmpires::tickCommanderEconomy()
 		inventory.siteAvailable[VehicleFactory] = false;
 
 	BuildType type = Refinery;
-	const Decision decision = NextBuild(inventory, resources, type, rcbot_empires_commander_first.GetInt());
+	Decision decision = NextBuild(inventory, resources, type, rcbot_empires_commander_first.GetInt());
+	// Forward barracks after the factory (user 2026-11-20): when no spot beside the empty factory site was
+	// free (Palmbay NF plateau: both barracks spots lay in the factory box), build it next to the placed
+	// factory; the search then knows the factory box and keeps its exit lane free.
+	bool forwardBarracks = false;
+	Vector forwardCenter = vehicleOrigin;
+	if (inventory.count[VehicleFactory] > 0 && resources >= kCost[Barracks] && now >= state.forwardBarracksRetryAt)
+	{
+		float nearestFactory = 1.0e9f;
+		for (const BuildingInfo& info : buildings)
+			if (info.type == VehicleFactory)
+			{
+				edict_t* f = engine->PEntityOfEntIndex(info.entity);
+				if (f != nullptr && !f->IsFree() && (CBotGlobals::entityOrigin(f) - vehicleOrigin).Length2D() < nearestFactory)
+				{
+					nearestFactory = (CBotGlobals::entityOrigin(f) - vehicleOrigin).Length2D();
+					forwardCenter = CBotGlobals::entityOrigin(f);
+				}
+			}
+		float nearestBarracks = 1.0e9f;
+		for (const BuildingInfo& info : buildings)
+			if (info.type == Barracks)
+			{
+				edict_t* b = engine->PEntityOfEntIndex(info.entity);
+				if (b != nullptr && !b->IsFree())
+					nearestBarracks = (std::min)(nearestBarracks, (CBotGlobals::entityOrigin(b) - forwardCenter).Length2D());
+			}
+		if (nearestFactory < 3500.0f && nearestBarracks > kForwardBarracksDistance)
+		{
+			state.forwardBarracksRetryAt = now + 60.0f;
+			type = Barracks;
+			decision = Decision::Build;
+			forwardBarracks = true;
+			RCBOT_DIAG("[RCBOT2] commander-econ forward-barracks-after team=%d factory=(%.0f %.0f %.0f) nearest_barracks=%.0f\n",
+				team, forwardCenter.x, forwardCenter.y, forwardCenter.z, nearestBarracks);
+		}
+	}
 	{
 		// TODO 5.5a: money the Commander needs next; vehicle purchases from the pool leave it.
 		// Research for the factory drains Cost x Time = 240 (RE vehicle-driving.md). Game time,
@@ -1617,7 +1706,7 @@ void CBotEmpires::tickCommanderEconomy()
 		for (int ring = 0; !laneFree && (ring < 5 || (ring == 5 && extendToTeammates()) ||
 			ring < 5 + int(teammateCenters.size())); ++ring)
 		{
-			Vector center = vehicleOrigin;
+			Vector center = forwardBarracks ? forwardCenter : vehicleOrigin;
 			if (ring >= 5)
 				center = teammateCenters[ring - 5];
 			else if (ring > 0)
@@ -1759,6 +1848,81 @@ void CBotEmpires::tickCommanderEconomy()
 		}
 		if (!laneFree)
 			at = first.selected.origin;
+		// Forward barracks first (user 2026-11-20): with the nearest own barracks far from the factory
+		// spot, buyers spawn there and walk across the map (Palmbay NF: ~6000 around a cliff ring, buyers
+		// timed out on the way). Build a barracks beside the spot, not in front of the ramp, then the factory.
+		if (type == VehicleFactory && now >= state.forwardBarracksRetryAt && resources >= kCost[Barracks])
+		{
+			const Vector vf(at.x, at.y, at.z);
+			float nearestBarracks = 1.0e9f;
+			for (const BuildingInfo& info : buildings)
+				if (info.type == Barracks)
+				{
+					edict_t* b = engine->PEntityOfEntIndex(info.entity);
+					if (b != nullptr && !b->IsFree())
+						nearestBarracks = (std::min)(nearestBarracks, (CBotGlobals::entityOrigin(b) - vf).Length2D());
+				}
+			if (nearestBarracks > kForwardBarracksDistance)
+			{
+				state.forwardBarracksRetryAt = now + 90.0f; // one try per site; a refusal falls back to the factory
+				const float exitYaw = EmpiresFactoryExitYaw(vf, team, true) * 0.017453293f;
+				const Vector exitDir(std::cos(exitYaw), std::sin(exitYaw), 0.0f);
+				const Vector side(-exitDir.y, exitDir.x, 0.0f);
+				bool found = false;
+				Vector spot;
+				int inBox = 0, tooFar = 0;
+				size_t candidates = 0;
+				float bestLen = 1.0e9f;
+				// The search keeps at most 8 spots, nearest its centre: centre it beside and behind the factory.
+				const Vector centers[3] = {vf - exitDir * 1500.0f, vf + side * 1700.0f, vf - side * 1700.0f};
+				for (const Vector& center : centers)
+				{
+				if (found)
+					break;
+				EmpiresSpatial::Request request;
+				request.origin = {center.x, center.y, center.z};
+				request.radius = 1200.0f;
+				request.buildingType = int(Barracks);
+				request.invalidSkipRadius = kInvalidSkipRadius;
+				const EmpiresSpatial::SearchResult near = EmpiresSpatial::SearchBarracksCandidates(context, request);
+				candidates += near.accepted.size();
+				for (const auto& candidate : near.accepted)
+				{
+					const Vector c(candidate.origin.x, candidate.origin.y, candidate.origin.z);
+					Vector d = c - vf;
+					d.z = 0.0f;
+					// Factory frame: box -414..920 along the exit, +-828 across (obb of the placed NF factory),
+					// plus the barracks half size (~450) and a 1600 drive lane in front of the ramp.
+					const float x = DotProduct(d, exitDir), y = DotProduct(d, side);
+					if (x > -414.0f - 450.0f && x < 920.0f + 1600.0f && std::fabs(y) < 828.0f + 450.0f)
+					{
+						++inBox;
+						continue;
+					}
+					const float len = d.Length();
+					if (len > 3000.0f)
+					{
+						++tooFar;
+						continue;
+					}
+					if (len < bestLen)
+					{
+						bestLen = len;
+						spot = c;
+						found = true;
+					}
+				}
+				}
+				RCBOT_DIAG("[RCBOT2] commander-econ forward-barracks team=%d factory=(%.0f %.0f %.0f) nearest_barracks=%.0f "
+					"candidates=%zu in_box=%d too_far=%d found=%d spot=(%.0f %.0f %.0f)\n", team, vf.x, vf.y, vf.z, nearestBarracks,
+					candidates, inBox, tooFar, found ? 1 : 0, found ? spot.x : 0.0f, found ? spot.y : 0.0f, found ? spot.z : 0.0f);
+				if (found)
+				{
+					type = Barracks;
+					at = {spot.x, spot.y, spot.z};
+				}
+			}
+		}
 		if (!lanes.empty() || type == Repair)
 			RCBOT_DIAG("[RCBOT2] commander-econ lane-check type=%d lanes=%zu checked=%zu ring=%d%s\n", int(type),
 				lanes.size(), checked, usedRing, laneFree ? "" : " all-block");

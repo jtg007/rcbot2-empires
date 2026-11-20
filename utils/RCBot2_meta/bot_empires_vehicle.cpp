@@ -176,6 +176,23 @@ bool ReadVehicleHealth(const edict_t* e, float& out)
 	return true;
 }
 
+bool ReadVehicleMaxHealth(const edict_t* e, float& out)
+{
+	edict_t* edict = const_cast<edict_t*>(e);
+	if (edict == nullptr || edict->IsFree() || edict->GetUnknown() == nullptr)
+		return false;
+	CBaseEntity* base = edict->GetUnknown()->GetBaseEntity();
+	const datamap_t* map = base != nullptr ? CBaseEntity_GetDataDescMap(base) : nullptr;
+	const unsigned offset = map != nullptr ? UTIL_FindInDataMap(map, "m_iMaxHealth") : 0;
+	if (offset == 0)
+		return false;
+	const int maxHp = *reinterpret_cast<const int*>(reinterpret_cast<const char*>(base) + offset);
+	if (maxHp <= 0)
+		return false;
+	out = static_cast<float>(maxHp);
+	return true;
+}
+
 // Armor per side (CEmpTank::SetArmorSide 0x68e8f0): float[4] at +0xfe4, a
 // rounded int[4] mirror at +0x1004, max m_iMaxArmorHealth (+0x1024). Server
 // only, no send props. Side order as emp_vehicle_armor_levels: front, rear,
@@ -704,6 +721,7 @@ struct RepairRequest
 	float claimUntil = 0.0f;
 	int side = -1; // weakest armor side: 0 front, 1 rear, 2 left, 3 right
 	bool armorDamaged = false;
+	bool baseScan = false; // found by an EngiBot in base / on a repair pad (e.g. human vehicle)
 };
 RepairRequest s_repairRequest[4];
 EmpiresAmmoRequest s_ammoRequest[4][kEmpiresAmmoRequestSlots];
@@ -2115,6 +2133,99 @@ void CBotEmpires::tickEmpiresVoidSuicide()
 	helpers->ClientCommand(m_pEdict, "kill\n");
 }
 
+bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
+
+namespace
+{
+bool VehicleNeedsBaseRepair(const CBotEmpires* bot, edict_t* e, float maxSpeed, int& worstSide, bool& armorDamaged)
+{
+	worstSide = -1;
+	armorDamaged = false;
+	if (bot == nullptr || e == nullptr || e->IsFree() || !IsClass(e, "emp_vehicle") || !EmpiresVehicleAlive(bot, e))
+		return false;
+	Vector vel(0.0f, 0.0f, 0.0f);
+	if (CClassInterface::getVelocity(e, &vel) && vel.Length2D() > maxSpeed)
+		return false;
+	float hp = -1.0f, maxHp = -1.0f;
+	const bool hullDamaged = ReadVehicleHealth(e, hp) && ReadVehicleMaxHealth(e, maxHp) &&
+		hp > 0.0f && maxHp > 0.0f && hp < maxHp - 0.5f;
+	const int armorMax = EmpiresVehicleReadInt(bot, e, "m_iMaxArmorHealth", 0);
+	int worstVal = armorMax;
+	if (armorMax > 0)
+	{
+		for (int k = 0; k < 4; ++k)
+		{
+			const int a = ReadArmorSide(e, k);
+			// Ignore 0: fresh vehicles build armor up from 0 and unarmored sides stay 0.
+			if (a > 0 && a < armorMax)
+			{
+				armorDamaged = true;
+				if (worstSide < 0 || a < worstVal)
+				{
+					worstVal = a;
+					worstSide = k;
+				}
+			}
+		}
+	}
+	return hullDamaged || armorDamaged;
+}
+
+edict_t* FindBaseVehicleForEngibotRepair(CBotEmpires* bot, int team, int& worstSide, bool& armorDamaged)
+{
+	worstSide = -1;
+	armorDamaged = false;
+	if (bot == nullptr || engine == nullptr || gpGlobals == nullptr)
+		return nullptr;
+	std::vector<Vector> pads;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+			continue;
+		const char* cls = e->GetClassName();
+		if (std::strncmp(cls, "emp_building_", 13) == 0 && std::strstr(cls, "repair") != nullptr &&
+			CClassInterface::getTeam(e) == team)
+			pads.push_back(CBotGlobals::entityOrigin(e));
+	}
+	const Vector origin = bot->getOrigin();
+	edict_t* best = nullptr;
+	bool bestOnPad = false;
+	float bestDist = 1.0e9f;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || !IsClass(e, "emp_vehicle") ||
+			EmpiresVehicleReadInt(bot, e, "m_iTeamNum", -1) != team)
+			continue;
+		const Vector at = CBotGlobals::entityOrigin(e);
+		if (!EmpiresEngibotWithinLeash(bot->getEdict(), at) || !bot->empiresRepairCallAllowed(e))
+			continue;
+		int side = -1;
+		bool armor = false;
+		if (!VehicleNeedsBaseRepair(bot, e, 80.0f, side, armor))
+			continue;
+		bool onPad = false;
+		for (const Vector& pad : pads)
+			if (Dist2D(at, pad) < 450.0f)
+			{
+				onPad = true;
+				break;
+			}
+		const float d = Dist2D(origin, at);
+		if (best == nullptr || (onPad && !bestOnPad) || (onPad == bestOnPad && d < bestDist))
+		{
+			best = e;
+			bestOnPad = onPad;
+			bestDist = d;
+			worstSide = side;
+			armorDamaged = armor;
+		}
+	}
+	return best;
+}
+} // namespace
+
 void CBotEmpires::tickEmpiresVehicle()
 {
 	if (gpGlobals == nullptr || engine == nullptr || m_pEdict == nullptr || m_pEdict->IsFree())
@@ -2176,7 +2287,8 @@ void CBotEmpires::tickEmpiresVehicle()
 	// ---------------------------------------------------------------- decide
 	if (v.stage == EmpiresVehicleStage::NONE)
 	{
-		if (now < v.nextDecision || now < v.cooldownUntil || !rcbot_empires_vehicles.GetBool())
+		if (now < v.nextDecision || now < v.cooldownUntil ||
+			(!rcbot_empires_vehicles.GetBool() && !EmpiresIsEngibot(m_pEdict)))
 			return;
 		v.nextDecision = now + (isEmpiresEngineerClass() ? 0.5f : 2.0f);
 		const char* skip = nullptr;
@@ -2210,6 +2322,27 @@ void CBotEmpires::tickEmpiresVehicle()
 			skip = "engineer";
 			edict_t* hurt = empiresRepairCallAllowed(RepairRequestVehicle(team)) ? RepairRequestVehicle(team) : nullptr;
 			RepairRequest& r = s_repairRequest[team];
+			// EngiBots also repair damaged own vehicles in the base / on a repair pad without a
+			// bot repair call (e.g. human-driven or parked vehicles, TODO 7.1).
+			if (hurt == nullptr && RepairRequestVehicle(team) == nullptr && EmpiresIsEngibot(m_pEdict))
+			{
+				int side = -1;
+				bool armorDamaged = false;
+				if (edict_t* baseVeh = FindBaseVehicleForEngibotRepair(this, team, side, armorDamaged); baseVeh != nullptr)
+				{
+					r = RepairRequest();
+					r.vehicle = engine->IndexOfEdict(baseVeh);
+					r.driverUserId = -1;
+					r.origin = CBotGlobals::entityOrigin(baseVeh);
+					r.until = now + 20.0f;
+					r.side = side;
+					r.armorDamaged = armorDamaged;
+					r.baseScan = true;
+					hurt = baseVeh;
+					RCBOT_DIAG("[RCBOT2] engibot vehicle-repair-scan userid=%d veh=%d dist=%.0f side=%d armor=%d\n",
+						userId, r.vehicle, Dist2D(getOrigin(), r.origin), side, armorDamaged ? 1 : 0);
+				}
+			}
 			if (hurt != nullptr && (r.engineerUserId == userId || now > r.claimUntil) &&
 				(NearestOnVehicle(hurt, getEyePosition()) - getEyePosition()).Length2D() < 220.0f)
 			{
@@ -2415,6 +2548,9 @@ void CBotEmpires::tickEmpiresVehicle()
 			const float walkLimit = (std::max)(90.0f, (std::min)(300.0f, Dist2D(getOrigin(),
 				CBotGlobals::entityOrigin(factory)) / 100.0f + 30.0f));
 			setStage(EmpiresVehicleStage::GOTO_FACTORY, walkLimit);
+			v.walkFrom = getOrigin();
+			v.walkCheckAt = now + 30.0f;
+			v.walkRequests = 0;
 			RCBOT_DIAG("[RCBOT2] vehicle factory-route userid=%d points=%zu first=(%.0f %.0f)\n", userId,
 				v.factoryRoute.size(), v.goal.x, v.goal.y);
 			if (RCBotNavMesh::IsLoaded())
@@ -2481,6 +2617,16 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 
 	edict_t* vehicle = v.vehicle.get();
+	// A buyer that keeps walking keeps its deadline (Palmbay run 20261120-182057: routes to the plateau
+	// factory wind around a cliff ring, 37-77 areas; buyers timed out on the way, then roamed off).
+	// Moved distance, not distance to the factory: the detour first leads away from it.
+	if (v.stage == EmpiresVehicleStage::GOTO_FACTORY && !v.buyInPlace && now >= v.walkCheckAt)
+	{
+		if (Dist2D(getOrigin(), v.walkFrom) >= 300.0f && now - v.stageSince < 600.0f)
+			v.stageUntil = (std::max)(v.stageUntil, now + 30.0f);
+		v.walkFrom = getOrigin();
+		v.walkCheckAt = now + 30.0f;
+	}
 	// Keep trying to leave the same vehicle even after the deadline. Resetting
 	// while still seated leaves the bot unable to plan or exit (run 125334).
 	if (v.stageUntil > 0.0f && now > v.stageUntil && v.stage != EmpiresVehicleStage::GIVE_UP_EXIT)
@@ -2488,6 +2634,11 @@ void CBotEmpires::tickEmpiresVehicle()
 		++v.failures;
 		if (v.failures >= 2 && !v.billNye)
 			v.wantJeep = true;
+		if (v.stage == EmpiresVehicleStage::GOTO_FACTORY)
+			RCBOT_DIAG("[RCBOT2] vehicle walk-timeout userid=%d pos=(%.0f %.0f %.0f) goal=(%.0f %.0f) step=%d route=%zu/%zu "
+				"moved30=%.0f elapsed=%.0f sched_empty=%d requests=%d enemy=%d\n", userId, getOrigin().x, getOrigin().y, getOrigin().z, v.goal.x,
+				v.goal.y, v.purchaseStep, v.factoryRouteIndex, v.factoryRoute.size(), Dist2D(getOrigin(), v.walkFrom), now - v.stageSince,
+				m_pSchedules != nullptr && m_pSchedules->isEmpty() ? 1 : 0, v.walkRequests, hasEnemy() ? 1 : 0);
 		resetEmpiresVehicle("stage-timeout", 10.0f * (std::min)(v.failures, 6));
 		return;
 	}
@@ -2582,7 +2733,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (RCBotNavMesh::IsLoaded() && now >= v.nextAction)
 			{
 				v.nextAction = now + 4.0f;
+				// A hang blocks goal and segment for 15 s, so every re-request failed at once and the
+				// buyer stood still (Palmbay runs 20261120-1834xx: 13-22 requests in 90 s, moved 0, no
+				// enemy). A fresh route from where the bot stands usually works (as build-assign does).
+				clearNavigationAttemptCooldownForStartAnchorRetry();
 				requestNavigation(origin, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0);
+				++v.walkRequests;
 			}
 			else if (!RCBotNavMesh::IsLoaded())
 				setMoveTo(origin);
@@ -2606,6 +2762,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		switch (v.purchaseStep)
 		{
 		case 0:
+		{
 			v.goal = getOrigin();
 			v.nextLog = 0.0f;
 			v.baseline.clear();
@@ -2618,35 +2775,46 @@ void CBotEmpires::tickEmpiresVehicle()
 				// the player's view: look toward the enemy side first.
 				m_vViewAngles.x = 0.0f;
 			}
-			snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n",
-				jeep ? (nf ? 0 : 8) : (nf ? 2 : 10));
+			bool researchDone[EmpiresCommanderEconomy::kResearchItemCount] = {};
+			const bool haveResearch = EmpiresReadTeamResearch(team, researchDone);
+			float budget = -1.0f;
+			if (!v.buyInPlace)
+			{
+				float pool = -1.0f;
+				if (EmpiresTeamResources(team, pool))
+				{
+					const float wages = (std::max)(0.0f, EmpiresPlayerWages(m_pEdict));
+					const float reserve = EmpiresTeamEconomy::ActiveReserve(
+						EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
+					budget = wages + (std::max)(0.0f, pool - reserve);
+				}
+			}
+			v.purchaseLoadout = EmpiresVehicleLoadout::ChoosePurchaseLoadout(
+				nf, jeep, haveResearch ? researchDone : nullptr, budget);
+			snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", v.purchaseLoadout.chassis);
 			break;
+		}
 		case 1:
-			// Cannon (weapon 12, mode 1 = IN_ATTACK). NF light tank slot 0 is the
-			// cannon, BE AFV slot 1 (scripts/vehicle_*.txt weapon_slot order).
-			if (!jeep)
-				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
+			if (!v.purchaseLoadout.isJeep() && v.purchaseLoadout.cannonSlot >= 0)
+				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 %d 1 0 0 0 0 0 1\n",
+					v.purchaseLoadout.cannonSlot, v.purchaseLoadout.cannonWeapon);
 			break;
 		case 2:
-			// Machine gun (weapon 0, mode 0 = IN_ATTACK2) in the other slot.
-			if (!jeep)
-				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 %d\n", nf ? 1 : 0,
+			if (!v.purchaseLoadout.isJeep() && v.purchaseLoadout.mgSlot >= 0)
+				snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 %d 1 0 0 0 0 0 %d\n",
+					v.purchaseLoadout.mgSlot, v.purchaseLoadout.mgWeapon,
 					rcbot_empires_vehicle_debug_mixed.GetBool() ? 1 : 0);
 			break;
 		case 3:
-			snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n");
+			snprintf(command, sizeof(command), "emp_vehicle_armor 0 %d\n", v.purchaseLoadout.armorType);
 			break;
 		case 4:
-			// Plain armor on every side so one hit side is not the hull at once
-			// (script max: NF light tank 2, BE AFV 3, jeeps 1).
-			if (jeep)
-				snprintf(command, sizeof(command), "emp_vehicle_armor_levels 0 0 0 0\n");
-			else
-				snprintf(command, sizeof(command), "emp_vehicle_armor_levels 2 2 2 2\n");
+			snprintf(command, sizeof(command), "emp_vehicle_armor_levels %d %d %d %d\n",
+				v.purchaseLoadout.armorLevels[0], v.purchaseLoadout.armorLevels[1],
+				v.purchaseLoadout.armorLevels[2], v.purchaseLoadout.armorLevels[3]);
 			break;
 		case 5:
-			snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n",
-				jeep ? (nf ? 1 : 0) : 13);
+			snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n", v.purchaseLoadout.engine);
 			break;
 		case 6:
 			if (!v.buyInPlace)
@@ -2859,6 +3027,21 @@ void CBotEmpires::tickEmpiresVehicle()
 	{
 		edict_t* hurt = v.assistVehicle.get();
 		RepairRequest& r = s_repairRequest[team];
+		if (hurt != nullptr && !hurt->IsFree() && RepairRequestVehicle(team) == hurt && r.baseScan)
+		{
+			int side = -1;
+			bool armorDamaged = false;
+			if (!VehicleNeedsBaseRepair(this, hurt, 120.0f, side, armorDamaged))
+			{
+				r = RepairRequest();
+				resetEmpiresVehicle("repair-done", 3.0f);
+				return;
+			}
+			r.until = (std::max)(r.until, now + 5.0f);
+			r.armorDamaged = armorDamaged;
+			if (side >= 0)
+				r.side = side;
+		}
 		if (hurt == nullptr || hurt->IsFree() || RepairRequestVehicle(team) != hurt ||
 			(v.stageUntil > 0.0f && now > v.stageUntil) || !empiresRepairCallAllowed(hurt))
 		{
@@ -4244,22 +4427,44 @@ void CBotEmpires::tickEmpiresVehicle()
 				// (run 214852: pool unchanged, armor 14 -> 140; RE vehicle-driving.md).
 				switch (v.refitStep)
 				{
-				case 0: snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", chassis); break;
+				case 0:
+				{
+					bool researchDone[EmpiresCommanderEconomy::kResearchItemCount] = {};
+					const bool haveResearch = EmpiresReadTeamResearch(team, researchDone);
+					float budget = -1.0f;
+					float pool = -1.0f;
+					if (EmpiresTeamResources(team, pool))
+					{
+						const float wages = (std::max)(0.0f, EmpiresPlayerWages(m_pEdict));
+						const float reserve = EmpiresTeamEconomy::ActiveReserve(
+							EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
+						budget = wages + (std::max)(0.0f, pool - reserve);
+					}
+					v.refitLoadout = EmpiresVehicleLoadout::ChooseRefitLoadout(
+						nf, chassis, haveResearch ? researchDone : nullptr, !v.ammoTrip, budget);
+					snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", v.refitLoadout.chassis);
+					break;
+				}
 				case 1:
-					if (!jeep)
-						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 12 1 0 0 0 0 0 1\n", nf ? 0 : 1);
+					if (!v.refitLoadout.isJeep() && v.refitLoadout.cannonSlot >= 0)
+						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 %d 1 0 0 0 0 0 1\n",
+							v.refitLoadout.cannonSlot, v.refitLoadout.cannonWeapon);
 					break;
 				case 2:
-					if (!jeep)
-						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 0 1 0 0 0 0 0 0\n", nf ? 1 : 0);
+					if (!v.refitLoadout.isJeep() && v.refitLoadout.mgSlot >= 0)
+						snprintf(command, sizeof(command), "emp_vehicle_weapon %d 0 %d 1 0 0 0 0 0 0\n",
+							v.refitLoadout.mgSlot, v.refitLoadout.mgWeapon);
 					break;
-				case 3: snprintf(command, sizeof(command), "emp_vehicle_armor 0 0\n"); break;
+				case 3:
+					snprintf(command, sizeof(command), "emp_vehicle_armor 0 %d\n", v.refitLoadout.armorType);
+					break;
 				case 4:
-					snprintf(command, sizeof(command), jeep ? "emp_vehicle_armor_levels 0 0 0 0\n" :
-						"emp_vehicle_armor_levels 2 2 2 2\n");
+					snprintf(command, sizeof(command), "emp_vehicle_armor_levels %d %d %d %d\n",
+						v.refitLoadout.armorLevels[0], v.refitLoadout.armorLevels[1],
+						v.refitLoadout.armorLevels[2], v.refitLoadout.armorLevels[3]);
 					break;
 				case 5:
-					snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n", jeep ? (nf ? 1 : 0) : 13);
+					snprintf(command, sizeof(command), "emp_vehicle_engine 0 %d\n", v.refitLoadout.engine);
 					break;
 				case 6: snprintf(command, sizeof(command), "emp_vehicle_build\n"); break;
 				default: break;

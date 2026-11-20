@@ -113,7 +113,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 - [ ] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky
-  charges and scout sabotage are open.
+  charges (`weapon_emp_*_sticky_grenade`, ≤ 420 HU) and scout sabotage (`IN_USE`) are
+  now implemented; confirmation in a full match is open.
 - [ ] **Commander vehicle drive can get stuck:** in the production match an NF commander
   recovered on its second attempt. Identify the obstacle with a verified demo if it recurs.
   On `emp_slaughtered`, the CV stopped in front of the radar on the same approach at
@@ -158,16 +159,14 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 2. Needs a human player
 
-- [ ] EngiBots (`/buildengibot`, community request): purchase, limit, leash, building help and map-change cleanup
-  are measured with a bot commander (`scripts/dev_engibot.sh`). Turret on an "attack location" order: placed on
-  the second try and built 100/100 in 3.9 s (bot commander). Console command `buildengibot` as a fallback for the
-  `/` chat under SourceMod (built, not measured). Open: repairing vehicles on the pad and a test with a human
-  commander. First human test (15.11.) found and fixed: EngiBots chased enemies to the front, took the same building,
-  ignored ammo calls at the base; vehicle repair calls held engineers so orders were ignored; a guard waited for the
-  current build; tanks drove around the factory instead of out of the bay, saw infantry through buildings and fired
-  into empty ground at range; bots aimed at a seated commander's camera and turned to every teammate's shots
-  (barracks build 28 s -> 17 s without it). Retest with the human pending. A community server crashed on `!buildengibot` with SourceMod and humans;
-  the purchase now runs in the next server frame instead of inside the chat event (not yet confirmed there).
+- [ ] EngiBots (`/buildengibot`, community request): purchase, limit, leash, building help,
+  base/pad vehicle repair (without repair calls and even with `rcbot_empires_vehicles 0`,
+  `20261120-190522` 75 → 150 HP), guard return, physbox filtering, commander-econ exclusion,
+  and map-change cleanup are implemented and pass `dev_engibot.sh` and `dev_check.sh`. Turret
+  on an "attack location" order: placed on the second try and built 100/100 in 3.9 s (bot
+  commander). Console command `buildengibot` as a fallback for `/` chat under SourceMod.
+  First human test (15.11.) issues are fixed and the SourceMod crash fix moves the purchase
+  to the next server frame; retest with a human player is open.
 
 - [ ] Orders from a human commander (community test: guard/stop ignored, bots ran off). Now testable without a
   human: `rcbotd empires_test_unit_order` makes the commander bot send `emp_unit_order_list` + `emp_unit_order`
@@ -309,12 +308,12 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   Recovery and a second purchase from an occupied bay (3.17) still need a
   separate comparison. The default is 0.
 
-- [ ] **Palmbay factory placement (5.8c):** the site search now starts at the
-  CV's home position and checks the chosen site with the game's own placement test;
-  BE built a remote factory on Palmbay (`20261120-112346`). The NF command vehicle
-  still stalled or fell off a cliff on its way in one run; parked after the timebox.
-  A map-built factory with an unexpected team number is now found by class name
-  (5.22, not yet confirmed on such a map).
+- [ ] **Palmbay factory placement (5.8c):** the site search starts at the CV's home
+  position and requires reachable navmesh plus the game's own placement test; buyer walk
+  timeouts extend while moving, nav cooldowns clear on retry, and forward barracks are
+  built near the VF (0–2 purchases per 14-min 4× run). Open: remaining walk-timeout spots
+  and BE finding a reachable factory site on Palmbay. A map-built factory with an
+  unexpected team number is found by class name (5.22, not yet confirmed on such a map).
 
 - [x] **Crossroads navigation around large props (3.4g):** a stall at prop 185
   closed 398 edges for 60 s, and `prop_dynamic` 180 closed 2244 links twice in a
@@ -352,8 +351,18 @@ When the following cases recur, compare the relevant trace and route.
   With the research multiplier at 1, an existing Crossroads match built both factories
   and each team bought three vehicles. Observe a destroyed radar and new research
   choices during later economy work.
-- Commander: more research (turret levels, chassis, armour) and better vehicle parts;
-  rebuild lost buildings, choose resource points by value.
+- Commander research & vehicle tiers (5.1, 5.2): post-VF research path (`NextResearch()`,
+  unit-tested: MG/ML turret L2 → APC spawn → Mechanical/Medium/Composite/Gas Turbine →
+  L3/Heavy) and radar-loss reset are implemented. Dynamic vehicle part selection by
+  research and budget (`bot_empires_vehicle_loadout.h`, unit-tested, live check
+  `20261120-193737`: NF/BE Heavy Tanks with Composite Armor, Gas Turbine and Medium Chain
+  Gun) is wired into purchase and pad refit. Open: confirm in a full normal-speed match;
+  rebuild lost buildings and choose resource points by value.
+- Infantry combat, classes & barracks spawn (3.25, 5.25, 5.24): weapon ranges in
+  `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
+  (including rifleman stickies and scout sniper/shotgun) are active for all four classes,
+  and spawn selection breaks ties among non-flag spawns by 2D distance to the front/VF.
+  Open: class positioning/cover, scout hide, grenadier road mines.
 - Shared team economy: commander and bots should share one view of team resources, income
   and planned spending so money is used for a natural game flow. Static findings: vehicle
   purchases pay from the buyer's own wages first and only the remainder from the team pool,

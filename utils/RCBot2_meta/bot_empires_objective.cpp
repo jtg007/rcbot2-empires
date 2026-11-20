@@ -1747,9 +1747,10 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 	return false;
 }
 
-// Grenadier attacking visible enemy buildings and enemy CV (TODO 3.23):
-// uses RPG on direct sight (220..2600 HU) and falls back to mortar (600..3400 HU)
-// when out of RPG ammo or without a direct rocket line.
+// Infantry attacking enemy buildings and enemy CV (TODO 3.23):
+// - Grenadier: RPG on direct sight (220..2600 HU) and mortar fallback (600..3400 HU).
+// - Rifleman: sticky grenade throw on close buildings/CV (<= 420 HU with clear LOS).
+// - Scout: hold IN_USE on close unsabotaged enemy buildings (CEmpBuilding::Use 0x61e438).
 bool CBotEmpires::handleEmpiresBuildingAttack()
 {
 	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
@@ -1760,6 +1761,98 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	if (isEmpiresMortarActionActive() || m_flEmpiresTurretRocketUntil > 0.0f)
 		return true;
 	const float now = gpGlobals->curtime;
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+
+	// Tick active Rifleman sticky throw (mode 1) or Scout sabotage (mode 2).
+	if (m_iEmpiresBuildingActionMode != 0)
+	{
+		edict_t* target = m_hEmpiresBuildingActionTarget.get();
+		const char* targetClass = (target != nullptr && !target->IsFree()) ? target->GetClassName() : nullptr;
+		int health = 0;
+		const bool isCv = targetClass != nullptr &&
+			(std::strcmp(targetClass, "emp_nf_commander") == 0 || std::strcmp(targetClass, "emp_imp_commander") == 0);
+		const bool alive = target != nullptr && !target->IsFree() && targetClass != nullptr &&
+			(isCv ? EmpiresVehicleAlive(this, target) :
+				(readEmpiresEntityIntProperty(target, "m_iHealth", health) && health > 0));
+		if (!alive || now >= m_flEmpiresBuildingActionUntil)
+		{
+			if (m_pButtons != nullptr)
+			{
+				m_pButtons->letGo(IN_ATTACK);
+				m_pButtons->letGo(IN_USE);
+			}
+			m_iButtons &= ~(IN_ATTACK | IN_USE);
+			m_hEmpiresBuildingActionTarget = nullptr;
+			m_iEmpiresBuildingActionMode = 0;
+			m_flEmpiresBuildingActionUntil = 0.0f;
+			m_flEmpiresBuildingAttackNext = now + 1.5f;
+			return false;
+		}
+		Vector targetCenter = CBotGlobals::entityOrigin(target);
+		if (ICollideable* col = target->GetCollideable())
+			targetCenter = col->GetCollisionOrigin() + (col->OBBMins() + col->OBBMaxs()) * 0.5f;
+		const float dist = empiresNavGoalDistance2D(getOrigin(), targetCenter);
+		if (m_iEmpiresBuildingActionMode == 1)
+		{
+			stopMoving();
+			Vector aimPoint = targetCenter;
+			aimPoint.z += (std::min)(120.0f, dist * 0.25f);
+			setLookAtTask(LOOK_VECTOR, 0.25f);
+			setLookVector(aimPoint);
+			if (now < m_flEmpiresBuildingActionReadyAt)
+				return true;
+			if (!m_bEmpiresBuildingActionThrown)
+			{
+				if (m_flEmpiresBuildingActionPressUntil <= 0.0f)
+					m_flEmpiresBuildingActionPressUntil = now + 0.45f;
+				if (now < m_flEmpiresBuildingActionPressUntil)
+				{
+					if (m_pButtons != nullptr)
+						m_pButtons->holdButton(IN_ATTACK, 0.2f);
+					m_iButtons |= IN_ATTACK;
+					return true;
+				}
+				if (m_pButtons != nullptr)
+					m_pButtons->letGo(IN_ATTACK);
+				m_iButtons &= ~IN_ATTACK;
+				m_bEmpiresBuildingActionThrown = true;
+				m_flEmpiresBuildingActionReadyAt = now + 0.6f;
+				RCBOT_DIAG("[RCBOT2] building-sticky thrown userid=%d target=%d class=%s dist=%.0f health=%d\n",
+					userId, engine->IndexOfEdict(target), targetClass, dist, health);
+				return true;
+			}
+			m_hEmpiresBuildingActionTarget = nullptr;
+			m_iEmpiresBuildingActionMode = 0;
+			m_flEmpiresBuildingActionUntil = 0.0f;
+			m_flEmpiresBuildingAttackNext = now + 0.8f;
+			return false;
+		}
+		if (m_iEmpiresBuildingActionMode == 2)
+		{
+			bool sabotaged = false;
+			if (readEmpiresEntityBoolProperty(target, "m_bSabotaged", sabotaged) && sabotaged)
+			{
+				if (m_pButtons != nullptr)
+					m_pButtons->letGo(IN_USE);
+				m_iButtons &= ~IN_USE;
+				RCBOT_DIAG("[RCBOT2] building-sabotage done userid=%d target=%d class=%s dist=%.0f\n",
+					userId, engine->IndexOfEdict(target), targetClass, dist);
+				m_hEmpiresBuildingActionTarget = nullptr;
+				m_iEmpiresBuildingActionMode = 0;
+				m_flEmpiresBuildingActionUntil = 0.0f;
+				m_flEmpiresBuildingAttackNext = now + 2.0f;
+				return false;
+			}
+			stopMoving();
+			setLookAtTask(LOOK_VECTOR, 0.25f);
+			setLookVector(targetCenter);
+			if (m_pButtons != nullptr)
+				m_pButtons->holdButton(IN_USE, 0.25f);
+			m_iButtons |= IN_USE;
+			return true;
+		}
+	}
+
 	if (now < m_flEmpiresBuildingAttackNext)
 	{
 		// Between rapid follow-up shots on a building/CV, hold position instead of
@@ -1780,13 +1873,179 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	bool classDesiredKnown = false;
 	const char* classProperty = nullptr;
 	if (!readEmpiresClass(m_pEdict, classId, classDesired, classDesiredKnown, classProperty) ||
-		classId != EMP_CLASS_GRENADIER)
+		(classId != EMP_CLASS_GRENADIER && classId != EMP_CLASS_RIFLEMAN && classId != EMP_CLASS_SCOUT))
 		return false;
 
 	const int enemyTeam = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
 	const char* enemyCvClass = enemyTeam == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";
 	const Vector origin = getOrigin();
 	const Vector eye = getEyePosition();
+
+	// Rifleman sticky grenade attack on close enemy buildings/CV.
+	if (classId == EMP_CLASS_RIFLEMAN)
+	{
+		const char* stickyName = team == EMP_TEAM_BE ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade";
+		edict_t* stickyWeapon = nullptr;
+		int stickyAmmoType = -1;
+		if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+		{
+			for (int slot = 0; slot < MAX_WEAPONS; ++slot)
+			{
+				const int index = weapons[slot].GetEntryIndex();
+				edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
+				if (weapon != nullptr && !weapon->IsFree() && weapon->GetClassName() != nullptr &&
+					std::strcmp(weapon->GetClassName(), stickyName) == 0 &&
+					CClassInterface::getWeaponState(weapon) != WEAPON_NOT_CARRIED)
+				{
+					stickyWeapon = weapon;
+					int secondary = -1;
+					CClassInterface::getAmmoTypes(stickyWeapon, &stickyAmmoType, &secondary);
+					break;
+				}
+			}
+		}
+		if (stickyWeapon == nullptr || stickyAmmoType < 0 || getAmmo(stickyAmmoType) <= 0)
+		{
+			m_flEmpiresBuildingAttackNext = now + 2.0f;
+			return false;
+		}
+		edict_t* best = nullptr;
+		const char* bestClass = nullptr;
+		float bestDist = 420.0f;
+		int bestHealth = 0;
+		for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+		{
+			edict_t* e = INDEXENT(index);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr)
+				continue;
+			const char* className = e->GetClassName();
+			const bool isCv = std::strcmp(className, enemyCvClass) == 0;
+			if (!isCv)
+			{
+				if (std::strncmp(className, "emp_building_", 13) != 0 ||
+					std::strstr(className, "physbox") != nullptr ||
+					std::strstr(className, "panel") != nullptr)
+					continue;
+				int buildingTeam = -1;
+				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", buildingTeam) ||
+					(buildingTeam != EMP_TEAM_NF && buildingTeam != EMP_TEAM_BE))
+				{
+					buildingTeam = std::strncmp(className, "emp_building_nf_", 16) == 0 ? EMP_TEAM_NF :
+						(std::strncmp(className, "emp_building_imp_", 17) == 0 ? EMP_TEAM_BE : -1);
+				}
+				if (buildingTeam != enemyTeam)
+					continue;
+			}
+			int health = 0;
+			if (isCv ? !EmpiresVehicleAlive(this, e) :
+				(!readEmpiresEntityIntProperty(e, "m_iHealth", health) || health <= 0))
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			const float dist = empiresNavGoalDistance2D(origin, at);
+			if (dist >= bestDist)
+				continue;
+			QAngle aim;
+			if (!empiresTurretRocketAim(eye, m_pEdict, e, aim, true))
+				continue;
+			best = e;
+			bestClass = className;
+			bestDist = dist;
+			bestHealth = health;
+		}
+		if (best != nullptr)
+		{
+			cancelNavigationAttempt("building-sticky");
+			m_pSchedules->freeMemory();
+			if (m_bEmpiresNavGoalActive)
+				endEmpiresNavmeshGoal("drop", "building-sticky", 0.0f);
+			stopMoving();
+			m_hEmpiresBuildingActionTarget = best;
+			m_iEmpiresBuildingActionMode = 1;
+			m_flEmpiresBuildingActionUntil = now + 4.0f;
+			m_flEmpiresBuildingActionReadyAt = now + 0.75f;
+			m_flEmpiresBuildingActionPressUntil = 0.0f;
+			m_bEmpiresBuildingActionThrown = false;
+			selectWeaponName(stickyName);
+			RCBOT_DIAG("[RCBOT2] building-sticky armed userid=%d target=%d class=%s dist=%.0f health=%d ammo=%d\n",
+				userId, engine->IndexOfEdict(best), bestClass, bestDist, bestHealth, getAmmo(stickyAmmoType));
+			return true;
+		}
+		m_flEmpiresBuildingAttackNext = now + 1.0f;
+		return false;
+	}
+
+	// Scout sabotage on close unsabotaged enemy buildings (CEmpBuilding::Use 0x61e438).
+	if (classId == EMP_CLASS_SCOUT)
+	{
+		edict_t* best = nullptr;
+		const char* bestClass = nullptr;
+		float bestDist = 260.0f;
+		for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+		{
+			edict_t* e = INDEXENT(index);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr)
+				continue;
+			const char* className = e->GetClassName();
+			if (std::strncmp(className, "emp_building_", 13) != 0 ||
+				std::strstr(className, "physbox") != nullptr ||
+				std::strstr(className, "panel") != nullptr ||
+				std::strstr(className, "wall") != nullptr)
+				continue;
+			int buildingTeam = -1;
+			if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", buildingTeam) ||
+				(buildingTeam != EMP_TEAM_NF && buildingTeam != EMP_TEAM_BE))
+			{
+				buildingTeam = std::strncmp(className, "emp_building_nf_", 16) == 0 ? EMP_TEAM_NF :
+					(std::strncmp(className, "emp_building_imp_", 17) == 0 ? EMP_TEAM_BE : -1);
+			}
+			if (buildingTeam != enemyTeam)
+				continue;
+			int health = 0;
+			if (!readEmpiresEntityIntProperty(e, "m_iHealth", health) || health <= 0)
+				continue;
+			bool sabotaged = false;
+			if (readEmpiresEntityBoolProperty(e, "m_bSabotaged", sabotaged) && sabotaged)
+				continue;
+			bool canSabotage = true;
+			if (readEmpiresEntityBoolProperty(e, "m_bCanBeSabotaged", canSabotage) && !canSabotage)
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			const float dist = empiresNavGoalDistance2D(origin, at);
+			// Compute distance to building hull (large buildings like VF/barracks have ~160 HU half-extents).
+			float hullDist = dist;
+			if (ICollideable* col = e->GetCollideable())
+			{
+				const Vector mins = col->OBBMins();
+				const Vector maxs = col->OBBMaxs();
+				const float radius = (std::max)(maxs.x - mins.x, maxs.y - mins.y) * 0.5f;
+				hullDist = (std::max)(0.0f, dist - radius);
+			}
+			if (hullDist > 110.0f || dist >= bestDist)
+				continue;
+			best = e;
+			bestClass = className;
+			bestDist = dist;
+		}
+		if (best != nullptr)
+		{
+			cancelNavigationAttempt("building-sabotage");
+			m_pSchedules->freeMemory();
+			if (m_bEmpiresNavGoalActive)
+				endEmpiresNavmeshGoal("drop", "building-sabotage", 0.0f);
+			stopMoving();
+			m_hEmpiresBuildingActionTarget = best;
+			m_iEmpiresBuildingActionMode = 2;
+			m_flEmpiresBuildingActionUntil = now + 8.0f;
+			m_flEmpiresBuildingActionReadyAt = now;
+			m_flEmpiresBuildingActionPressUntil = 0.0f;
+			m_bEmpiresBuildingActionThrown = false;
+			RCBOT_DIAG("[RCBOT2] building-sabotage start userid=%d target=%d class=%s dist=%.0f\n",
+				userId, engine->IndexOfEdict(best), bestClass, bestDist);
+			return true;
+		}
+		m_flEmpiresBuildingAttackNext = now + 1.0f;
+		return false;
+	}
 
 	// Locate RPG launcher and ammo once.
 	const char* rpgName = team == EMP_TEAM_BE ? "weapon_emp_imp_rpg" : "weapon_emp_nf_rpg";
@@ -1875,7 +2134,6 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	std::sort(candidates.begin(), candidates.end(),
 		[](const TargetCandidate& a, const TargetCandidate& b) { return a.score < b.score; });
 
-	const int userId = engine->GetPlayerUserId(m_pEdict);
 	// 1. RPG on direct line of sight (220..2600 HU).
 	if (hasRpgAmmo)
 	{
@@ -2398,7 +2656,9 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		{
 			// Building and CV origins sit inside solid hulls; route to a walkable mesh
 			// point outside the hull facing us instead of failing with route-ended.
-			const float extra = type == NAVGOAL_COMMANDER ? 180.0f : 120.0f;
+			// Scouts stand closer to buildings so IN_USE sabotage reaches (TODO 3.23).
+			const float extra = type == NAVGOAL_COMMANDER ? 180.0f :
+				(ownClassId == EMP_CLASS_SCOUT ? 48.0f : 120.0f);
 			if (!findEmpiresBuildingApproachPoint(pEdict, origin, extra, true, goal))
 				continue;
 		}

@@ -86,6 +86,20 @@ int main()
 	Require(BackoffSeconds(30) == 120.0f, "ECON-12 backoff capped");
 	Require(MaxUnfinished(0) == 1 && MaxUnfinished(1) == 1 && MaxUnfinished(2) == 2 && MaxUnfinished(5) == 2, "ECON-13 unfinished limit");
 
+	// Research progression (TODO 5.1).
+	{
+		bool done[kResearchItemCount] = {};
+		Require(NextResearch(done, false) == kResearchStructural, "RES-1 starts with Structural Engineering");
+		done[kResearchStructural] = true;
+		Require(NextResearch(done, false) == kResearchVehicleFactory, "RES-2 unlocks Vehicle Factory next");
+		done[kResearchVehicleFactory] = true;
+		Require(NextResearch(done, false) == 0, "RES-3 waits for Vehicle Factory to be built before post-VF research");
+		Require(NextResearch(done, true) == kResearchMgTurret2, "RES-4 continues with MG turret lvl 2 once VF stands");
+		for (const int item : kResearchOrder)
+			done[item] = true;
+		Require(NextResearch(done, true) == 0, "RES-5 returns 0 when tech path is complete");
+	}
+
 	std::cout << "PASS commander economy policy\n";
 	return 0;
 }
