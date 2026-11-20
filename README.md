@@ -67,6 +67,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Turrets at refineries | MG turret construction works; unreachable Rainbowroad stand points are rejected and rotated, while rare placement failures remain |
 | ✅ | Skills | Repair and revive split across the team's engineers |
 | ✅ | Repair vehicles in the base | EngiBots repair standing damaged own vehicles near the CV without a repair call, preferring those at the repair pad |
+| ✅ | Turret upgrades | An engineer with the turret-upgrade skill (rank 30+) upgrades its own finished turrets up to the level the map allows (level 3, or less where `emp_eng_restrict` brushes or the map's `emp_info_params` restrict turrets) and builds them up again; `DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`. Not yet seen in a full match |
 | ⬜ | Walls, cameras, radar | |
 | 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. An "attack location" order makes it build a turret there. Limit per team, removed on map change, not kicked by the bot quota |
 

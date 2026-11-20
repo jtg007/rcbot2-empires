@@ -396,8 +396,10 @@ When the following cases recur, compare the relevant trace and route.
   game-DLL command and never reaches the plugin's client-command hook). Tested with
   `rcbotd empires_test_wages <userid> <wages>` (a bot really says "wages"); the `!give` path and
   the human's HUD are untested.
-- Engineer: turret upgrade, seismic grenades against turrets (measure throw range first),
-  walls, cameras.
+- Engineer: seismic grenades against turrets (measure throw range first), walls, cameras.
+  Turret upgrade (5.6) is done: an engineer with the upgrade skill raises its own finished
+  turrets 1 -> 2 -> 3 with `emp_eng_upgrade` (only up to the map's turret restriction) and rebuilds them
+  (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); whether engineers reach rank 30 in a match is open.
 - Team: defend own refineries, react to base attacks, squad roles; squad passengers in
   vehicles (gunner seats), jeep raids on refineries, a turret line at the refinery.
 - Keep the vehicle factory's build spot clear: a vehicle there blocks every purchase. Enemy

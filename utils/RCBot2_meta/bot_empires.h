@@ -420,6 +420,7 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors);
 
 // Called on map change: expiry times count in curtime and entries are keyed by entity index.
 void EmpiresTurretBuildLevelReset();
+int EmpiresPlayerTurretRestrict(edict_t* player);
 void EmpiresReviveLevelReset();
 void EmpiresVehicleLevelReset();
 void EmpiresCommanderEconomyLevelReset();
@@ -967,6 +968,16 @@ private:
 	float m_flTurretNextNav = 0.0f;
 	float m_flTurretNextSearch = 0.0f;
 	float m_flTurretNextLog = 0.0f;
+	// Turret upgrade (5.6, emp_eng_upgrade): own fully built turret, needs skill gate +0x121e.
+	int m_iTurretUpgrade = 0;
+	int m_iTurretRestrictSeen = -2;
+	int m_iTurretUpgradeLevel = 0;
+	int m_iTurretUpgradeSends = 0;
+	float m_flTurretUpgradeNextSearch = 0.0f;
+	float m_flTurretUpgradeUntil = 0.0f;
+	float m_flTurretUpgradeAimSince = 0.0f;
+	float m_flTurretUpgradeNextSend = 0.0f;
+	bool handleEmpiresTurretUpgrade();
 	bool handleEmpiresGrenadierTurretAttack();
 	bool handleEmpiresBuildingAttack();
 	bool handleEmpiresDoorButton();

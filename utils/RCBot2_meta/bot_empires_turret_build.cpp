@@ -11,6 +11,7 @@
 #include "bot_navmesh_api.h"
 #include "bot_schedule.h"
 #include "bot_cvars.h"
+#include "bot_empires_binary.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -31,6 +32,50 @@ struct Claim
 	float until = 0.0f;
 };
 Claim s_claim[MAX_EDICTS];
+float s_upgradeBlocked[MAX_EDICTS]; // turret index -> curtime until no upgrade try
+// Highest level the map allows for a turret: 3 - m_iTurretRestrict of the emp_eng_restrict brush it stands
+// in (StartTouch 0x636e70 copies brush +0x358 to the player's +0x1cfc). Keyed by edict serial so a new
+// turret in a reused slot starts unknown.
+struct UpgradeCap
+{
+	int serial = -1;
+	int maxLevel = 3;
+};
+UpgradeCap s_upgradeCap[MAX_EDICTS];
+
+int TurretSerial(edict_t* e)
+{
+	return e != nullptr ? static_cast<int>(e->m_NetworkSerialNumber) : -1;
+}
+
+int KnownMaxLevel(edict_t* e, int index)
+{
+	return index > 0 && index < MAX_EDICTS && s_upgradeCap[index].serial == TurretSerial(e) ?
+		s_upgradeCap[index].maxLevel : 3;
+}
+
+} // namespace
+
+// Player's current turret restriction from the brush it stands in; -1 when the offset is not trusted.
+int EmpiresPlayerTurretRestrict(edict_t* player)
+{
+	if (player == nullptr || !EmpiresBinaryOffsetsTrusted() || player->GetUnknown() == nullptr)
+		return -1;
+	CBaseEntity* base = player->GetUnknown()->GetBaseEntity();
+	if (base == nullptr)
+		return -1;
+	const int restrict = *reinterpret_cast<const int*>(reinterpret_cast<const char*>(base) + 0x1cfc);
+	return restrict >= 0 && restrict <= 3 ? restrict : -1;
+}
+
+namespace
+{
+int PlayerTurretRestrict(edict_t* player)
+{
+	return EmpiresPlayerTurretRestrict(player);
+}
+
+constexpr float kUpgradeReach = 70.0f; // game traces 115 from the eye (Command_emp_eng_upgrade 0x650830)
 
 bool IsClassPrefix(edict_t* e, const char* prefix, const char* part)
 {
@@ -103,9 +148,13 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		}
 		else if (alive && !full)
 			return false;
-		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d health=%d/%d yaw=%.0f\n",
+		int restrict = -1;
+		if (full && m_iTurretBuilding < MAX_EDICTS && Dist2D(getOrigin(), CBotGlobals::entityOrigin(turret)) < 200.0f &&
+			(restrict = PlayerTurretRestrict(m_pEdict)) >= 0)
+			s_upgradeCap[m_iTurretBuilding] = {TurretSerial(turret), 3 - restrict};
+		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d health=%d/%d yaw=%.0f restrict=%d\n",
 			full ? "complete" : (alive ? "unfinished reason=assign-rejected" : "failed reason=turret-gone"),
-			userId, m_iTurretRefinery, m_iTurretBuilding, health, maxHealth, m_flTurretYaw);
+			userId, m_iTurretRefinery, m_iTurretBuilding, health, maxHealth, m_flTurretYaw, restrict);
 		s_claim[m_iTurretRefinery] = {userId, now + 5.0f};
 		m_iTurretBuilding = 0;
 		m_iTurretRefinery = 0;
@@ -146,6 +195,9 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		m_flTurretNextSearch = now + 3.0f;
 		return false;
 	}
+
+	if (m_iTurretRefinery == 0 && handleEmpiresTurretUpgrade())
+		return true;
 
 	if (m_iTurretRefinery == 0)
 	{
@@ -344,8 +396,167 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	return false;
 }
 
+// 5.6: raise an own fully built turret one level with emp_eng_upgrade (RE engineer.md: only the builder,
+// fully built, level < 3 - turretRestrict, skill gate +0x121e; no cost). The turret drops to starting
+// health and is built up again by the finish path above (m_iTurretBuilding).
+bool CBotEmpires::handleEmpiresTurretUpgrade()
+{
+	const float now = gpGlobals->curtime;
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+	const int me = engine->IndexOfEdict(m_pEdict);
+	auto end = [&](const char* reason, int level, float block)
+	{
+		RCBOT_DIAG("[RCBOT2] turret-upgrade end userid=%d turret=%d level=%d reason=%s\n", userId, m_iTurretUpgrade,
+			level, reason);
+		if (m_iTurretUpgrade > 0 && m_iTurretUpgrade < MAX_EDICTS)
+			s_upgradeBlocked[m_iTurretUpgrade] = now + block;
+		m_iTurretUpgrade = 0;
+		m_flTurretUpgradeNextSearch = now + 5.0f;
+		setLookAtTask(LOOK_NONE);
+		return false;
+	};
+
+	if (m_iTurretUpgrade == 0)
+	{
+		if (now < m_flTurretUpgradeNextSearch)
+			return false;
+		m_flTurretUpgradeNextSearch = now + 5.0f;
+		if (m_iEmpiresSkillFlags < 0 || (m_iEmpiresSkillFlags & 8) == 0)
+			return false; // no turret-upgrade skill (slot 3, rank points > 29)
+		float best = 4000.0f;
+		int nTurrets = 0, nOwn = 0, lastOwner = -2, lastLevel = -2, lastBuilt = -2;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (!IsClassPrefix(e, "emp_building_", "turret") || now < s_upgradeBlocked[i])
+				continue;
+			++nTurrets;
+			int owner = -1, level = -1, health = -1, maxHealth = -1;
+			bool built = false;
+			const bool ownerOk = readEmpiresEntityIntProperty(e, "m_iOwner", owner);
+			const bool levelOk = readEmpiresEntityIntProperty(e, "m_iUpgradeLevel", level);
+			const bool builtOk = readEmpiresEntityBoolProperty(e, "m_bFullyBuilt", built);
+			lastOwner = ownerOk ? owner : -1;
+			lastLevel = levelOk ? level : -1;
+			lastBuilt = builtOk ? (built ? 1 : 0) : -1;
+			if (!ownerOk || owner != me)
+				continue;
+			++nOwn;
+			if (levelOk && level >= KnownMaxLevel(e, i))
+				continue; // map restriction (emp_eng_restrict) reached
+			if (!levelOk || level < 1 || level > 2 || !builtOk || !built ||
+				!readEmpiresEntityIntProperty(e, "m_iHealth", health) ||
+				!readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHealth) || health < maxHealth)
+				continue;
+			const float d = Dist2D(CBotGlobals::entityOrigin(e), getOrigin());
+			if (d < best)
+			{
+				best = d;
+				m_iTurretUpgrade = i;
+				m_iTurretUpgradeLevel = level;
+			}
+		}
+		if (m_iTurretUpgrade == 0)
+		{
+			if (nTurrets > 0 && now >= m_flTurretNextLog)
+			{
+				m_flTurretNextLog = now + 30.0f;
+				RCBOT_DIAG("[RCBOT2] turret-upgrade none userid=%d me=%d turrets=%d own=%d last_owner=%d last_level=%d "
+					"last_built=%d\n", userId, me, nTurrets, nOwn, lastOwner, lastLevel, lastBuilt);
+			}
+			return false;
+		}
+		m_flTurretUpgradeUntil = now + 45.0f;
+		m_flTurretUpgradeAimSince = 0.0f;
+		m_flTurretUpgradeNextSend = 0.0f;
+		m_iTurretUpgradeSends = 0;
+		m_flTurretNextNav = 0.0f;
+		RCBOT_DIAG("[RCBOT2] turret-upgrade start userid=%d turret=%d level=%d dist=%.0f\n", userId, m_iTurretUpgrade,
+			m_iTurretUpgradeLevel, best);
+	}
+
+	edict_t* turret = engine->PEntityOfEntIndex(m_iTurretUpgrade);
+	int level = -1;
+	if (turret == nullptr || turret->IsFree() || !readEmpiresEntityIntProperty(turret, "m_iUpgradeLevel", level))
+		return end("gone", -1, 5.0f);
+	if (level > m_iTurretUpgradeLevel)
+	{
+		RCBOT_DIAG("[RCBOT2] turret-upgrade done userid=%d turret=%d level=%d->%d sends=%d\n", userId,
+			m_iTurretUpgrade, m_iTurretUpgradeLevel, level, m_iTurretUpgradeSends);
+		m_iTurretBuilding = m_iTurretUpgrade; // build it up again (finish path)
+		m_iTurretAssignRejects = 0;
+		m_flTurretNextNav = 0.0f;
+		m_iTurretUpgrade = 0;
+		setLookAtTask(LOOK_NONE);
+		return handleEmpiresRefineryTurret();
+	}
+	if (now > m_flTurretUpgradeUntil)
+		return end("timeout", level, 60.0f);
+	if (m_iTurretUpgradeSends >= 3 && now >= m_flTurretUpgradeNextSend)
+	{
+		// Restriction not readable (untrusted offsets) or another cause: do not walk here again this map.
+		if (m_iTurretUpgrade < MAX_EDICTS)
+			s_upgradeCap[m_iTurretUpgrade] = {TurretSerial(turret), level};
+		return end("no-level-change", level, 1.0e9f);
+	}
+
+	const Vector at = CBotGlobals::entityOrigin(turret);
+	const Vector origin = getOrigin();
+	const float dist = Dist2D(origin, at);
+	if (dist > kUpgradeReach || std::fabs(origin.z - at.z) > 80.0f)
+	{
+		m_flTurretUpgradeAimSince = 0.0f;
+		if (now >= m_flTurretNextNav)
+		{
+			m_flTurretNextNav = now + 3.0f;
+			cancelNavigationAttempt("turret-upgrade");
+			if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+				m_pSchedules->freeMemory();
+			if (dist < 250.0f || !requestNavigation(at, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+				setMoveTo(at);
+			RCBOT_DIAG("[RCBOT2] turret-upgrade walk userid=%d turret=%d dist=%.0f\n", userId, m_iTurretUpgrade, dist);
+		}
+		if (dist < 250.0f)
+			setMoveTo(at);
+		return true;
+	}
+
+	// In reach: the bot now stands in the turret's emp_eng_restrict brush (if any); respect its cap.
+	const int restrict = PlayerTurretRestrict(m_pEdict);
+	if (restrict >= 0 && m_iTurretUpgrade < MAX_EDICTS)
+	{
+		s_upgradeCap[m_iTurretUpgrade] = {TurretSerial(turret), 3 - restrict};
+		if (level >= 3 - restrict)
+		{
+			RCBOT_DIAG("[RCBOT2] turret-upgrade map-max userid=%d turret=%d level=%d restrict=%d\n", userId,
+				m_iTurretUpgrade, level, restrict);
+			return end("map-max", level, 0.0f);
+		}
+	}
+	// Stand, look at the turret body and send the command once the view has settled.
+	cancelNavigationAttempt("turret-upgrade-aim");
+	stopMoving();
+	setLookVector(CBotGlobals::worldCenter(turret));
+	setLookAtTask(LOOK_VECTOR);
+	if (m_flTurretUpgradeAimSince <= 0.0f)
+		m_flTurretUpgradeAimSince = now;
+	if (now - m_flTurretUpgradeAimSince >= 0.8f && now >= m_flTurretUpgradeNextSend)
+	{
+		helpers->ClientCommand(m_pEdict, "emp_eng_upgrade\n");
+		++m_iTurretUpgradeSends;
+		m_flTurretUpgradeNextSend = now + 1.5f;
+		RCBOT_DIAG("[RCBOT2] turret-upgrade send userid=%d turret=%d level=%d dist=%.0f try=%d\n", userId,
+			m_iTurretUpgrade, level, dist, m_iTurretUpgradeSends);
+	}
+	return true;
+}
+
 void EmpiresTurretBuildLevelReset()
 {
 	for (Claim& c : s_claim)
 		c = Claim();
+	for (float& t : s_upgradeBlocked)
+		t = 0.0f;
+	for (UpgradeCap& c : s_upgradeCap)
+		c = UpgradeCap();
 }

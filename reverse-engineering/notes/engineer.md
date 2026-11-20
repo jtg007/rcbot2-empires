@@ -42,7 +42,7 @@ Resolve the heal float/skill mapping, numeric PrimaryAttack range and cadence, r
 
 ## Turret upgrade (emp_eng_upgrade)
 
-Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830 (static disassembly, not yet run-tested).
+Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830. Run-confirmed 2026-11-20 (`dev-runs/20261120-195907`): a bot client command `emp_eng_upgrade` at 48 units from its own full turret raised level 1->2 and 2->3, health dropped to 25/100 and was rebuilt. The skill gate only appears after a respawn with rank points > 29 (`emp_increase_rank` with sv_cheats, 5x -> 50 points).
 
 - Caller: `UTIL_GetCommandClient()` dynamic_cast to `CEmpPlayer`; requires byte `+0x121e` != 0. `+0x121e` = `m_bSkillTurretUpgrade`, `+0x121f` = `m_bSkillRevive` (labels from `Command_emp_debug_skills` 0x64b4c6/0x64b4f3; not a SendProp). No active-weapon check, no class check beyond the skill.
 - Trace: start = eye position (vfunc 0x440), dir = AngleVectors(EyeAngles + PunchAngle), length **115.0** (`.rodata` 0x9d5a48), mask 0x4600400b (MASK_SHOT), `CTraceFilterSimple(player, 0)`.
@@ -54,6 +54,13 @@ Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830 (st
   - `m_bFullyBuilt` (+0x492) must be true, else silent abort.
   - No resource cost, no clip use, no cooldown, no research check in the command itself (the building script lists `"Research" "Upgraded ... Turrets Lvl 2/3"` for `*_lvl2/3`; where that is enforced is not checked).
 - Effect: `m_bFullyBuilt = false`, `CEmpBuilding::SetBuildingLevel(level+1)` (0x61dbd0; no-op while `m_bRecycling` +0x498), `CTurret::UpdateModel()`, `CTurret::SetHealth(GetBuildingData()->starting health)` (data +0x64, `"starting health"`; lvl1 turrets 25/100). So the turret drops to starting health and must be built up again with the Engineer kit.
+- Map caps (2026-11-20): the player's `+0x1cfc` is the current turret restriction. `CEmpEngRestrict::StartTouch`
+  0x636e70 copies the brush's `m_iTurretRestrict` (+0x358, keyvalue `turretRestrict`) into it; `EndTouch` 0x636ac0
+  and `CEmpPlayer::Spawn` (0x66aaae) reset it to the map default `CEmpParams+0x33b4` (datamap `m_iTurretRestrict`,
+  keyvalue `turretRestrict` of `emp_info_params`). The kit refuses turrets when it is 3 (0x3cfb61).
+  Map defaults found: `con_urbanchaos` and `con_glycencity` = 1 (max level 2 everywhere); restrict brushes with 1/2
+  on `con_urbanchaos`, `con_glycencity`, `con_eastborough`, value 3 (no turrets) on many maps, 0 on some.
+  Run-confirmed: an engineer on `con_urbanchaos` read 1 at spawn (`dev-runs/20261120-200418`), on crossroads 0.
 - Level values: constructor sets `m_iUpgradeLevel = 1`; valid 1..3. Bot reads it as netprop `m_iUpgradeLevel` (DT_EmpBuilding, int 8 bit unsigned, offset 0x4ac) on the turret entity; `m_bFullyBuilt` and `m_iOwner` likewise.
 
 ## MG turret placement: silent rejections (expert, 2026-11-14, static only, not yet measured)

@@ -6436,6 +6436,18 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 void CBotEmpires::modThink()
 {
 	updateEmpiresEngineerSkills();
+	if (isEmpiresEngineerClass())
+	{
+		// emp_eng_restrict brush the engineer stands in (caps turret levels, 5.6).
+		const int restrict = EmpiresPlayerTurretRestrict(m_pEdict);
+		if (restrict != m_iTurretRestrictSeen)
+		{
+			m_iTurretRestrictSeen = restrict;
+			const Vector at = getOrigin();
+			RCBOT_DIAG("[RCBOT2] turret-restrict userid=%d value=%d pos=(%.0f %.0f %.0f)\n",
+				engine->GetPlayerUserId(m_pEdict), restrict, at.x, at.y, at.z);
+		}
+	}
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();
 	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
