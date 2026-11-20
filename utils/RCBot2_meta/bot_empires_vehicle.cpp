@@ -1743,8 +1743,17 @@ std::vector<Vector> FactoryRoute(edict_t* factory, const Vector& from)
 	Vector entrance, inside;
 	FactoryPoints(factory, entrance, inside);
 	route.push_back(entrance);
+	// The points lie around the factory, so they take its height, not the
+	// buyer's (Palmbay session 20261120-205119: buyers ~900 below the plateau
+	// factory got goals at their own height; the navmesh put the goal in the
+	// buyer's own area, "goal reached" at once, no movement for 90-200 s).
 	for (Vector& point : route)
-		point.z = from.z;
+	{
+		point.z = origin.z;
+		Vector mesh;
+		if (RCBotNavMesh::IsLoaded() && RCBotNavMesh::ClosestPointOnMesh(point, 200.0f, mesh))
+			point = mesh;
+	}
 	return route;
 }
 

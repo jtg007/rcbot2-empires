@@ -8,7 +8,7 @@ real-time strategy. Built on [RCBot2][rcbot2-fork], running on a Linux dedicated
 > **Work in progress.** The bots already play whole matches – commander, engineers,
 > infantry and vehicles – but they are not finished and still make mistakes.
 > See [what works](#what-the-bots-can-do) and [known issues](#known-issues).
-> Current work: vehicle purchases on `emp_palmbay` (factory reachability), refinery
+> Current work: factory sites on `emp_palmbay`, refinery
 > stand points on Coast, and confirming the new research path, vehicle parts and infantry
 > attacks on buildings in full matches. The [open-work list](docs/OPEN_WORK.md) shows the
 > checks behind each item.
@@ -254,7 +254,7 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Turret placement at map-owned refineries on `emp_rainbowroad` is still intermittent; unreachable stand points are skipped and retried at another angle.
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
-- On `emp_palmbay` NF buyers often need minutes to reach their factory on the plateau (0–2 purchases per 14-minute run), and BE finds no reachable remote factory site.
+- On `emp_palmbay` the NF commander does not always find a factory site, and BE finds no reachable remote factory site.
 - On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.
 
