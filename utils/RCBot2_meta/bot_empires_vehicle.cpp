@@ -954,6 +954,12 @@ public:
 			if (const ICollideable* col = edict->GetCollideable())
 				if (col->GetCollisionGroup() == COLLISION_GROUP_VEHICLE_CLIP)
 					return false;
+			// Our own turret surrounds the eye; every shot started inside it
+			// (run 20261120-201110: heavy BE tanks, 18x fire-blocked frac=0.00
+			// by their own emp_tank_turret, refinery never shot).
+			if (cls != nullptr && m_vehicle != nullptr && std::strcmp(cls, "emp_tank_turret") == 0 &&
+				Dist2D(CBotGlobals::entityOrigin(edict), CBotGlobals::entityOrigin(m_vehicle)) < 300.0f)
+				return false;
 		}
 		return edict == m_target || index <= 0 || index > gpGlobals->maxClients;
 	}

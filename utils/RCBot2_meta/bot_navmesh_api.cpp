@@ -910,6 +910,15 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	while (actualEntry.z - 4.0f >= entry.z && entrySolid(actualEntry))
 		actualEntry.z -= 4.0f;
 
+	// A bot pressed against a building overlaps it with the widened detour
+	// hull, so every segment from its position starts solid and no cell is
+	// reachable (run 20261120-201110: NF engineer wedged between CV and radar
+	// for 8 min, nearest=FLT_MAX). Ignore buildings the start already
+	// overlaps; the cells themselves stay outside every building.
+	std::vector<char> startOverlaps(boxes.size(), 0);
+	for (size_t i = 0; i < boxes.size(); ++i)
+		startOverlaps[i] = HullClearOfBuilding(actualEntry, actualEntry, boxes[i]) ? 0 : 1;
+
 	int startCell = -1;
 	float startDistance = (std::numeric_limits<float>::max)();
 	for (int y = 0; y < height; ++y)
@@ -918,8 +927,8 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 			if (blocked[y * width + x])
 				continue;
 			bool reachable = true;
-			for (const BuildingBox& other : boxes)
-				if (!HullClearOfBuilding(actualEntry, cellPoint(x, y), other))
+			for (size_t i = 0; i < boxes.size() && reachable; ++i)
+				if (!startOverlaps[i] && !HullClearOfBuilding(actualEntry, cellPoint(x, y), boxes[i]))
 					reachable = false;
 			if (!reachable) continue;
 			const float distance = (cellPoint(x, y) - entry).Length();

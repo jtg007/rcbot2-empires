@@ -142,7 +142,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | 🟡 | Better parts after research | Chassis, weapons, armour and engine are chosen by the team's research and budget, at purchase and pad refit (heavy tanks with composite armour and gas turbine seen with all research unlocked); not yet seen after the commander's own research in a match |
 | ✅ | Drive | Follows the navmesh, makes three-point turns and replans when a reverse turn stalls. Avoids edges and fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
 | 🟡 | Fight | Leads targets and circles enemies; holds position and fires at static buildings from 550–1500 units; turns the side armour only towards armed targets; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target. Close range to buildings and group switching still need work |
-| 🟡 | Pick goals | Defend own CV/refineries against tanks, hunt spotted tanks, support the front from outside the flag, push on enemy buildings, then the CV; confirmed in a 10-bot Coast match, Palmbay pending |
+| 🟡 | Pick goals | Defend own CV/refineries against tanks, hunt spotted tanks, support the front from outside the flag, push on enemy buildings, then the CV; confirmed in 10-bot Coast and Crossroads matches, Palmbay pending |
 | ✅ | Run over infantry | |
 | ✅ | Retreat and repair | Back to the repair station when damaged; without one, parks at a free spot next to the own CV |
 | 🟡 | Rearm | Light tank/AFV with empty cannon/missiles drives to the nearest source: a team ammo crate (engineer or map crate) or the own repair pad, where it refits (refills every weapon); far from both it calls for ammo and an engineer places a supply crate |
@@ -254,7 +254,6 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Turret placement at map-owned refineries on `emp_rainbowroad` is still intermittent; unreachable stand points are skipped and retried at another angle.
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
-- Tanks very close to enemy buildings sometimes stall instead of firing.
 - On `emp_palmbay` NF buyers often need minutes to reach their factory on the plateau (0–2 purchases per 14-minute run), and BE finds no reachable remote factory site.
 - On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.
