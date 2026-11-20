@@ -8,9 +8,10 @@ real-time strategy. Built on [RCBot2][rcbot2-fork], running on a Linux dedicated
 > **Work in progress.** The bots already play whole matches – commander, engineers,
 > infantry and vehicles – but they are not finished and still make mistakes.
 > See [what works](#what-the-bots-can-do) and [known issues](#known-issues).
-> Current work starts with vehicle driving and aiming, followed by
-> resource goal reachability. The [open-work list](docs/OPEN_WORK.md) shows which checks
-> support later changes to resupply, research and team play.
+> Current work: vehicle purchases on `emp_palmbay` (factory reachability), refinery
+> stand points on Coast, and confirming the new research path, vehicle parts and infantry
+> attacks on buildings in full matches. The [open-work list](docs/OPEN_WORK.md) shows the
+> checks behind each item.
 
 ## The goal
 
@@ -51,8 +52,8 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
 | 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
-| 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; further research items are planned |
-| ⬜ | Expand the base forward | Additional forward buildings and their vehicle access are planned |
+| 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; after the factory (from 350 resources) turret level 2, APC spawn, chassis, armour and engine research, then level 3 and heavy tanks. Unit-tested, a full match is pending |
+| 🟡 | Expand the base forward | A factory far from the own barracks (more than 3500 units) gets a barracks beside it (seen on Palmbay); spawning there and further forward buildings are open |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
 | 🟡 | Give orders to bots | The seated bot commander sends its free attackers (no engineers, defenders or bots with another order) to the next open capture point with an *attack location* order, re-targets when it is taken and releases them after 120 s without progress (`rcbot_empires_commander_orders`). Measured on palmbay and DMZ: orders arrive and bots walk there; no capture measured yet |
 
@@ -65,6 +66,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Revive teammates | Dead bots wait a moment for a nearby engineer |
 | 🟡 | Turrets at refineries | MG turret construction works; unreachable Rainbowroad stand points are rejected and rotated, while rare placement failures remain |
 | ✅ | Skills | Repair and revive split across the team's engineers |
+| ✅ | Repair vehicles in the base | EngiBots repair standing damaged own vehicles near the CV without a repair call, preferring those at the repair pad |
 | ⬜ | Walls, cameras, radar | |
 | 🟡 | EngiBots (`/buildengibot`) | The commander types `/buildengibot` (or `!buildengibot`) in chat and gets an engineer bot for team resources. It stays near the team CV, builds and repairs the team's buildings there, never captures, roams or takes a vehicle, and builds no turrets of its own. An "attack location" order makes it build a turret there. Limit per team, removed on map change, not kicked by the bot quota |
 
@@ -88,25 +90,27 @@ Bots that play Empires the way a team does, not generic shooter bots:
    barracks next to them and they finish it. With no CV, the base point is where the EngiBot first spawned.
 3. **When there is nothing to do,** it walks back to about 900 units from the CV. Each EngiBot waits on its own
    side, so they do not stand on the commander's building spots.
-4. **Turrets on your order.** Select an EngiBot and give it an *attack location* order. It walks there, places
+4. **Vehicles in the base.** A damaged own vehicle that stands within the leash (preferably at the repair pad)
+   gets repaired, even without a repair call and with `rcbot_empires_vehicles 0`.
+5. **Turrets on your order.** Select an EngiBot and give it an *attack location* order. It walks there, places
    an MG turret facing the enemy (turns and retries if the spot is blocked) and builds it to full health. Your
    screen shows `EngiBot NF 1: building a turret`, then `turret ready`, or why not: `turret limit reached`,
    `no room for a turret here`, `cannot reach that spot for a turret`. While an order stands (attack location,
    guard, move) the EngiBot stays there instead of walking back to the CV. A *guard* order on a building makes
    it build or repair that building.
-5. **What it never does.** It does not chase enemies (it shoots from where it is), answer revive calls, or answer
+6. **What it never does.** It does not chase enemies (it shoots from where it is), answer revive calls, or answer
    repair and ammo calls of vehicles outside its base area (inside it, it repairs them and drops ammo crates). It
    does not capture flags, join squads, roam, build turrets without your order, enter vehicles or take the
    commander seat. Your orders go first: a *guard* on a building replaces the job it is on, and an engineer under
    your order only answers repair/ammo calls near the order spot or the guarded building. With two EngiBots, each
    takes a different building when there is more than one to build.
    EngiBots have the repair upgrade active from their first spawn (the first perk is free at 0 points).
-6. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
+7. **When it goes away.** On a map change all EngiBots are kicked. If one leaves or changes team (autobalance),
    its slot is free and the commander can buy a new one. The bot quota does not count or kick EngiBots, and bots
    that fill the quota later do not become EngiBots.
 
-Not done yet: repairing vehicles on the pad, and a test with a human commander (with SourceMod, if `/buildengibot`
-does nothing, use `!buildengibot` or the console command `buildengibot`).
+Not done yet: a test with a human commander (with SourceMod, if `/buildengibot` does nothing, use
+`!buildengibot` or the console command `buildengibot`).
 A server crash on `!buildengibot` with SourceMod (community report) is fixed: the bot is now added in the next
 server frame instead of inside the chat event. So far everything was measured
 with a bot commander (`scripts/dev_engibot.sh`).
@@ -115,13 +119,13 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
 | | Feature | Notes |
 |:-:|---|---|
-| ✅ | Classes | Scout, Rifleman, Grenadier, Engineer with fitting loadouts |
-| ✅ | Fight | Aim, shoot, pick targets |
+| ✅ | Classes | Scout, Rifleman, Grenadier, Engineer with several loadouts per class (e.g. rifleman stickies, scout sniper or shotgun) and class skills for all four |
+| ✅ | Fight | Aim, shoot, pick targets; engagement ranges per weapon (pistols ~1000, shotguns 700, SMGs ~1700, rifles ~3000, snipers up to 4500). Keeping class-typical distance and using cover are open |
 | 🟡 | Resupply | Engineer resupply exists; ammo requests and coverage for other classes remain open |
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
 | ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human. A move ends within the game's 100 units (route extended straight to the spot when the mesh ends beside it) |
-| 🟡 | Destroy turrets and buildings | Grenadiers attack turrets, enemy buildings and the CV with RPG and mortar from outside the building; some map/state combinations still find no firing position. Rifleman sticky charges and scout sabotage are planned |
+| 🟡 | Destroy turrets and buildings | Grenadiers attack turrets, enemy buildings and the CV with RPG and mortar from outside the building; some map/state combinations still find no firing position. Riflemen use sticky grenades (up to 420 units) and scouts sabotage buildings; both are not yet confirmed in a full match |
 | 🟡 | Follow guard and attack-target orders | Infantry follow the guarded unit or the attack target; engineers build or repair the guarded building (also refineries). Attack target on an enemy is accepted by the game only from a human commander's view, so it was tested with a test hook; a test with a real human is open |
 | 🟡 | Water | Bots come up for air after 5 s with the head under water and avoid deep water when there is a way over land. Flags reachable only by ladders from the water (palmbay boats) are skipped for now |
 | ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |
@@ -133,7 +137,8 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
 | | Feature | Notes |
 |:-:|---|---|
-| ✅ | Buy at the vehicle factory | Standard loadout, also without debug purchase (the buyer stands under the factory roof); better parts after research are planned |
+| ✅ | Buy at the vehicle factory | Also without debug purchase (the buyer stands under the factory roof). Buyers far from the factory get a walk limit by distance that extends while they move |
+| 🟡 | Better parts after research | Chassis, weapons, armour and engine are chosen by the team's research and budget, at purchase and pad refit (heavy tanks with composite armour and gas turbine seen with all research unlocked); not yet seen after the commander's own research in a match |
 | ✅ | Drive | Follows the navmesh, makes three-point turns and replans when a reverse turn stalls. Avoids edges and fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
 | 🟡 | Fight | Leads targets and circles enemies; holds position and fires at static buildings from 550–1500 units; turns the side armour only towards armed targets; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target. Close range to buildings and group switching still need work |
 | 🟡 | Pick goals | Defend own CV/refineries against tanks, hunt spotted tanks, support the front from outside the flag, push on enemy buildings, then the CV; confirmed in a 10-bot Coast match, Palmbay pending |
@@ -249,7 +254,8 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
 - Tanks very close to enemy buildings sometimes stall instead of firing.
-- On `emp_palmbay` the NF command vehicle can still get stuck on its way to a remote factory site.
+- On `emp_palmbay` NF buyers often need minutes to reach their factory on the plateau (0–2 purchases per 14-minute run), and BE finds no reachable remote factory site.
+- On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.
 
 Planned work includes coordinated squad passengers, jeep attacks and refinery defenses.
