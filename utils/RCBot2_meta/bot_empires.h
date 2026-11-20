@@ -489,6 +489,7 @@ struct EmpiresVehicleBrain
 	float reverseUntil = 0.0f;
 	float reverseSide = 0.0f;
 	int stuckReverses = 0;
+	bool clearBeforeExit = false; // 3.26 (3b): backed clear once before giving up
 	float movingSince = 0.0f;
 	int abandonedVehicle = -1;
 	float abandonedUntil = 0.0f;

@@ -44,8 +44,12 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   corners), engineers (20 s without health gain or movement: other stand spot, third stall gives the job back),
   infantry plans around vehicles. No false triggers in 4x test runs; the original fault cases did not recur yet.
   Open: tanks on `emp_palmbay` still stall in the palm cluster (2800-3300, 800-1550) on the way to the front
-  (palms probed, route points pushed off trunks, about one give-up per 14-minute run remains); a driver that
-  gives up should not leave the tank in the way.
+  (palms probed, route points pushed off trunks, about one give-up per 14-minute run remains). Built: a stuck
+  driver first backs clear for 3 s and replans (`clear-before-exit`) and holds out longer in the factory bay;
+  empty own vehicles blocking the bay or ramp are adopted after 5 s (`bay-occupied`, `20261120-224310`: heavy
+  tank driven out in 11 s), and a bot-abandoned field vehicle is retried once by another bot after 10 s
+  (`adopt-abandoned`). Crossroads 10 bots (`20261120-223253`): 4 heavy tanks, 0 give-ups. Open: tank fights
+  that stall on a persistent `fire-blocked`.
 
 - [x] **Match with production server values** (`emp_crossroads`, 10 bots, 20 min,
   production economy cvars, see `AGENTS.md`). Baseline: no vehicle in 20 minutes. Causes
@@ -314,8 +318,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   selector, the same site with the radar present used 90° and cleared in 1.8 s
   with 15 HU remaining. The BE control used −96° and cleared in 2.6 s with
   38 HU remaining. Both drove their routes and `dev_check` passed 5/5.
-  Recovery and a second purchase from an occupied bay (3.17) still need a
-  separate comparison. The default is 0.
+  An occupied bay (3.17) is now cleared by adopting the empty vehicle (see
+  the stall-escalate item); recovering wrecks abandoned twice is still open. The default is 0.
 
 - [ ] **Palmbay factory placement (5.8c):** the site search starts at the CV's home
   position and requires reachable navmesh plus the game's own placement test; buyer walk

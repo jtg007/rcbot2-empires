@@ -1718,6 +1718,118 @@ void FactoryPoints(edict_t* factory, Vector& entrance, Vector& inside)
 	inside = origin + dir * (be ? 350.0f : 300.0f);
 }
 
+// Vehicle factory spawn pad (attachment "build", vehicle-driving.md section 9).
+Vector FactoryBuildSpot(edict_t* factory)
+{
+	const Vector origin = CBotGlobals::entityOrigin(factory);
+	float yaw = 0.0f;
+	if (factory->GetCollideable() != nullptr)
+		yaw = factory->GetCollideable()->GetCollisionAngles().y;
+	const bool be = factory->GetClassName() != nullptr && std::strstr(factory->GetClassName(), "imp") != nullptr;
+	if (be)
+		return origin + Vector(0.0f, 0.0f, 200.0f);
+	return origin + YawDir(yaw) * 172.5f + Vector(0.0f, 0.0f, 172.5f);
+}
+
+bool IsNearFactoryBay(edict_t* factory, const Vector& pos, const float radius = 350.0f)
+{
+	if (factory == nullptr || factory->IsFree())
+		return false;
+	Vector entrance, inside;
+	FactoryPoints(factory, entrance, inside);
+	const Vector a = FactoryBuildSpot(factory);
+	const Vector ab(entrance.x - a.x, entrance.y - a.y, 0.0f);
+	const float lenSq = ab.x * ab.x + ab.y * ab.y;
+	float t = 0.0f;
+	if (lenSq > 1.0f)
+		t = (std::max)(0.0f, (std::min)(1.0f, ((pos.x - a.x) * ab.x + (pos.y - a.y) * ab.y) / lenSq));
+	const Vector closest(a.x + ab.x * t, a.y + ab.y * t, a.z);
+	return Dist2D(pos, closest) < radius;
+}
+
+bool HasNearbyHumanPlayer(const int team, const Vector& pos, const float radius)
+{
+	for (int p = 1; p <= gpGlobals->maxClients; ++p)
+	{
+		edict_t* player = engine->PEntityOfEntIndex(p);
+		if (player == nullptr || player->IsFree() || !CBotGlobals::entityIsAlive(player))
+			continue;
+		if (CClassInterface::getTeam(player) != team)
+			continue;
+		if (CBots::getBotPointer(player) != nullptr)
+			continue;
+		if (Dist2D(CBotGlobals::entityOrigin(player), pos) < radius)
+			return true;
+	}
+	return false;
+}
+
+// Per-vehicle empty duration and bot-abandon history (3.26 3b / 3.17).
+struct VehicleEmptyTrack
+{
+	float emptySince = 0.0f;
+	Vector emptyAt = Vector(0.0f, 0.0f, 0.0f);
+	int serial = -1;
+};
+
+struct BotAbandonRecord
+{
+	int serial = -1;
+	int lastDriverUserId = -1;
+	float abandonedAt = 0.0f;
+	Vector abandonedPos = Vector(0.0f, 0.0f, 0.0f);
+	int abandonCount = 0;
+};
+
+VehicleEmptyTrack g_vehicleEmpty[MAX_EDICTS];
+BotAbandonRecord g_botAbandon[MAX_EDICTS];
+
+float UpdateVehicleEmptyTime(edict_t* e, const int idx, const int driver, const float now)
+{
+	if (e == nullptr || idx < 0 || idx >= MAX_EDICTS)
+		return 0.0f;
+	VehicleEmptyTrack& tr = g_vehicleEmpty[idx];
+	const int serial = e->m_NetworkSerialNumber;
+	const Vector at = CBotGlobals::entityOrigin(e);
+	if (driver >= 0 || tr.serial != serial || (tr.emptyAt - at).Length() > 100.0f ||
+		tr.emptySince > now || tr.emptySince <= 0.0f)
+	{
+		tr.serial = serial;
+		tr.emptySince = now;
+	}
+	tr.emptyAt = at;
+	return driver >= 0 ? 0.0f : (now - tr.emptySince);
+}
+
+void RecordBotVehicleAbandon(edict_t* e, const int idx, const int userId, const Vector& pos, const float now)
+{
+	if (e == nullptr || idx < 0 || idx >= MAX_EDICTS)
+		return;
+	BotAbandonRecord& rec = g_botAbandon[idx];
+	const int serial = e->m_NetworkSerialNumber;
+	if (rec.serial == serial && Dist2D(pos, rec.abandonedPos) < 400.0f)
+		++rec.abandonCount;
+	else
+		rec.abandonCount = 1;
+	rec.serial = serial;
+	rec.lastDriverUserId = userId;
+	rec.abandonedAt = now;
+	rec.abandonedPos = pos;
+}
+
+void ClearBotVehicleAbandonIfMoved(edict_t* e, const int idx, const Vector& pos)
+{
+	if (e == nullptr || idx < 0 || idx >= MAX_EDICTS)
+		return;
+	BotAbandonRecord& rec = g_botAbandon[idx];
+	if (rec.serial == e->m_NetworkSerialNumber && rec.abandonCount > 0 &&
+		Dist2D(pos, rec.abandonedPos) > 400.0f)
+	{
+		rec.abandonCount = 0;
+		rec.abandonedAt = 0.0f;
+	}
+}
+
 // Way around the factory to its ramp: the mesh still has areas under a
 // factory built after generation, so a plain route ran into its back wall
 // (run 205248). Corners outside the hull, same side as the bot.
@@ -2409,11 +2521,19 @@ void CBotEmpires::tickEmpiresVehicle()
 				return;
 		}
 
-		// An empty own vehicle close by is used before buying a new one, but only one parked at
-		// the own base (CV or building within kBaseRadius) that stood without a driver for
-		// kEmptyFor (TODO 3.10e, user: bots took vehicles left anywhere a moment ago).
+		// An empty own vehicle close by is used before buying a new one:
+		// (A) blocking our own VF bay (3.17): adopt after 5 s if no human is right there;
+		// (B) parked at the own base (3.10e): adopt after 30 s;
+		// (C) abandoned by another bot in the field (3.26 3b): another bot tries once after 10 s.
 		constexpr float kBaseRadius = 1500.0f;
 		constexpr float kEmptyFor = 30.0f;
+		constexpr float kBayEmptyFor = 5.0f;
+		constexpr float kAbandonedEmptyFor = 10.0f;
+		edict_t* ownFactory = nullptr;
+		Vector ownFactoryOrigin;
+		int ownFactoryTeam = -1;
+		if (!billNye)
+			findEmpiresVehicleFactory(team, ownFactory, ownFactoryOrigin, ownFactoryTeam);
 		std::vector<Vector> basePoints;
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && !billNye; ++i)
 		{
@@ -2426,6 +2546,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				basePoints.push_back(CBotGlobals::entityOrigin(e));
 		}
 		edict_t* best = nullptr;
+		const char* bestAdoptReason = nullptr;
+		float bestEmptyFor = 0.0f;
 		float bestDistance = billNye ? 0.0f : 2500.0f;
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && !billNye; ++i)
 		{
@@ -2436,49 +2558,50 @@ void CBotEmpires::tickEmpiresVehicle()
 			int driver = -1;
 			if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver))
 				continue;
-			// Empty since: per entity index and serial. A driver or a move since the last look
-			// (driven away and parked again while nobody checked) restarts it.
-			static float s_emptySince[MAX_EDICTS];
-			static Vector s_emptyAt[MAX_EDICTS];
-			static int s_emptySerial[MAX_EDICTS];
-			const int serial = e->m_NetworkSerialNumber;
+			const float emptyFor = UpdateVehicleEmptyTime(e, i, driver, now);
 			const Vector at = CBotGlobals::entityOrigin(e);
-			if (driver >= 0 || s_emptySerial[i] != serial || (s_emptyAt[i] - at).Length() > 100.0f || s_emptySince[i] > now ||
-				s_emptySince[i] <= 0.0f)
-			{
-				s_emptySerial[i] = serial;
-				s_emptySince[i] = now;
-			}
-			s_emptyAt[i] = at;
 			float baseDistance = 1.0e9f;
 			for (const Vector& p : basePoints)
 				baseDistance = (std::min)(baseDistance, (p - at).Length2D());
-			if (driver >= 0 || now - s_emptySince[i] < kEmptyFor || baseDistance >= kBaseRadius)
+			const bool inOwnBay = ownFactory != nullptr && IsNearFactoryBay(ownFactory, at);
+			const BotAbandonRecord& rec = g_botAbandon[i];
+			const bool botAbandoned = rec.serial == e->m_NetworkSerialNumber && rec.abandonedAt > 0.0f &&
+				(now - rec.abandonedAt) < 180.0f && rec.abandonCount == 1;
+			const bool wedged = rec.serial == e->m_NetworkSerialNumber && rec.abandonCount >= 2;
+			const bool bayEligible = inOwnBay && emptyFor >= kBayEmptyFor &&
+				!HasNearbyHumanPlayer(team, at, 250.0f);
+			const bool baseEligible = !wedged && baseDistance < kBaseRadius && emptyFor >= kEmptyFor;
+			const bool abandonedEligible = botAbandoned && rec.lastDriverUserId != userId &&
+				emptyFor >= kAbandonedEmptyFor && !HasNearbyHumanPlayer(team, at, 400.0f);
+			if (driver >= 0 || (!bayEligible && !baseEligible && !abandonedEligible))
 			{
 				if (now >= v.nextEmptyLog)
 				{
 					v.nextEmptyLog = now + 10.0f;
 					RCBOT_DIAG("[RCBOT2] vehicle empty-skip userid=%d vehicle=%d driver=%d empty_for=%.0f base_dist=%.0f dist=%.0f\n", userId,
-						i, driver, now - s_emptySince[i], baseDistance, distanceFrom(at));
+						i, driver, emptyFor, baseDistance, distanceFrom(at));
 				}
 				continue;
 			}
-			// Another bot may already be walking to it.
-			bool claimed = false;
+			// Another bot may already be walking to it; this bot's own abandon cooldown still applies
+			// except when clearing a blocked factory bay.
+			bool claimed = !bayEligible && (v.abandonedVehicle == i && now < v.abandonedUntil);
 			for (int slot = 0; slot < RCBOT_MAXPLAYERS && !claimed; ++slot)
 			{
 				CBot* bot = CBots::getBot(slot);
-				if (bot == nullptr || !bot->inUse())
+				if (bot == nullptr || bot == this || !bot->inUse())
 					continue;
 				const EmpiresVehicleBrain& other = static_cast<const CBotEmpires*>(bot)->m_vehicle;
-				claimed = (bot != this && other.vehicleIndex == i) ||
-					(other.abandonedVehicle == i && now < other.abandonedUntil); // stuck, left behind
+				claimed = (other.vehicleIndex == i);
 			}
-			const float distance = distanceFrom(CBotGlobals::entityOrigin(e));
+			const float distance = distanceFrom(at);
 			if (!claimed && distance < bestDistance)
 			{
 				bestDistance = distance;
 				best = e;
+				bestEmptyFor = emptyFor;
+				bestAdoptReason = bayEligible ? "adopt-bay-blocker" :
+					(abandonedEligible && !baseEligible ? "adopt-abandoned" : nullptr);
 			}
 		}
 
@@ -2489,6 +2612,9 @@ void CBotEmpires::tickEmpiresVehicle()
 		{
 			v.vehicle = best;
 			v.vehicleIndex = engine->IndexOfEdict(best);
+			if (bestAdoptReason != nullptr)
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle userid=%d stage=1 reason=%s veh=%d empty_for=%.0f dist=%.0f\n",
+					userId, bestAdoptReason, v.vehicleIndex, bestEmptyFor, bestDistance);
 			setStage(EmpiresVehicleStage::APPROACH, 40.0f);
 			return;
 		}
@@ -2676,6 +2802,43 @@ void CBotEmpires::tickEmpiresVehicle()
 			ready = distanceFrom(origin) < 90.0f;
 		else
 		{
+			// 3.17 / 3.26 (3b): once at the ramp entrance, if an empty own vehicle is blocking
+			// the factory bay/ramp, adopt and drive it out instead of hitting #emp_vehicle_blocked.
+			if (v.purchaseStep >= 1)
+			{
+				for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+				{
+					edict_t* e = engine->PEntityOfEntIndex(i);
+					if (!IsClass(e, "emp_vehicle") || EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != team ||
+						IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)) ||
+						!EmpiresVehicleAlive(this, e))
+						continue;
+					const Vector at = CBotGlobals::entityOrigin(e);
+					if (!IsNearFactoryBay(factory, at))
+						continue;
+					int driver = -1;
+					if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver))
+						continue;
+					const float emptyFor = UpdateVehicleEmptyTime(e, i, driver, now);
+					if (driver >= 0 || emptyFor < 5.0f || HasNearbyHumanPlayer(team, at, 250.0f))
+						continue;
+					bool claimed = false;
+					for (int slot = 0; slot < RCBOT_MAXPLAYERS && !claimed; ++slot)
+					{
+						CBot* bot = CBots::getBot(slot);
+						if (bot != nullptr && bot != this && bot->inUse())
+							claimed = static_cast<const CBotEmpires*>(bot)->m_vehicle.vehicleIndex == i;
+					}
+					if (claimed)
+						continue;
+					v.vehicle = e;
+					v.vehicleIndex = i;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=buyer userid=%d stage=1 reason=bay-occupied veh=%d empty_for=%.0f\n",
+						userId, i, emptyFor);
+					setStage(EmpiresVehicleStage::APPROACH, 40.0f);
+					return;
+				}
+			}
 			// Walk to the ramp, then straight up into the bay; the game only
 			// sells to a player standing on the factory floor.
 			Vector entrance, inside;
@@ -2997,12 +3160,27 @@ void CBotEmpires::tickEmpiresVehicle()
 			return;
 		}
 		const Vector center = EntityCenter(vehicle);
+		const Vector nearest = NearestOnVehicle(vehicle, getEyePosition());
 		const float distance = Dist2D(getOrigin(), center);
+		const float hullDist = (nearest - getEyePosition()).Length2D();
 		if (v.stage == EmpiresVehicleStage::APPROACH)
 		{
-			if (distance > kEnterDistance)
+			if (distance > kEnterDistance && hullDist > 95.0f)
 			{
-				setMoveTo(center);
+				if (distance > 400.0f && RCBotNavMesh::IsLoaded())
+				{
+					if (m_pSchedules == nullptr || m_pSchedules->isEmpty())
+					{
+						if (now >= v.nextAction)
+						{
+							v.nextAction = now + 2.0f;
+							clearNavigationAttemptCooldownForStartAnchorRetry();
+							requestNavigation(nearest, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0);
+						}
+					}
+				}
+				else
+					setMoveTo(nearest);
 				return;
 			}
 			stopMoving();
@@ -3011,14 +3189,14 @@ void CBotEmpires::tickEmpiresVehicle()
 			setStage(EmpiresVehicleStage::ENTERING, 8.0f);
 		}
 		// ENTERING: look at the body and tap use.
-		VectorAngles(center - getEyePosition(), v.view);
+		VectorAngles(nearest - getEyePosition(), v.view);
 		v.view.z = 0.0f;
-		if (distance > kEnterDistance + 120.0f)
+		if (distance > kEnterDistance + 120.0f && hullDist > 160.0f)
 		{
 			setStage(EmpiresVehicleStage::APPROACH, 30.0f);
 			return;
 		}
-		if (distance > 110.0f)
+		if (hullDist > 65.0f)
 			v.forward = kMaxMove * 0.5f; // creep closer while trying
 		if (now >= v.nextAction)
 		{
@@ -5350,6 +5528,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				RCBOT_DIAG("[RCBOT2] vehicle retreat-park userid=%d veh=%d pos=(%.0f %.0f %.0f)\n", userId,
 					v.vehicleIndex, origin.x, origin.y, origin.z);
 			}
+			bool clearedForExit = false;
 			if (v.stuckReverses > 4 && v.commanderCV)
 			{
 				// The commander keeps his CV: stop here, the economy decides (walk or give up).
@@ -5359,15 +5538,46 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			else if (v.stuckReverses > 4 && !(v.billNye && v.ramming))
 			{
-				RCBOT_DIAG("[RCBOT2] vehicle give-up userid=%d veh=%d pos=(%.0f %.0f %.0f) reverses=%d\n", userId,
-					v.vehicleIndex, origin.x, origin.y, origin.z, v.stuckReverses - 1);
-				v.abandonedVehicle = v.vehicleIndex;
-				v.abandonedUntil = now + 120.0f;
-				v.nextAction = now;
-				setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 10.0f);
-				return;
+				edict_t* ownVf = nullptr;
+				Vector ownVfOrigin;
+				int ownVfTeam = -1;
+				const bool inBay = v.exitUntil > 0.0f ||
+					(findEmpiresVehicleFactory(team, ownVf, ownVfOrigin, ownVfTeam) &&
+					 IsNearFactoryBay(ownVf, origin, 400.0f));
+				// 3.26 (3b): before abandoning a tank in a narrow gap or factory bay, pull back
+				// longer and replan fresh so it either frees itself or clears the passage.
+				if (!v.clearBeforeExit && (inBay || rearSafe))
+				{
+					clearedForExit = true;
+					v.clearBeforeExit = true;
+					v.route.clear();
+					v.routeAreas.clear();
+					v.nextReplan = now + 3.0f;
+					if (rearSafe)
+					{
+						v.reverseUntil = now + 3.0f;
+						v.reverseSide = side >= 0.0f ? -kMaxMove : kMaxMove;
+						forward = -kMaxMove;
+						side = v.reverseSide;
+					}
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle userid=%d stage=1 reason=clear-before-exit veh=%d pos=(%.0f %.0f %.0f) in_bay=%d rear_safe=%d\n",
+						userId, v.vehicleIndex, origin.x, origin.y, origin.z, inBay ? 1 : 0, rearSafe ? 1 : 0);
+				}
+				else if (!inBay || v.stuckReverses > 8)
+				{
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle userid=%d stage=2 reason=give-up-stuck veh=%d pos=(%.0f %.0f %.0f) reverses=%d in_bay=%d\n",
+						userId, v.vehicleIndex, origin.x, origin.y, origin.z, v.stuckReverses - 1, inBay ? 1 : 0);
+					RCBOT_DIAG("[RCBOT2] vehicle give-up userid=%d veh=%d pos=(%.0f %.0f %.0f) reverses=%d\n", userId,
+						v.vehicleIndex, origin.x, origin.y, origin.z, v.stuckReverses - 1);
+					RecordBotVehicleAbandon(vehicle, v.vehicleIndex, userId, origin, now);
+					v.abandonedVehicle = v.vehicleIndex;
+					v.abandonedUntil = now + 120.0f;
+					v.nextAction = now;
+					setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 10.0f);
+					return;
+				}
 			}
-			if (applyManeuver)
+			if (!clearedForExit && applyManeuver)
 			{
 				// A failed approach says nothing about the next navmesh portal.
 				v.maneuverRecoverUntil = now + 1.5f;
@@ -5413,7 +5623,7 @@ void CBotEmpires::tickEmpiresVehicle()
 						userId, origin.x, origin.y, origin.z, edge, v.routeAreas.size());
 				}
 			}
-			else
+			else if (!clearedForExit)
 			{
 				if (onRoute)
 				{
@@ -5450,7 +5660,11 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (v.movingSince == 0.0f)
 			v.movingSince = now;
 		else if (now - v.movingSince > 5.0f)
+		{
 			v.stuckReverses = 0;
+			v.clearBeforeExit = false;
+			ClearBotVehicleAbandonIfMoved(vehicle, v.vehicleIndex, origin);
+		}
 	}
 	else
 		v.movingSince = 0.0f;

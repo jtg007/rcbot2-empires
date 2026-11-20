@@ -138,7 +138,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 
 | | Feature | Notes |
 |:-:|---|---|
-| ✅ | Buy at the vehicle factory | Also without debug purchase (the buyer stands under the factory roof). Buyers far from the factory get a walk limit by distance that extends while they move |
+| ✅ | Buy at the vehicle factory | Also without debug purchase (the buyer stands under the factory roof). Buyers far from the factory get a walk limit by distance that extends while they move. Empty own vehicles blocking the factory bay or exit ramp are adopted and driven out instead of failing a purchase |
 | 🟡 | Better parts after research | Chassis, weapons, armour and engine are chosen by the team's research and budget, at purchase and pad refit (heavy tanks with composite armour and gas turbine seen with all research unlocked); not yet seen after the commander's own research in a match |
 | ✅ | Drive | Follows the navmesh, makes three-point turns and replans when a reverse turn stalls. Avoids edges and fords only as deep as the vehicle's body centre stays dry (the game stops the engine and deals 20 HP/s once it is wet) |
 | 🟡 | Fight | Leads targets and circles enemies; holds position and fires at static buildings from 550–1500 units; turns the side armour only towards armed targets; MG only against infantry (up to 1200, only with MG ammo left), cannon against vehicles and buildings; buildings block their sight; a seated enemy commander is no target. Close range to buildings and group switching still need work |
