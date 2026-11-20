@@ -1149,7 +1149,8 @@ private:
 
 // Sample the forward hull during the straight exit for diagnostics. The
 // normal exit checks only ground and world clearance and keeps its controls.
-void LogFactoryExitHull(int userId, edict_t* driver, edict_t* vehicle, const Vector& origin, float heading, float look)
+void LogFactoryExitHull(int userId, edict_t* driver, edict_t* vehicle, const Vector& origin, float heading, float look,
+	const char* label = "factory-exit")
 {
 	const ICollideable* hull = vehicle->GetCollideable();
 	if (hull == nullptr || enginetrace == nullptr || servergameents == nullptr)
@@ -1177,10 +1178,12 @@ void LogFactoryExitHull(int userId, edict_t* driver, edict_t* vehicle, const Vec
 	trace_t hit;
 	enginetrace->TraceRay(ray, MASK_SOLID, &filter, &hit);
 	edict_t* blocker = hit.m_pEnt != nullptr ? servergameents->BaseEntityToEdict(hit.m_pEnt) : nullptr;
-	const Vector at = blocker != nullptr ? CBotGlobals::entityOrigin(blocker) : hit.endpos;
+	const bool hitWorld = blocker == nullptr || engine->IndexOfEdict(blocker) == 0;
+	const Vector at = hitWorld ? hit.endpos : CBotGlobals::entityOrigin(blocker); // worldspawn origin is 0 0 0
 	const char* classname = blocker != nullptr ? blocker->GetClassName() : nullptr;
-	RCBOT_DIAG("[RCBOT2] vehicle factory-exit hull userid=%d blocker=%d class=%s at=(%.0f %.0f %.0f) "
-		"fraction=%.3f startsolid=%d normal_z=%.2f surface=%s\n", userId,
+	// surface "**studio**" = static prop (palm, rock); otherwise brush/displacement geometry.
+	RCBOT_DIAG("[RCBOT2] vehicle %s hull userid=%d blocker=%d class=%s at=(%.0f %.0f %.0f) "
+		"fraction=%.3f startsolid=%d normal_z=%.2f surface=%s\n", label, userId,
 		blocker != nullptr ? engine->IndexOfEdict(blocker) : -1,
 		classname != nullptr ? classname : (hit.DidHit() ? "geometry" : "none"), at.x, at.y, at.z,
 		hit.fraction, hit.startsolid ? 1 : 0, hit.startsolid ? -2.0f : hit.plane.normal.z,
@@ -2745,6 +2748,22 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 		if (!RCBotNavMesh::IsLoaded() || (m_pSchedules != nullptr && m_pSchedules->isEmpty()))
 		{
+			// The path ended as close to a corner as the mesh allows (corner on a plateau edge,
+			// Palmbay runs 20261120-211159/211224: buyers stopped ~310 from it, the 200 check never
+			// passed): take the next corner instead of asking for the same path again.
+			if (v.purchaseStep == 0 && v.factoryRouteIndex + 1 < v.factoryRoute.size() &&
+				Dist2D(getOrigin(), v.factoryRoute[v.factoryRouteIndex]) < 500.0f && v.walkRequests >= 1)
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=buyer userid=%d stage=1 reason=corner-unreachable corner=(%.0f %.0f) dist=%.0f\n",
+					userId, v.factoryRoute[v.factoryRouteIndex].x, v.factoryRoute[v.factoryRouteIndex].y,
+					Dist2D(getOrigin(), v.factoryRoute[v.factoryRouteIndex]));
+				++v.factoryRouteIndex;
+				v.goal = v.factoryRoute[v.factoryRouteIndex];
+				v.nextAction = now;
+				v.walkRequests = 0;
+				requestNavigation(v.goal, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0);
+				return;
+			}
 			if (RCBotNavMesh::IsLoaded() && now >= v.nextAction)
 			{
 				v.nextAction = now + 4.0f;
@@ -4876,6 +4895,43 @@ void CBotEmpires::tickEmpiresVehicle()
 
 	// -------- steering with edge avoidance
 	const float goalDistance = Dist2D(origin, driveTo);
+	// A human driver notices when the CV makes no headway. Rocking on a slope stays above the
+	// speed < 40 stuck check (Palmbay run 20261120-205131: CV slid off the plateau 315 from its goal
+	// and rocked ~3.5 game minutes before the first stuck-reverse; the economy then built the factory
+	// remotely at once). Progress is a shorter way to cvGoal or a shorter remaining route (long detours).
+	if (v.commanderCV && !v.cvArrived && !v.cvHunt)
+	{
+		const float toGoal = Dist2D(origin, v.cvGoal);
+		float remaining = -1.0f;
+		if (onRoute && v.routeIndex < v.route.size())
+		{
+			remaining = Dist2D(origin, v.route[v.routeIndex]);
+			for (std::size_t k = v.routeIndex + 1; k < v.route.size(); ++k)
+				remaining += Dist2D(v.route[k - 1], v.route[k]);
+		}
+		if (v.cvProgressAt == 0.0f || (remaining >= 0.0f && remaining > v.cvBestRoute + 2000.0f))
+		{
+			// Drive start or a new, longer route: measure from here.
+			v.cvProgressAt = now;
+			v.cvBestGoal = toGoal;
+			v.cvBestRoute = remaining >= 0.0f ? remaining : 1.0e9f;
+		}
+		else if (toGoal < v.cvBestGoal - 200.0f || (remaining >= 0.0f && remaining < v.cvBestRoute - 200.0f))
+		{
+			v.cvProgressAt = now;
+			v.cvBestGoal = (std::min)(v.cvBestGoal, toGoal);
+			if (remaining >= 0.0f)
+				v.cvBestRoute = (std::min)(v.cvBestRoute, remaining);
+		}
+		else if (now - v.cvProgressAt > 25.0f)
+		{
+			v.cvArrived = true;
+			v.cvEnd = "stalled";
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=cv userid=%d stage=1 reason=no-progress pos=(%.0f %.0f %.0f) "
+				"to_goal=%.0f best=%.0f route_left=%.0f best_route=%.0f for=%.0f\n", userId, origin.x, origin.y, origin.z,
+				toGoal, v.cvBestGoal, remaining, v.cvBestRoute < 1.0e9f ? v.cvBestRoute : -1.0f, now - v.cvProgressAt);
+		}
+	}
 	const float desired = YawTo(origin, driveTo);
 	const bool localManeuvers = rcbot_empires_vehicle_maneuvers.GetBool() && onRoute && arrive == 0.0f &&
 		(chassis == 2 || chassis == 10) && target == nullptr && !v.retreating && !v.billNye &&
@@ -5377,6 +5433,8 @@ void CBotEmpires::tickEmpiresVehicle()
 						v.fightSwitch = now; // blocked while circling: other way round
 					RCBOT_DIAG("[RCBOT2] vehicle stuck-reverse userid=%d pos=(%.0f %.0f %.0f) n=%d tick=%d\n", userId,
 						origin.x, origin.y, origin.z, v.stuckReverses, gpGlobals->tickcount);
+					// What holds the vehicle (TODO 3.26: Palmbay tanks gave up on open mesh between palms).
+					LogFactoryExitHull(userId, m_pEdict, vehicle, origin, heading, 80.0f, "stuck-front");
 				}
 				else
 					RCBOT_DIAG("[RCBOT2] vehicle stuck-no-rear userid=%d pos=(%.0f %.0f %.0f) n=%d\n", userId,

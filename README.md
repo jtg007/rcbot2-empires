@@ -48,9 +48,9 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Prioritize the commander candidate | Avoids starting refinery turrets while taking the seat; match testing continues |
 | 🟡 | Hand over to a human | A human who gets in or uses the CV gets the seat; not tested with a real player yet |
 | ✅ | Build the base | Refineries, barracks, vehicle factory, armory, repair station in a fixed order |
-| ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings |
+| ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings. An engineer that neither moves nor raises the building's health for 20 s tries another side; after the third stall it gives the job back |
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
-| 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed |
+| 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed. A drive that makes no headway for 25 s ends, and the commander builds from where the CV stands if in range |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
 | 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; after the factory (from 350 resources) turret level 2, APC spawn, chassis, armour and engine research, then level 3 and heavy tanks. Unit-tested, a full match is pending |
 | 🟡 | Expand the base forward | A factory far from the own barracks (more than 3500 units) gets a barracks beside it (seen on Palmbay); spawning there and further forward buildings are open |
@@ -255,6 +255,7 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
 - On `emp_palmbay` the NF commander does not always find a factory site, and BE finds no reachable remote factory site.
+- On `emp_palmbay` NF tanks sometimes get stuck in the palm cluster on the way to the front and leave the tank; on `emp_crossroads` a concrete wall near (3800 5000) stops tanks.
 - On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.
 
@@ -386,7 +387,7 @@ Based on [RCBot2][rcbot2] by Cheeseh and its [fork by APGRoboCop][rcbot2-fork]:
 For spatial navigation debugging, `tools/` holds offline helpers (Python 3 with Pillow, they only read the `.nav`/`.bsp` files):
 
 - `tools/nav_overview.py <map>.nav --bsp <map>.bsp --output out.png` renders a top-down PNG of the navmesh: connected components, commanders, barracks, refineries and resource points.
-  `--crop x0,y0,x1,y1` zooms to a world rectangle, `--terrain` shades the displacement terrain below the mesh (amber 30-45 deg and red above 45 deg slope), `--vehicle-width 284` tints mesh a vehicle of that width cannot pass, and `--log server.log [--userid N]` marks stuck, reverse and route-block events and draws that vehicle's driven track.
+  `--crop x0,y0,x1,y1` zooms to a world rectangle, `--terrain` shades the displacement terrain below the mesh (amber 30-45 deg and red above 45 deg slope), `--vehicle-width 284` tints mesh a vehicle of that width cannot pass, `--props` draws static props (palms, rocks; solid ones white-ringed, from the BSP game lump), and `--log server.log [--userid N]` marks stuck, reverse and route-block events and draws that vehicle's driven track.
 - `tools/check_nav.py <map>.nav --bsp <map>.bsp` prints component sizes and whether every spawn, commander, building and resource point is on the main component.
 - `tools/test_nav_tools.py` checks the terrain reader against the navmesh of `emp_palmbay`.
 

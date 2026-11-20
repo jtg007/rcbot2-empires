@@ -7464,6 +7464,12 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	m_iBuildAssignAttempts = 0;
 	m_fBuildAssignStart = engine->Time();
 	m_fBuildAssignNextTry = 0.0f;
+	m_fBuildAssignProgressAt = m_fBuildAssignStart;
+	m_iBuildAssignBestHealth = -1;
+	m_vBuildAssignProgressPos = getOrigin();
+	m_iBuildAssignEscalations = 0;
+	m_bBuildAssignRequireSpot = false;
+	m_vBuildAssignBadSpots.clear();
 	cancelNavigationAttempt("build-assignment-replaced");
 	m_pSchedules->freeMemory();
 	queueEmpiresBuildAssignRoute();
@@ -7574,6 +7580,15 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 			if (!findEmpiresKitAim(building, ground.endpos + eyeOffset, aim))
 			{
 				++noAim;
+				continue;
+			}
+			bool bad = false;
+			for (const Vector& badSpot : m_vBuildAssignBadSpots)
+				if ((ground.endpos - badSpot).Length2D() < 150.0f)
+					bad = true;
+			if (bad)
+			{
+				++blocked;
 				continue;
 			}
 			const float cost = (ground.endpos - getOrigin()).LengthSqr();
@@ -7727,16 +7742,66 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 		return;
 	}
 	if (!isAlive())
+	{
+		m_fBuildAssignProgressAt = now; // dead time is no stall
 		return;
+	}
 	if (health >= maxHealth)
 	{
 		finish("COMPLETE");
 		return;
 	}
-	if (elapsed > 480.0f)
+	if (elapsed > 480.0f) // emergency cap; stalls end far earlier below
 	{
 		finish("FAIL_TIMEOUT");
 		return;
+	}
+	// A human notices when the work does not move on (TODO 3.26): Crossroads run 20261120-201110,
+	// engineer pressed against the radar for 8 min; Palmbay 205131, three repair tries from one spot
+	// without a health gain. Health gain or movement is progress; 20 s of neither tries another
+	// stand spot, the third stall gives up.
+	{
+		const Vector here = getOrigin();
+		if (health > m_iBuildAssignBestHealth || (here - m_vBuildAssignProgressPos).Length2D() > 150.0f)
+		{
+			m_iBuildAssignBestHealth = (std::max)(m_iBuildAssignBestHealth, health);
+			m_vBuildAssignProgressPos = here;
+			m_fBuildAssignProgressAt = now;
+		}
+		else if (now - m_fBuildAssignProgressAt > 20.0f)
+		{
+			++m_iBuildAssignEscalations;
+			const bool working = m_iBuildAssignStage == 2;
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=engineer userid=%d stage=%d reason=%s building=%d health=%d/%d pos=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f)\n",
+				engine->GetPlayerUserId(m_pEdict), m_iBuildAssignEscalations, working ? "no-health-gain" : "no-movement",
+				engine->IndexOfEdict(building), health, maxHealth, here.x, here.y, here.z,
+				m_vBuildAssignSpot.x, m_vBuildAssignSpot.y, m_vBuildAssignSpot.z);
+			m_vBuildAssignBadSpots.push_back(here);
+			m_vBuildAssignBadSpots.push_back(m_vBuildAssignSpot);
+			Vector spot;
+			if (m_iBuildAssignEscalations >= 3 || !findEmpiresBuildStandSpot(building, spot))
+			{
+				if (isEmpiresEngineerRepairActionActive())
+					failEmpiresEngineerRepairAction("build-assign-stalled");
+				finish("FAIL_STALL");
+				return;
+			}
+			if (isEmpiresEngineerRepairActionActive())
+				failEmpiresEngineerRepairAction("build-assign-new-spot");
+			cancelNavigationAttempt("build-assign-new-spot");
+			if (m_pSchedules != nullptr)
+				m_pSchedules->freeMemory();
+			m_vBuildAssignSpot = spot;
+			m_iBuildAssignStage = 1;
+			m_iBuildAssignAttempts = 0;
+			m_fBuildAssignNextTry = 0.0f;
+			m_bBuildAssignRequireSpot = true;
+			m_vBuildAssignProgressPos = here;
+			m_fBuildAssignProgressAt = now;
+			clearNavigationAttemptCooldownForStartAnchorRetry();
+			queueEmpiresBuildAssignRoute();
+			return;
+		}
 	}
 	if (isEmpiresEngineerRepairActionActive())
 	{
@@ -7755,8 +7820,10 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 	const float distance = distanceFrom(building);
 	const Vector toSpot = m_vBuildAssignSpot - getOrigin();
 	Vector aim;
-	// Arrived means the kit can actually reach the building from here.
-	if (!findEmpiresKitAim(building, getEyePosition(), aim))
+	// Arrived means the kit can actually reach the building from here (after a stall: from the new spot).
+	if (m_bBuildAssignRequireSpot && toSpot.Length2D() <= 80.0f)
+		m_bBuildAssignRequireSpot = false;
+	if (m_bBuildAssignRequireSpot || !findEmpiresKitAim(building, getEyePosition(), aim))
 	{
 		m_iBuildAssignStage = 1;
 		if (m_pSchedules == nullptr || !m_pSchedules->isEmpty())

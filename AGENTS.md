@@ -13,6 +13,9 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 - A change counts as working only with numbers from a real test run (log lines,
   counts, times). Write "built, not measured" when that is the state.
 - Build, deploy and test only on an **isolated** test server, never on a public one.
+- Bots should act like players, not repeat a failing action: check progress locally and escalate in steps
+  (try differently, other goal, give up), logging `stall-escalate who=... stage=... reason=...` so real bugs stay visible.
+  No central framework.
 - No speculative refactors. Read the existing logs, code and game binary before
   starting a new run.
 - Follow the priority order in [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md). Reuse
@@ -217,4 +220,4 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 - Sandboxes: test runs need write access to the test server and `~/.cache/rcbot2-dev-build`,
   a PTY, a netlink socket and a local UDP port. Without that, only edit and build.
 
-For spatial problems, look at a picture first: `python3 -I tools/nav_overview.py <map>.nav --bsp <map>.bsp --terrain --vehicle-width 284 --log <run>/server.log --userid <uid> --crop x0,y0,x1,y1 --output out.png` draws navmesh, terrain slope, the driven lane and stall marks (vehicle bottlenecks highlighted); `tools/check_nav.py` checks components. Maps like Palmbay use displacement terrain, so cliffs are steep triangles, not brushes. Confirm with in-game scans and hull traces (`empires_nav_scan` uses the player hull, not the vehicle). An overview does not prove vehicle clearance or account for dynamic building obstacles. No external tool is a bot build dependency.
+For spatial problems, look at a picture first: `python3 -I tools/nav_overview.py <map>.nav --bsp <map>.bsp --terrain --props --vehicle-width 284 --log <run>/server.log --userid <uid> --crop x0,y0,x1,y1 --output out.png` draws navmesh, terrain slope, static props, the driven lane and stall marks (vehicle bottlenecks highlighted); `tools/check_nav.py` checks components. Maps like Palmbay use displacement terrain, so cliffs are steep triangles, not brushes. Confirm with in-game scans and hull traces (`empires_nav_scan` uses the player hull, not the vehicle). An overview does not prove vehicle clearance or account for dynamic building obstacles. No external tool is a bot build dependency.

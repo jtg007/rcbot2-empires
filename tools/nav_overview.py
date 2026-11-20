@@ -52,6 +52,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont  # noqa: E4
 from navlib.bsp import BSPReadError  # noqa: E402
 from navlib.bsp_entities import PointEntity, read_bsp_entities, select_point_entities  # noqa: E402
 from navlib.navmesh import NavMesh, NavReadError, check_points, components, read_nav  # noqa: E402
+from navlib.static_props import StaticProp, read_static_props  # noqa: E402
 from navlib.terrain import read_displacement_triangles, slope_degrees  # noqa: E402
 
 Color = tuple[int, int, int]
@@ -78,6 +79,7 @@ NEUTRAL_COLOR: Color = (200, 200, 200)
 MARK_DEFAULT: Color = (255, 140, 0)
 TRACK_COLOR: Color = (0, 255, 255)
 NARROW_COLOR: Color = (255, 90, 170)
+PROP_COLOR: Color = (40, 200, 60)
 LOG_KINDS = (  # (regex searched in the line, short label, colour, position key)
     ("cv-drive stuck", "cv-stuck", (255, 0, 0), "pos"),
     ("stuck-reverse", "reverse", (255, 120, 0), "pos"),
@@ -450,6 +452,7 @@ def render_overview(
     size: int,
     triangles=None,
     vehicle_width: float = 0.0,
+    props: tuple[StaticProp, ...] = (),
 ) -> Image.Image:
     """Render the map and legend panel.  The image is ``size`` high and ``size + PANEL_WIDTH`` wide."""
 
@@ -498,6 +501,15 @@ def render_overview(
     draw.rectangle([0, 0, size, MAP_TOP - 1], fill=BACKGROUND)
     draw.rectangle([0, size - MAP_BOTTOM + 1, size, size], fill=BACKGROUND)
     draw.rectangle([size - MAP_RIGHT_PAD + 1, 0, size, size], fill=BACKGROUND)
+
+    # Static props (palms, rocks): solid in game, unknown to the mesh. Solid ones white-ringed, others grey.
+    for prop in props:
+        if not (min_x <= prop.x <= max_x and min_y <= prop.y <= max_y):
+            continue
+        px, py = view.px(prop.x), view.py(prop.y)
+        r = max(4, int(view.px(prop.x + 32.0) - px))
+        fill = PROP_COLOR if prop.solid else (120, 120, 120)
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=fill, outline=(255, 255, 255) if prop.solid else None, width=2)
 
     for track in summary.tracks:
         points = [(view.px(x), view.py(y)) for x, y in track]
@@ -571,12 +583,13 @@ def render_overview(
                 anchor="lt",
             )
 
-    _draw_legend(draw, summary, size, radius, step, triangles is not None, vehicle_width)
+    _draw_legend(draw, summary, size, radius, step, triangles is not None, vehicle_width, bool(props))
     return image.convert("RGB")
 
 
 def _draw_legend(
-    draw: ImageDraw.ImageDraw, summary: Summary, size: int, radius: int, step: float, terrain: bool, vehicle_width: float
+    draw: ImageDraw.ImageDraw, summary: Summary, size: int, radius: int, step: float, terrain: bool, vehicle_width: float,
+    props: bool = False,
 ) -> None:
     x0 = size
     draw.rectangle([x0, 0, x0 + PANEL_WIDTH - 1, size - 1], fill=PANEL_BACKGROUND)
@@ -631,6 +644,8 @@ def _draw_legend(
         key_rows.insert(0, ("swatch", (NARROW_COLOR, f"Mesh too narrow for width {vehicle_width:.0f}")))
     if summary.tracks:
         key_rows.append(("swatch", (TRACK_COLOR, "Vehicle track from --log")))
+    if props:
+        key_rows.append(("swatch", (PROP_COLOR, "Static prop (--props), 32 HU circle")))
     for kind, (color, text) in key_rows:
         icon_x = left + 14
         icon_y = y + 13
@@ -749,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--marks", type=Path, default=None, help="JSON list of marks to overlay")
     parser.add_argument("--crop", default=None, help="zoom to the world rectangle x0,y0,x1,y1 (HU)")
     parser.add_argument("--terrain", action="store_true", help="shade displacement terrain from --bsp under the mesh")
+    parser.add_argument("--props", action="store_true", help="draw static props (palms, rocks) from --bsp; solid ones white-ringed")
     parser.add_argument("--vehicle-width", type=float, default=0.0, help="tint mesh narrower than this width (HU), e.g. 284")
     parser.add_argument("--log", type=Path, default=None, help="server.log: stuck/route-block events become marks")
     parser.add_argument("--userid", type=int, default=None, help="with --log: only this bot's events, plus its vehicle track")
@@ -770,10 +786,13 @@ def main(argv: list[str] | None = None) -> int:
                 tracks.append(tuple(track))
         if args.terrain and args.bsp is None:
             raise ValueError("--terrain needs --bsp")
+        if args.props and args.bsp is None:
+            raise ValueError("--props needs --bsp")
         crop = _fit_crop_to_map(_parse_crop(args.crop), args.size) if args.crop else None
         summary = build_summary(mesh, args.nav.stem, point_entities, tuple(marks), tuple(tracks), crop)
         triangles = read_displacement_triangles(args.bsp, crop) if args.terrain else None
-        image = render_overview(mesh, summary, args.size, triangles, args.vehicle_width)
+        props = read_static_props(args.bsp) if args.props else ()
+        image = render_overview(mesh, summary, args.size, triangles, args.vehicle_width, props)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         image.save(args.output, format="PNG")
         if args.json is not None:

@@ -557,6 +557,11 @@ struct EmpiresVehicleBrain
 	float cvArrive = 300.0f;
 	bool cvArrived = false;
 	const char* cvEnd = nullptr;
+	// Net progress of the drive: best distance to cvGoal and best remaining route length since
+	// cvProgressAt; neither improving for a while ends the drive (stall-escalate).
+	float cvBestGoal = 1.0e9f;
+	float cvBestRoute = 1.0e9f;
+	float cvProgressAt = 0.0f;
 	// Boomtanking: run over enemy infantry inside the base zone, then back to cvGoal.
 	bool cvHunt = false;
 	Vector cvHome = Vector(0, 0, 0);
@@ -837,6 +842,14 @@ public:
 	float m_fBuildAssignStart = 0.0f;
 	float m_fBuildAssignNextTry = 0.0f;
 	Vector m_vBuildAssignSpot = Vector(0.0f, 0.0f, 0.0f);
+	// Progress (TODO 3.26): health gain or movement resets m_fBuildAssignProgressAt; 20 s without
+	// either picks another stand spot (bad spots excluded), the third stall gives up.
+	float m_fBuildAssignProgressAt = 0.0f;
+	int m_iBuildAssignBestHealth = -1;
+	Vector m_vBuildAssignProgressPos = Vector(0.0f, 0.0f, 0.0f);
+	int m_iBuildAssignEscalations = 0;
+	bool m_bBuildAssignRequireSpot = false;
+	std::vector<Vector> m_vBuildAssignBadSpots;
 	bool findEmpiresKitAim(edict_t* building, const Vector& eye, Vector& aim, bool keepAim = false) const;
 	float m_fBuildAssignNextLog = 0.0f;
 	Vector m_vEmpiresKitAim = Vector(0.0f, 0.0f, 0.0f);

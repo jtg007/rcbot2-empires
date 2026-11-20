@@ -375,3 +375,14 @@ symbols (`GetChangeAccessor`, `g_pSharedChangeInfo`) and stop the plugin from lo
   every member's score event calls it.
 - Research cost is per second: `"Cost"` x `"Time"` (Structural_Engineering and Vehicle_Factory
   each 4/s x 60 s = 240).
+
+## Static props and traces (2026-11-20)
+
+- Static props reach `enginetrace->TraceRay` through the trace filter. `CTraceFilterWorldOnly` rejects them, so
+  world-only traces pass straight through palms and rocks. To hit only props use a filter with
+  `staticpropmgr->IsStaticProp(handle)`. Hull traces with `VehicleManeuverTraceFilter` do hit them
+  (`surface.name == "**studio**"`, entity = worldspawn).
+- Palmbay palms (`palm01d`, solid 6) lean: probed at 48/110 HU, the trunk centre lies up to 155 HU from the
+  prop origin (89 of 166 palms gave >= 3 hits).
+- Tanks still stall in the palm cluster around (2800-3300, 800-1550) on Palmbay (route to the front goal),
+  even with probed trunk circles and route points pushed off trunks; hits spread over several palms.

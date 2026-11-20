@@ -720,7 +720,11 @@ void Frame()
 						// (as_escort BE base: emp_imp_health_crate 428 at (-413 5175)) and the like.
 						// Buildings have their own detours, an unused door gets a use first.
 						const char* hitName = e != nullptr ? e->GetClassName() : nullptr;
-						if (!hit.startsolid && hit.fraction < 1.0f && hitName != nullptr &&
+						// A parked or abandoned vehicle is just as unknown to the mesh; a bot already
+						// pressed into its hull (start_solid) must plan around it too (TODO 3.16/3.26:
+						// Crossroads 212642 20 of 39, Palmbay 211833 14 of 23 stalls hit emp_vehicle).
+						const bool vehicleHit = hitName != nullptr && std::strcmp(hitName, "emp_vehicle") == 0;
+						if ((!hit.startsolid || vehicleHit) && (hit.fraction < 1.0f || hit.startsolid) && hitName != nullptr &&
 							engine->IndexOfEdict(e) != 0 && std::strcmp(hitName, "player") != 0 &&
 							std::strncmp(hitName, "emp_building", 12) != 0 &&
 							std::strncmp(hitName, "func_door", 9) != 0 && std::strncmp(hitName, "prop_door", 9) != 0)
@@ -794,8 +798,11 @@ void Frame()
 						const bool isDoor = cls != nullptr &&
 							(std::strncmp(cls, "func_door", 9) == 0 || std::strncmp(cls, "prop_door", 9) == 0);
 						const bool isPropDynamic = cls != nullptr && std::strcmp(cls, "prop_dynamic") == 0;
-						const float maxBoxDim = isDoor ? 600.0f : (isPropDynamic ? 256.0f : 450.0f);
-						if (!hereInsideBox && sizeX <= maxBoxDim && sizeY <= maxBoxDim)
+						const bool isVehicle = cls != nullptr && std::strcmp(cls, "emp_vehicle") == 0;
+						// Vehicle boxes are ~450-700 (axis-aligned around a turned hull); the escape
+						// area at `here` stays open, so a bot beside or inside the box can still leave.
+						const float maxBoxDim = isDoor ? 600.0f : (isPropDynamic ? 256.0f : (isVehicle ? 800.0f : 450.0f));
+						if ((!hereInsideBox || isVehicle) && sizeX <= maxBoxDim && sizeY <= maxBoxDim)
 						{
 							links = RCBotNavMesh::BlockEdgesThroughBox(padMins, padMaxs, blockSeconds, true, &here);
 							links += RCBotNavMesh::BlockEdgesBehindBox(here, padMins, padMaxs, blockSeconds);

@@ -21,6 +21,7 @@
 #include "edict.h"
 #include "engine/IEngineTrace.h"
 #include "engine/ICollideable.h"
+#include "engine/IStaticPropMgr.h"
 #include "collisionutils.h"
 #include "cmodel.h"
 #include "bot_empires_telemetry.h"
@@ -31,6 +32,7 @@
 #include "filesystem.h"
 #include "bot_cvars.h"
 extern IFileSystem* filesystem;
+extern IStaticPropMgrServer* staticpropmgr;
 
 CNavMesh *TheNavMesh = nullptr;
 
@@ -1784,7 +1786,54 @@ const std::vector<StaticObstacle>& StaticPropObstacles()
 		}
 	}
 	std::fclose(file);
-	RCBOT_DIAG("[RCBOT2] vehicle-nav static-props map=%s thin-solid=%zu\n", map, props.size());
+	// Palms lean: at hull height the trunk stands well off its foot (Palmbay 20261120-214534: tanks hit
+	// "**studio**" head-on ~220 from the nearest palm foot, route kept 157 from it). Feel each prop at
+	// vehicle height with world traces from 8 sides and use the centre and radius of the hits.
+	int probed = 0;
+	float maxShift = 0.0f;
+	if (enginetrace != nullptr)
+		for (StaticObstacle& prop : props)
+		{
+			Vector sum(0, 0, 0);
+			std::vector<Vector> hits;
+			for (const float height : {48.0f, 110.0f})
+				for (int k = 0; k < 8; ++k)
+				{
+					const float angle = k * 0.785398f;
+					const Vector dir(std::cos(angle), std::sin(angle), 0.0f);
+					const Vector top(prop.pos.x, prop.pos.y, prop.pos.z + height);
+					Ray_t ray;
+					ray.Init(top + dir * 360.0f, top);
+					// Static props reach the trace through the filter; CTraceFilterWorldOnly drops them.
+					struct StaticPropsOnly : public CTraceFilter
+					{
+						bool ShouldHitEntity(IHandleEntity* handle, int) override
+						{
+							return staticpropmgr != nullptr && staticpropmgr->IsStaticProp(handle);
+						}
+						TraceType_t GetTraceType() const override { return TRACE_EVERYTHING; }
+					} propsOnly;
+					trace_t hit;
+					enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &propsOnly, &hit);
+					if (hit.startsolid || hit.fraction >= 1.0f || (hit.endpos - top).Length2D() > 250.0f)
+						continue; // nothing, or a neighbouring prop first
+					hits.push_back(hit.endpos);
+					sum += hit.endpos;
+				}
+			if (hits.size() < 3)
+				continue;
+			Vector centre = sum / static_cast<float>(hits.size());
+			centre.z = prop.pos.z;
+			float radius = 0.0f;
+			for (const Vector& h : hits)
+				radius = (std::max)(radius, (h - centre).Length2D());
+			maxShift = (std::max)(maxShift, (centre - prop.pos).Length2D());
+			prop.pos = centre;
+			prop.radius = (std::max)(48.0f, (std::min)(radius + 16.0f, 200.0f));
+			++probed;
+		}
+	RCBOT_DIAG("[RCBOT2] vehicle-nav static-props map=%s thin-solid=%zu probed=%d max_shift=%.0f\n", map, props.size(),
+		probed, maxShift);
 	return props;
 }
 
@@ -1795,6 +1844,24 @@ int ApplyStaticPropDetours(Path& path, float halfWidth)
 	if (props.empty())
 		return 0;
 	int inserted = 0;
+	int moved = 0;
+	// A route point itself beside a trunk (portal centre next to the mesh hole) puts the vehicle onto the prop:
+	// Palmbay 20261120-215xxx, point (2825 1425) 111 from palm (2816 1536), tanks gave up there in 9 of 10 runs.
+	// Push inner points out to the clearance; start and goal stay.
+	for (std::size_t i = 1; i + 1 < path.points.size(); ++i)
+		for (const StaticObstacle& prop : props)
+		{
+			Vector away = path.points[i] - prop.pos;
+			away.z = 0.0f;
+			const float dist = away.Length2D();
+			const float need = halfWidth + prop.radius + 30.0f;
+			if (dist >= need || std::fabs(prop.pos.z - path.points[i].z) > 250.0f)
+				continue;
+			away = dist > 1.0f ? away / dist : Vector(1, 0, 0);
+			path.points[i].x = prop.pos.x + away.x * need;
+			path.points[i].y = prop.pos.y + away.y * need;
+			++moved;
+		}
 	for (std::size_t i = 0; i + 1 < path.points.size() && inserted < 12;)
 	{
 		const Vector a = path.points[i];
@@ -1840,7 +1907,7 @@ int ApplyStaticPropDetours(Path& path, float halfWidth)
 		++inserted;
 		// Segment i->waypoint may still hit another prop; do not skip it.
 	}
-	return inserted;
+	return inserted + moved;
 }
 }
 

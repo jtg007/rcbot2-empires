@@ -38,6 +38,15 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 1. Being measured
 
+- [ ] **Progress instead of fixed timers (`stall-escalate`):** each action checks locally whether it gets
+  anywhere and escalates in steps (try differently, other goal, give up) with a `stall-escalate who=... reason=...`
+  log line. Built: commander CV drive (25 s without net progress), vehicle buyers (skip unreachable route
+  corners), engineers (20 s without health gain or movement: other stand spot, third stall gives the job back),
+  infantry plans around vehicles. No false triggers in 4x test runs; the original fault cases did not recur yet.
+  Open: tanks on `emp_palmbay` still stall in the palm cluster (2800-3300, 800-1550) on the way to the front
+  (palms probed, route points pushed off trunks, about one give-up per 14-minute run remains); a driver that
+  gives up should not leave the tank in the way.
+
 - [x] **Match with production server values** (`emp_crossroads`, 10 bots, 20 min,
   production economy cvars, see `AGENTS.md`). Baseline: no vehicle in 20 minutes. Causes
   found: the commander could not get back into the CV when wedged against its hull (Use
