@@ -822,6 +822,7 @@ public:
 		float forwardBarracksRetryAt = 0.0f; // forward barracks beside a far factory spot (user 20.11.)
 		Vector siteScanOrigin = Vector(0, 0, 0); // CV position at the first factory search: the scan stays anchored at the base
 		bool siteScanOriginSet = false;
+		bool nearSiteTried = false; // base factory spot reserved before the first base building (user 20.11.)
 		std::vector<Vector> siteExcluded;
 	} m_commanderEconomy;
 	// An Engineer walks to one assigned building and works on it until full.

@@ -51,8 +51,8 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings. An engineer that neither moves nor raises the building's health for 20 s tries another side; after the third stall it gives the job back |
 | ✅ | Leave the CV to build | The commander is an engineer: gets out, builds, gets back in |
 | 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed. A drive that makes no headway for 25 s ends, and the commander builds from where the CV stands if in range |
-| ✅ | Place the vehicle factory | Exit faces along the route towards the enemy |
-| 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; after the factory (from 350 resources) turret level 2, APC spawn, chassis, armour and engine research, then level 3 and heavy tanks. Unit-tested, a full match is pending |
+| ✅ | Place the vehicle factory | Exit faces along the route towards the enemy. Before the first base building a fine ground scan reserves a free factory spot near the CV (single exact spots in cramped bases, e.g. Palmbay BE), other buildings keep 1500 units off it; without one the CV drives to a remote site |
+| 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; after the factory (from 350 resources) turret level 2, Mechanical Engineering, APC spawn, chassis, armour and engine research, then level 3 and heavy tanks (live-verified through Upgraded Chassis without cheat research) |
 | 🟡 | Expand the base forward | A factory far from the own barracks (more than 3500 units) gets a barracks beside it (seen on Palmbay); spawning there and further forward buildings are open |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
 | 🟡 | Give orders to bots | The seated bot commander sends its free attackers (no engineers, defenders or bots with another order) to the next open capture point with an *attack location* order, re-targets when it is taken and releases them after 120 s without progress (`rcbot_empires_commander_orders`). Measured on palmbay and DMZ: orders arrive and bots walk there; no capture measured yet |
@@ -254,7 +254,7 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Turret placement at map-owned refineries on `emp_rainbowroad` is still intermittent; unreachable stand points are skipped and retried at another angle.
 - Infantry can get stuck inside barracks or vehicles; some rainbowroad routes fail.
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
-- On `emp_palmbay` the NF commander does not always find a factory site, and BE finds no reachable remote factory site.
+- On `emp_palmbay` BE builds its vehicle factory in the base; NF (no free spot near its CV) drives to a remote site and builds a forward barracks there. NF commander entry can occasionally stall at spawn.
 - On `emp_palmbay` NF tanks sometimes get stuck in the palm cluster on the way to the front and leave the tank; on `emp_crossroads` a concrete wall near (3800 5000) stops tanks.
 - On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.

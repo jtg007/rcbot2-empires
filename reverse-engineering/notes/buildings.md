@@ -73,4 +73,5 @@ Measurements (emp_streetsoffire, NF CV at (-7548 -14179 -192), probe `empires_co
   ground grid (step 150, radius 3900, 1944 points): 0 points with flags 0, only 1 without bit 0x2 (but 0x20). Whole map (step 400, 1920 points):
   only 27 points free of everything except 0x8, all 7000+ from the NF CV (mid map (3200..4800, 5000/-1100, -2950), east (10000..11600, 60..3700, -2063)).
   Conclusion: the NF base on Palmbay is too cramped for the 1200 x 1200 box; neither the bot search nor a human can build the factory near the CV.
-  BE has one valid spot (-7444 -9281).
+  BE has one valid spot (-7444 -9281). It is lost once a radar is built at (-6694 -9388) (box overlap), so the bot reserves it first
+  (100-unit ground grid, radius 3600, `FindNearFactorySite`); confirmed by a human multiplayer match building the BE factory in the base.

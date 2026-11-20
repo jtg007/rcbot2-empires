@@ -268,6 +268,66 @@ std::vector<Vector> TeammateSearchCenters(int team, const Vector& cv, const edic
 	return centers;
 }
 
+// Base factory spot (user 2026-11-20, Palmbay screenshot: humans fit a factory into the BE base). A cramped
+// base can have one exact free spot (RE buildings.md: BE (-7444 -9281)) that the nav-area candidates and the
+// coarse remote grid miss, and the first radar/barracks then covers it. Fine ground grid around the CV; the
+// native check is exact, so a single free point that is reachable and has an exit lane is enough.
+bool FindNearFactorySite(const EmpiresNativePlacement::ContextIdentity& context, const Vector& cv,
+	const std::vector<Vector>& excluded, Vector& site)
+{
+	if (enginetrace == nullptr)
+		return false;
+	constexpr float kNearRadius = 3600.0f, kNearStep = 100.0f;
+	CTraceFilterWorldOnly filter;
+	Vector cvOnMesh;
+	const bool cvMesh = RCBotNavMesh::ClosestPointOnMesh(cv, 600.0f, cvOnMesh);
+	bool found = false;
+	float best = 0.0f;
+	int clear = 0, unreachable = 0, noLane = 0;
+	for (float dx = -kNearRadius; dx <= kNearRadius; dx += kNearStep)
+		for (float dy = -kNearRadius; dy <= kNearRadius; dy += kNearStep)
+		{
+			const float d = std::sqrt(dx * dx + dy * dy);
+			if (d > kNearRadius || (found && d >= best))
+				continue;
+			const Vector top(cv.x + dx, cv.y + dy, cv.z + 800.0f);
+			Ray_t ray;
+			ray.Init(top, top - Vector(0, 0, 2400.0f));
+			trace_t hit;
+			enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+			if (hit.startsolid || hit.fraction >= 1.0f)
+				continue;
+			const Vector at = hit.endpos + Vector(0, 0, 1.0f);
+			bool skip = false;
+			for (const Vector& bad : excluded)
+				skip = skip || (at - bad).Length2D() < 400.0f;
+			if (skip || EmpiresNativePlacement::CanPlaceNative(context, at, 5, nullptr, true) != EmpiresNativePlacement::Result::Valid)
+				continue;
+			++clear;
+			Vector mesh;
+			if (cvMesh && (!RCBotNavMesh::ClosestPointOnMesh(at, 150.0f, mesh) || std::fabs(mesh.z - at.z) > 64.0f ||
+				!RCBotNavMesh::CanReachComponent(cvOnMesh, mesh)))
+			{
+				++unreachable; // Palmbay BE: the rock plateau south of the base (-4600 -11900, z -2079)
+				continue;
+			}
+			bool lane = false;
+			for (float yaw = 0.0f; yaw < 360.0f && !lane; yaw += 45.0f)
+				lane = ExitLaneClear(at, yaw);
+			if (!lane)
+			{
+				++noLane;
+				continue;
+			}
+			site = at;
+			best = d;
+			found = true;
+		}
+	RCBOT_DIAG("[RCBOT2] commander-econ factory-site near clear=%d unreachable=%d no_lane=%d found=%d site=(%.0f %.0f %.0f) cv_distance=%.0f\n",
+		clear, unreachable, noLane, found ? 1 : 0, found ? site.x : 0.0f, found ? site.y : 0.0f, found ? site.z : 0.0f, best);
+	return found;
+}
+
 // Remote factory site (TODO 5.8c, emp_palmbay NF): ground scan around the CV for a spot where the factory
 // box is free (native obstruction flags without the CV-distance flag 0x8). Prefers a cluster of free points
 // (at least 3 free neighbours within 450), nearest to the CV; spots near excluded ones are skipped.
@@ -276,7 +336,10 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 {
 	if (enginetrace == nullptr)
 		return false;
-	constexpr float kScanRadius = 8000.0f, kScanStep = 300.0f;
+	// 11500 covers Palmbay BE's SE plateau (~10000 from BE CV) and 2400 down reaches the
+	// beach/valley (~750 below the CV plateau, where the old 1500 ray stopped short).
+	constexpr float kScanRadius = 11500.0f, kScanStep = 350.0f;
+	constexpr float kNeighbourRadius = kScanStep * 1.55f;
 	CTraceFilterWorldOnly filter;
 	std::vector<Vector> clear;
 	// The site needs walkable, reachable ground: Palmbay BE picked a navmesh-less rock plateau
@@ -291,7 +354,7 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 				continue;
 			const Vector top(cv.x + dx, cv.y + dy, cv.z + 800.0f);
 			Ray_t ray;
-			ray.Init(top, top - Vector(0, 0, 1500.0f));
+			ray.Init(top, top - Vector(0, 0, 2400.0f));
 			trace_t hit;
 			enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
 			if (hit.startsolid || hit.fraction >= 1.0f)
@@ -315,22 +378,28 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 		}
 	bool found = false;
 	float bestDistance = 0.0f;
-	for (const Vector& candidate : clear)
+	// Prefer a strong cluster (>= 3 neighbours); fall back to >= 1 neighbour so small flat clearings
+	// still work while filtering out lone measurement-noise samples.
+	for (int minNeighbours : {3, 1})
 	{
-		// Only clusters: a lone free sample is measurement noise (run site5: one point inside the base).
-		int neighbours = 0;
-		for (const Vector& other : clear)
-			if (&other != &candidate && (other - candidate).Length2D() < 450.0f)
-				++neighbours;
-		if (neighbours < 3)
-			continue;
-		const float d = (candidate - cv).Length2D();
-		if (!found || d < bestDistance)
+		for (const Vector& candidate : clear)
 		{
-			site = candidate;
-			bestDistance = d;
-			found = true;
+			int neighbours = 0;
+			for (const Vector& other : clear)
+				if (&other != &candidate && (other - candidate).Length2D() < kNeighbourRadius)
+					++neighbours;
+			if (neighbours < minNeighbours)
+				continue;
+			const float d = (candidate - cv).Length2D();
+			if (!found || d < bestDistance)
+			{
+				site = candidate;
+				bestDistance = d;
+				found = true;
+			}
 		}
+		if (found)
+			break;
 	}
 	RCBOT_DIAG("[RCBOT2] commander-econ factory-site scan clear=%zu off_mesh=%d found=%d site=(%.0f %.0f %.0f) cv_distance=%.0f\n",
 		clear.size(), offMesh, found ? 1 : 0, found ? site.x : 0.0f, found ? site.y : 0.0f, found ? site.z : 0.0f, found ? bestDistance : 0.0f);
@@ -1670,6 +1739,26 @@ void CBotEmpires::tickCommanderEconomy()
 		// 20261112-125413: factory on the pad entrance). Only if no circle has
 		// one, the nearest valid spot (the base must grow).
 		const std::vector<Lane> lanes = ReservedLanes(vehicleOrigin);
+		// Reserve the base factory spot before the first radar/barracks covers it (Palmbay BE: the radar at
+		// (-6694 -9388) took the only spot (-7444 -9281), so the CV drove 8500 away). The existing site
+		// placement below builds the factory there; until then other buildings keep kFactoryReserveClear off.
+		if (!state.nearSiteTried && inventory.count[VehicleFactory] == 0 && !state.siteValid)
+		{
+			state.nearSiteTried = true;
+			Vector reserved;
+			if (FindNearFactorySite(context, vehicleOrigin, state.siteExcluded, reserved))
+			{
+				state.site = reserved;
+				state.siteValid = true;
+			}
+		}
+		constexpr float kFactoryReserveClear = 1500.0f;
+		const bool reserveActive = type != VehicleFactory && inventory.count[VehicleFactory] == 0 && state.siteValid &&
+			(state.site - vehicleOrigin).Length2D() <= 3800.0f;
+		auto inReserve = [&](const EmpiresSpatial::Point& p) {
+			return reserveActive && (Vector(p.x, p.y, p.z) - state.site).Length2D() < kFactoryReserveClear;
+		};
+		int reserveSkipped = 0;
 		Vector boxMins, boxMaxs;
 		Footprint(int(type), team, boxMins, boxMaxs);
 		auto yawAt = [&](const Vector& spot, bool quiet) {
@@ -1742,6 +1831,11 @@ void CBotEmpires::tickCommanderEconomy()
 			for (const auto& candidate : search.accepted)
 			{
 				++checked;
+				if (inReserve(candidate.origin))
+				{
+					++reserveSkipped;
+					continue;
+				}
 				const Vector spot(candidate.origin.x, candidate.origin.y, candidate.origin.z);
 				float turn = 0.0f, free = 0.0f;
 				const float yaw = type == Repair ? RepairPadYaw(spot, team, true, &turn, &free) : yawAt(spot, true);
@@ -1817,10 +1911,19 @@ void CBotEmpires::tickCommanderEconomy()
 					CTraceFilterWorldOnly groundFilter;
 					Ray_t groundRay;
 					trace_t groundHit;
-					groundRay.Init(goal + Vector(0, 0, 800.0f), goal - Vector(0, 0, 1500.0f));
+					groundRay.Init(goal + Vector(0, 0, 800.0f), goal - Vector(0, 0, 2400.0f));
 					enginetrace->TraceRay(groundRay, MASK_PLAYERSOLID_BRUSHONLY, &groundFilter, &groundHit);
 					if (!groundHit.startsolid && groundHit.fraction < 1.0f)
 						goal = groundHit.endpos + Vector(0, 0, 8.0f);
+				}
+				if (RCBotNavMesh::IsLoaded())
+				{
+					Vector goalMesh;
+					if (RCBotNavMesh::ClosestPointOnMesh(goal, 400.0f, goalMesh) &&
+						RCBotNavMesh::CanReachComponent(vehicleOrigin, goalMesh))
+						goal = goalMesh;
+					else
+						goal = state.site;
 				}
 				m_bCommanderSiteDrive = true;
 				m_bCommanderHunt = false;
@@ -1844,6 +1947,15 @@ void CBotEmpires::tickCommanderEconomy()
 			RCBOT_DIAG("[RCBOT2] commander-econ result=NO_SPOT type=%d search=%s areas=%u queries=%u invalid=%u failures=%d\n",
 				int(type), EmpiresSpatial::Name(search.status), search.areasInspected, search.nativeQueries,
 				search.invalid, failures);
+			return;
+		}
+		if (!laneFree && inReserve(first.selected.origin))
+		{
+			// Only spots on the reserved factory site: wait until the factory stands.
+			const int failures = ++state.failures[type];
+			state.blockedUntil[type] = now + BackoffSeconds(failures);
+			RCBOT_DIAG("[RCBOT2] commander-econ result=NO_SPOT type=%d reason=factory-reserve skipped=%d site=(%.0f %.0f %.0f) failures=%d\n",
+				int(type), reserveSkipped, state.site.x, state.site.y, state.site.z, failures);
 			return;
 		}
 		if (!laneFree)
