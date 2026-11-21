@@ -72,6 +72,18 @@ int main()
 	inventory = Inventory();
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::NoSite, "ECON-9 no site anywhere");
 
+	// Base defense turrets after repair pad (TODO 5.23).
+	inventory = AllSites();
+	inventory.count[Refinery] = 3;
+	inventory.count[Barracks] = 1;
+	inventory.count[Radar] = 1;
+	inventory.count[VehicleFactory] = 1;
+	inventory.count[Armory] = 1;
+	inventory.count[Repair] = 1;
+	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == MgTurret, "ECON-9a base MG turret after repair");
+	inventory.count[MgTurret] = 1;
+	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == MlTurret, "ECON-9b base ML turret after MG turret");
+
 	// Everything built.
 	inventory = AllSites();
 	inventory.count[Refinery] = 4;
@@ -80,6 +92,8 @@ int main()
 	inventory.count[VehicleFactory] = 1;
 	inventory.count[Armory] = 1;
 	inventory.count[Repair] = 1;
+	inventory.count[MgTurret] = 2;
+	inventory.count[MlTurret] = 2;
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::Done, "ECON-10 order complete");
 
 	Require(BackoffSeconds(1) == 5.0f && BackoffSeconds(2) == 10.0f && BackoffSeconds(3) == 20.0f, "ECON-11 backoff doubles");

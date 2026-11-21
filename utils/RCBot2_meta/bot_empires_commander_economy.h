@@ -7,7 +7,10 @@
 
 namespace EmpiresCommanderEconomy
 {
-enum BuildType { Refinery = 0, Barracks = 1, Radar = 2, Armory = 3, Repair = 4, VehicleFactory = 5, TypeCount = 6 };
+enum BuildType {
+	Refinery = 0, Barracks = 1, Radar = 2, Armory = 3, Repair = 4, VehicleFactory = 5,
+	MgTurret = 8, MlTurret = 9, TypeCount = 10
+};
 
 // Costs from scripts_000.vpk (buildings).
 // Research item indexes (scripts/research_items.txt order, server_srv.so GetResearch 0x3a8440).
@@ -66,14 +69,16 @@ inline int NextResearch(const bool done[kResearchItemCount], bool hasVehicleFact
 	return 0;
 }
 
-constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f};
+constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f, 0.0f, 0.0f, 75.0f, 75.0f};
 
 struct Step { BuildType type; int targetCount; };
 
-// Economy first (income is the only source), then infantry support, vehicles, supply.
+// Economy first (income is the only source), then infantry support, vehicles, supply,
+// and base defense turrets (TODO 5.23).
 constexpr Step kBuildOrder[] = {
 	{Refinery, 1}, {Refinery, 2}, {Barracks, 1}, {Radar, 1}, {VehicleFactory, 1},
-	{Armory, 1}, {Refinery, 3}, {Repair, 1}, {Refinery, 4},
+	{Armory, 1}, {Refinery, 3}, {Repair, 1}, {MgTurret, 1}, {MlTurret, 1},
+	{Refinery, 4}, {MgTurret, 2}, {MlTurret, 2},
 };
 constexpr int kBuildOrderSize = sizeof(kBuildOrder) / sizeof(kBuildOrder[0]);
 

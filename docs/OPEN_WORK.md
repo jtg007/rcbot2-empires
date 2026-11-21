@@ -29,7 +29,9 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
    Reuse the engineer crate and request paths for infantry resupply. Agree on the
    research order before selecting improved vehicle parts (5.2). Use the resulting
    late-game match to measure the commander reserve and research pauses (5.5a/5.1).
-   APC spawning and squad transport have their own acceptance checks.
+   APCs: after APC Spawn Point research each team keeps one APC in the field
+   (`20261121-115623`: NF and BE APC bought and driven to the front); spawning in it and
+   squad transport still need their own acceptance checks.
 5. When a human session is available, verify the EngiBot crash fix with SourceMod
    first, then check commander orders, seat handover and other player interactions.
    Investigate intermittent issues as they recur. Combine short map and mode checks
@@ -48,8 +50,10 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   driver first backs clear for 3 s and replans (`clear-before-exit`) and holds out longer in the factory bay;
   empty own vehicles blocking the bay or ramp are adopted after 5 s (`bay-occupied`, `20261120-224310`: heavy
   tank driven out in 11 s), and a bot-abandoned field vehicle is retried once by another bot after 10 s
-  (`adopt-abandoned`). Crossroads 10 bots (`20261120-223253`): 4 heavy tanks, 0 give-ups. Open: tank fights
-  that stall on a persistent `fire-blocked`.
+  (`adopt-abandoned`). Crossroads 10 bots (`20261120-223253`): 4 heavy tanks, 0 give-ups.
+  Tank fights: the fire line ignores invisible `emp_eng_restrict` brushes (`20261121-105931`: 0 false
+  blocks, direct hits at 750-2380 HU), and a persistent `fire-blocked` under 1500 HU escalates (6 s flank,
+  then skip the target for 15 s).
 
 - [x] **Match with production server values** (`emp_crossroads`, 10 bots, 20 min,
   production economy cvars, see `AGENTS.md`). Baseline: no vehicle in 20 minutes. Causes
@@ -381,8 +385,9 @@ When the following cases recur, compare the relevant trace and route.
 - Commander CV survival & base defense (5.23): the commander pulls the CV back when an
   alive enemy vehicle closes within 2200 HU or under heavy fire, preferring a finished own
   repair station or open navmesh away from the threat (live test `20261121-002633`: NF CV
-  retreated 1800 HU sideways from a BE heavy tank at `threat_dist=1610`). Open: general
-  forward barracks near the front (beyond `5.8b`) and commander MG/ML turrets/walls.
+  retreated 1800 HU sideways from a BE heavy tank at `threat_dist=1610`). Built: a general
+  forward barracks beside an on-foot teammate far from every own barracks (`20261121-114259`)
+  and up to two MG and two ML base turrets after the repair pad (`20261121-121836`). Open: walls.
 - Infantry combat, classes & barracks spawn (3.25, 5.25, 5.24): weapon ranges in
   `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
   (including rifleman stickies and scout sniper/shotgun) are active for all four classes,

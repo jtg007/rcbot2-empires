@@ -30,7 +30,7 @@ cmds="ent_fire emp_params ModifyNFResources 3000;ent_fire emp_params ModifyBERes
 if [[ "${QUICK_FAIR:-0}" == 1 ]]; then
   # No commanders: their orders (escort, move) cancel the purchase walk; debug buying needs no factory.
   pre+=";rcbot_empires_vehicle_hold 1;rcbot_empires_auto_commander 0"
-  cmds+=";waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=2 ;waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=10 "
+  cmds+=";waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(2|3|4|5) ;waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(10|11|12|13) "
   cmds+=";echo FAIR_START;mark;rcbot_empires_vehicle_hold 0"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER:-1}" DEV_TIMESCALE="${DEV_TIMESCALE:-1}" DEV_ROSTER="$roster" \

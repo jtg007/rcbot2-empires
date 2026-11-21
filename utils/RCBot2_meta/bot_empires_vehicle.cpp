@@ -946,7 +946,10 @@ public:
 			const char* cls = edict->GetClassName();
 			// The game's ShouldCollide ignores resource points (RE engineer.md); the volume under a
 			// refinery blocked every close shot at it (run 125722: blocker=emp_resource_point at 524 HU).
-			if (cls != nullptr && std::strcmp(cls, "emp_resource_point") == 0)
+			// emp_eng_restrict is an invisible no-build brush that does not block projectiles
+			// (run 20261121-105411: 20+ fire-blocked frac=0.00 between two tanks at 300 HU).
+			if (cls != nullptr && (std::strcmp(cls, "emp_resource_point") == 0 ||
+				std::strcmp(cls, "emp_eng_restrict") == 0))
 				return false;
 			if (cls != nullptr && std::strncmp(cls, "emp_building_", 13) == 0 &&
 				(std::strstr(cls, "physbox") != nullptr || std::strstr(cls, "panel") != nullptr))
@@ -2986,8 +2989,32 @@ void CBotEmpires::tickEmpiresVehicle()
 					budget = wages + (std::max)(0.0f, pool - reserve);
 				}
 			}
+			bool wantApc = false;
+			if (!jeep && !v.buyInPlace && haveResearch &&
+				researchDone[EmpiresCommanderEconomy::kResearchApcSpawn])
+			{
+				bool hasApc = false;
+				const int maxEnts = engine->GetEntityCount();
+				for (int eIdx = gpGlobals->maxClients + 1; eIdx < maxEnts; ++eIdx)
+				{
+					edict_t* ent = engine->PEntityOfEntIndex(eIdx);
+					if (ent == nullptr || ent->IsFree() || !IsClass(ent, "emp_vehicle") ||
+						CClassInterface::getTeam(ent) != team || !EmpiresVehicleAlive(this, ent))
+						continue;
+					const int ch = EmpiresVehicleReadInt(this, ent, "m_iChassis", -1);
+					if (ch == 1 || ch == 9)
+					{
+						hasApc = true;
+						break;
+					}
+				}
+				wantApc = !hasApc;
+			}
 			v.purchaseLoadout = EmpiresVehicleLoadout::ChoosePurchaseLoadout(
-				nf, jeep, haveResearch ? researchDone : nullptr, budget);
+				nf, jeep, haveResearch ? researchDone : nullptr, budget, wantApc);
+			if (v.purchaseLoadout.isApc())
+				RCBOT_DIAG("[RCBOT2] vehicle apc-buy userid=%d team=%d chassis=%d cost=%d\n",
+					userId, team, v.purchaseLoadout.chassis, v.purchaseLoadout.estimatedCost);
 			snprintf(command, sizeof(command), "emp_vehicle_chassis %d\n", v.purchaseLoadout.chassis);
 			break;
 		}
@@ -3570,6 +3597,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		// The current target stays while seen within the last 3 s.
 		const Vector eye = origin + Vector(0, 0, 90);
 		auto inSight = [&](edict_t* e) {
+			if (e != nullptr && engine->IndexOfEdict(e) == v.fireBlockedSkipTarget && now < v.fireBlockedSkipUntil)
+				return false;
 			if (e == v.target.get() && now - v.fightSight < 3.0f)
 				return true;
 			trace_t hit;
@@ -4125,7 +4154,30 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (HasClearFireLine(m_pEdict, vehicle, origin + Vector(0, 0, 90), target))
 			v.fightSight = now;
 		const bool sight = now - v.fightSight < 3.0f;
-		if (targetIsBuilding)
+		if (now < v.fireBlockedFlankUntil)
+		{
+			// 3.26 step 4: persistent fire-blocked -> flank sideways to clear the line of fire.
+			const float bearing = YawTo(origin, targetAt);
+			if (v.fightDir == 0.0f)
+				v.fightDir = randomFloat(0.0f, 1.0f) < 0.5f ? 1.0f : -1.0f;
+			float yaw = NormalizeYaw(bearing + v.fightDir * 80.0f);
+			if (!SafeHeading(origin, yaw, 700.0f))
+			{
+				const float other = NormalizeYaw(bearing - v.fightDir * 80.0f);
+				if (SafeHeading(origin, other, 700.0f))
+				{
+					v.fightDir = -v.fightDir;
+					yaw = other;
+				}
+				else
+					yaw = NormalizeYaw(bearing + 180.0f);
+			}
+			driveTo = origin + YawDir(yaw) * 600.0f;
+			arrive = 0.0f;
+			throttle = 0.55f;
+			v.fightMove = true;
+		}
+		else if (targetIsBuilding)
 		{
 			if (distance > 1500.0f || !sight)
 			{
@@ -5755,15 +5807,50 @@ void CBotEmpires::tickEmpiresVehicle()
 			const bool lineClear = HasClearFireLine(m_pEdict, vehicle, eye, target, &blockWhy, &blockFrac,
 				&blockIndex, &blockEnd);
 			if (lineClear)
-				v.fightSight = now;
-			else if (!infantry && distance < 1500.0f && now >= v.nextAimLog)
 			{
-				v.nextAimLog = now + 5.0f;
+				v.fightSight = now;
+				v.fireBlockedSince = 0.0f;
+				v.fireBlockedStage = 0;
+				v.fireBlockedFlankUntil = 0.0f;
+			}
+			else if (!infantry && distance < 1500.0f)
+			{
+				if (v.fireBlockedTarget != targetIndex || v.fireBlockedSince <= 0.0f)
+				{
+					v.fireBlockedTarget = targetIndex;
+					v.fireBlockedSince = now;
+					v.fireBlockedStage = 0;
+				}
+				const float blockedFor = now - v.fireBlockedSince;
 				edict_t* blockEdict = blockIndex > 0 ? engine->PEntityOfEntIndex(blockIndex) : nullptr;
-				RCBOT_DIAG("[RCBOT2] vehicle fire-blocked userid=%d target=%d dist=%.0f by=%s frac=%.2f blocker=%d(%s) "
-					"eye=(%.0f %.0f %.0f) end=(%.0f %.0f %.0f)\n", userId, targetIndex, distance, blockWhy, blockFrac,
-					blockIndex, blockEdict != nullptr && blockEdict->GetClassName() != nullptr ? blockEdict->GetClassName() : "-",
-					eye.x, eye.y, eye.z, blockEnd.x, blockEnd.y, blockEnd.z);
+				const char* blockCls = blockEdict != nullptr && blockEdict->GetClassName() != nullptr ?
+					blockEdict->GetClassName() : "-";
+				if (v.fireBlockedStage == 0 && blockedFor >= 6.0f)
+				{
+					v.fireBlockedStage = 1;
+					v.fightDir = v.fightDir == 0.0f ? (randomFloat(0.0f, 1.0f) < 0.5f ? 1.0f : -1.0f) : -v.fightDir;
+					v.fireBlockedFlankUntil = now + 6.0f;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle userid=%d stage=1 reason=fire-blocked target=%d dist=%.0f "
+						"by=%s blocker=%d(%s)\n", userId, targetIndex, distance, blockWhy, blockIndex, blockCls);
+				}
+				else if (v.fireBlockedStage == 1 && blockedFor >= 14.0f)
+				{
+					v.fireBlockedStage = 2;
+					v.fireBlockedSkipTarget = targetIndex;
+					v.fireBlockedSkipUntil = now + 15.0f;
+					v.fireBlockedSince = 0.0f;
+					v.fireBlockedFlankUntil = 0.0f;
+					v.target = nullptr;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle userid=%d stage=2 reason=fire-blocked-skip target=%d dist=%.0f "
+						"by=%s blocker=%d(%s)\n", userId, targetIndex, distance, blockWhy, blockIndex, blockCls);
+				}
+				if (now >= v.nextAimLog)
+				{
+					v.nextAimLog = now + 5.0f;
+					RCBOT_DIAG("[RCBOT2] vehicle fire-blocked userid=%d target=%d dist=%.0f by=%s frac=%.2f blocker=%d(%s) "
+						"eye=(%.0f %.0f %.0f) end=(%.0f %.0f %.0f)\n", userId, targetIndex, distance, blockWhy, blockFrac,
+						blockIndex, blockCls, eye.x, eye.y, eye.z, blockEnd.x, blockEnd.y, blockEnd.z);
+				}
 			}
 			if (lineClear && now - v.aimSince > 1.2f && heat < 80.0f)
 			{

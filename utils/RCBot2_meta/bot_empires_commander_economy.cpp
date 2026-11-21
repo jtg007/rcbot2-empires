@@ -154,6 +154,8 @@ int BuildingType(const char* className)
 	if (std::strstr(className, "armory") != nullptr) return Armory;
 	if (std::strstr(className, "repairstation") != nullptr) return Repair;
 	if (std::strstr(className, "radar") != nullptr) return Radar;
+	if (std::strstr(className, "mgturret") != nullptr) return MgTurret;
+	if (std::strstr(className, "mlturret") != nullptr) return MlTurret;
 	return -1;
 }
 
@@ -665,6 +667,11 @@ void Footprint(int type, int team, Vector& mins, Vector& maxs)
 			mins = Vector(-203, -200, 0);
 			maxs = Vector(250, 200, 0);
 		}
+		return;
+	case MgTurret:
+	case MlTurret:
+		mins = Vector(-48, -48, 0);
+		maxs = Vector(48, 48, 0);
 		return;
 	default: break;
 	}
@@ -1822,6 +1829,89 @@ void CBotEmpires::tickCommanderEconomy()
 			forwardBarracks = true;
 			RCBOT_DIAG("[RCBOT2] commander-econ forward-barracks-after team=%d factory=(%.0f %.0f %.0f) nearest_barracks=%.0f\n",
 				team, forwardCenter.x, forwardCenter.y, forwardCenter.z, nearestBarracks);
+		}
+	}
+	// General forward barracks near the front (TODO 5.23): once the core base is up, drop a second
+	// barracks near an on-foot teammate (preferring an Engineer) who is far from every own barracks
+	// and has no nearby enemy, so infantry spawn near the front (TODO 5.24).
+	if (!forwardBarracks && inventory.count[VehicleFactory] > 0 && inventory.count[Barracks] < 2 &&
+		now >= state.forwardBarracksRetryAt)
+	{
+		const Vector enemyCv = EnemyCommanderOrigin(vehicleOrigin, team);
+		const bool haveEnemyCv = (enemyCv - vehicleOrigin).Length2D() > 100.0f;
+		const Vector mapMid = haveEnemyCv ? (vehicleOrigin + enemyCv) * 0.5f : vehicleOrigin;
+		edict_t* bestPlayer = nullptr;
+		Vector bestPos(0.0f, 0.0f, 0.0f);
+		float bestNearestBarracks = 0.0f;
+		float bestMidDist = 1.0e9f;
+		bool bestIsEng = false;
+		for (int i = 1; i <= gpGlobals->maxClients; ++i)
+		{
+			edict_t* player = engine->PEntityOfEntIndex(i);
+			if (player == nullptr || player->IsFree() || player == m_pEdict ||
+				CClassInterface::getTeam(player) != team || !CBotGlobals::entityIsAlive(player))
+				continue;
+			if (EmpiresVehiclePlayerVehicle(this, player) >= 0)
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(player);
+			if (haveEnemyCv && (at - enemyCv).Length2D() < 2500.0f)
+				continue;
+			float nearestBarracks = 1.0e9f;
+			for (const BuildingInfo& info : buildings)
+				if (info.type == Barracks)
+				{
+					edict_t* b = engine->PEntityOfEntIndex(info.entity);
+					if (b != nullptr && !b->IsFree())
+						nearestBarracks = (std::min)(nearestBarracks, (CBotGlobals::entityOrigin(b) - at).Length2D());
+				}
+			if (nearestBarracks <= kForwardBarracksDistance)
+				continue;
+			bool enemyNear = false;
+			for (int j = 1; j <= gpGlobals->maxClients; ++j)
+			{
+				edict_t* other = engine->PEntityOfEntIndex(j);
+				if (other == nullptr || other->IsFree() || !CBotGlobals::entityIsAlive(other))
+					continue;
+				const int otherTeam = CClassInterface::getTeam(other);
+				if ((otherTeam == 2 || otherTeam == 3) && otherTeam != team &&
+					(CBotGlobals::entityOrigin(other) - at).Length2D() < 1200.0f)
+				{
+					enemyNear = true;
+					break;
+				}
+			}
+			if (enemyNear)
+				continue;
+			CBot* botPtr = CBots::getBotPointer(player);
+			const bool isEng = botPtr != nullptr && static_cast<CBotEmpires*>(botPtr)->isEmpiresEngineerClass();
+			const float midDist = (at - mapMid).Length2D();
+			if (bestPlayer == nullptr || (isEng && !bestIsEng) ||
+				(isEng == bestIsEng && midDist < bestMidDist))
+			{
+				bestPlayer = player;
+				bestPos = at;
+				bestNearestBarracks = nearestBarracks;
+				bestMidDist = midDist;
+				bestIsEng = isEng;
+			}
+		}
+		if (bestPlayer != nullptr)
+		{
+			type = Barracks;
+			if (resources >= kCost[Barracks])
+			{
+				state.forwardBarracksRetryAt = now + 60.0f;
+				decision = Decision::Build;
+				forwardBarracks = true;
+				forwardCenter = bestPos;
+				RCBOT_DIAG("[RCBOT2] commander-econ forward-barracks-front team=%d uid=%d eng=%d pos=(%.0f %.0f %.0f) nearest_barracks=%.0f\n",
+					team, engine->GetPlayerUserId(bestPlayer), bestIsEng ? 1 : 0,
+					bestPos.x, bestPos.y, bestPos.z, bestNearestBarracks);
+			}
+			else
+			{
+				decision = Decision::Saving;
+			}
 		}
 	}
 	{

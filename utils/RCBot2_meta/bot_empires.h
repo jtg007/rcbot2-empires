@@ -578,6 +578,13 @@ struct EmpiresVehicleBrain
 	float fightSwitch = 0.0f;  // next change of direction
 	float fightSight = 0.0f;   // last time the target was in sight
 	bool fightMove = false;    // circling this frame
+	// 3.26 step 4: persistent fire-blocked escalation (flank -> skip target).
+	int fireBlockedTarget = -1;
+	float fireBlockedSince = 0.0f;
+	int fireBlockedStage = 0;
+	float fireBlockedFlankUntil = 0.0f;
+	int fireBlockedSkipTarget = -1;
+	float fireBlockedSkipUntil = 0.0f;
 	// Target motion for leading shots.
 	int aimTarget = -1;
 	Vector aimLastPos = Vector(0, 0, 0);

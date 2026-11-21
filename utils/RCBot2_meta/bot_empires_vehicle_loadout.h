@@ -21,6 +21,7 @@ constexpr int kWeaponStdCannon = 12;   // type 1, size 1, cost 50, wt 50, no res
 // Engine indices (scripts/vehicle_engines.txt).
 constexpr int kEngineImpJeep = 0;     // type 4, team IMP, cost 10, wt 10
 constexpr int kEngineNfJeep = 1;      // type 4, team NF,  cost 10, wt 10
+constexpr int kEngineApcStd = 7;      // type 3, APC Standard, cost 20, wt 30
 constexpr int kEngineLightStd = 13;   // type 5, cost 20, wt 30
 constexpr int kEngineLightGas = 14;   // type 5, cost 75, wt 20, Gas_Turbine_Engine (35)
 constexpr int kEngineMedStd = 19;     // type 6, cost 30, wt 30
@@ -43,6 +44,7 @@ struct Loadout
 	int maxWeight = 260;
 
 	bool isJeep() const { return chassis == 0 || chassis == 8; }
+	bool isApc() const { return chassis == 1 || chassis == 9; }
 };
 
 struct ChassisProfile
@@ -102,6 +104,25 @@ inline Loadout MakeJeepLoadout(bool nf)
 	return out;
 }
 
+inline Loadout MakeApcLoadout(bool nf)
+{
+	// NF APC (1): cost 200, maxWeight 265; BE APC (9): cost 240, maxWeight 265.
+	// Slot 0 = T0/S3 (MG), engine 7 = APC Standard.
+	Loadout out;
+	out.chassis = nf ? 1 : 9;
+	out.cannonSlot = -1;
+	out.cannonWeapon = -1;
+	out.mgSlot = 0;
+	out.mgWeapon = kWeaponMedChainGun;
+	out.armorType = kArmorPlain;
+	out.armorLevels[0] = out.armorLevels[1] = out.armorLevels[2] = out.armorLevels[3] = 2;
+	out.engine = kEngineApcStd;
+	out.estimatedCost = (nf ? 200 : 240) + 60 + 20 + 8 * 8;
+	out.totalWeight = 50 + 30 + 8 * 15;
+	out.maxWeight = 265;
+	return out;
+}
+
 inline Loadout BuildTankLoadout(const ChassisProfile& p, bool useGasEngine, bool useCompositeArmor)
 {
 	Loadout out;
@@ -131,10 +152,17 @@ inline Loadout BuildTankLoadout(const ChassisProfile& p, bool useGasEngine, bool
 // researchDone may be nullptr (treated as no research unlocked).
 // availableBudget < 0 means unlimited (e.g. debug buy or unknown team pool).
 inline Loadout ChoosePurchaseLoadout(bool nf, bool wantJeep,
-	const bool researchDone[EmpiresCommanderEconomy::kResearchItemCount], float availableBudget)
+	const bool researchDone[EmpiresCommanderEconomy::kResearchItemCount], float availableBudget,
+	bool wantApc = false)
 {
 	if (wantJeep)
 		return MakeJeepLoadout(nf);
+	if (wantApc)
+	{
+		const Loadout apc = MakeApcLoadout(nf);
+		if (availableBudget < 0.0f || static_cast<float>(apc.estimatedCost) <= availableBudget)
+			return apc;
+	}
 
 	const bool hasMed = researchDone != nullptr && researchDone[EmpiresCommanderEconomy::kResearchMediumTank];
 	const bool hasHeavy = researchDone != nullptr && researchDone[EmpiresCommanderEconomy::kResearchHeavyTank];
@@ -188,6 +216,8 @@ inline Loadout ChooseRefitLoadout(bool nf, int currentChassis,
 {
 	if (currentChassis == 0 || currentChassis == 8)
 		return MakeJeepLoadout(currentChassis == 0);
+	if (currentChassis == 1 || currentChassis == 9)
+		return MakeApcLoadout(currentChassis == 1);
 
 	const ChassisProfile p = ProfileForChassis(nf, currentChassis);
 	const Loadout base = BuildTankLoadout(p, false, false);
