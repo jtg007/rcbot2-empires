@@ -1202,6 +1202,140 @@ void CBotEmpires::tickCommanderEconomy()
 			zone = (std::max)(kCommanderZoneMin, (std::min)(kCommanderZoneMax, nearestRefinery + kCommanderZoneMargin));
 	}
 
+	// --- CV survival retreat (TODO 5.23): pull the CV back when an enemy vehicle closes in
+	// or the CV takes heavy fire, preferring a finished repair pad or open mesh away from threat. ---
+	if (now >= state.nextRetreatCheck)
+	{
+		state.nextRetreatCheck = now + 1.0f;
+		float cvHealth = -1.0f;
+		if (readEmpiresFloatProperty(vehicle, "m_flTotalHealth", cvHealth) && cvHealth > 0.0f)
+			state.cvMaxHealth = (std::max)(state.cvMaxHealth, cvHealth);
+		const int enemyTeam = team == 2 ? 3 : 2;
+		float nearestThreatDist = 1.0e9f;
+		Vector threatOrigin(0, 0, 0);
+		bool hasEnemyVehicle = false;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (!IsClass(e, "emp_vehicle") || e == vehicle)
+				continue;
+			int eTeam = -1;
+			if (!readEmpiresIntProperty(e, "m_iTeamNum", eTeam) || eTeam != enemyTeam ||
+				!EmpiresVehicleAlive(this, e))
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			const float d = (at - vehicleOrigin).Length2D();
+			if (d < 2200.0f && d < nearestThreatDist)
+			{
+				nearestThreatDist = d;
+				threatOrigin = at;
+				hasEnemyVehicle = true;
+			}
+		}
+		const float hpDrop = (state.lastCvHealth > 0.0f && cvHealth > 0.0f) ? (state.lastCvHealth - cvHealth) : 0.0f;
+		const bool lowHp = state.cvMaxHealth > 0.0f && cvHealth > 0.0f && cvHealth < state.cvMaxHealth * 0.7f;
+		const bool heavyFire = hpDrop >= 30.0f || (hpDrop >= 10.0f && lowHp);
+		if (cvHealth > 0.0f)
+			state.lastCvHealth = cvHealth;
+		if (hasEnemyVehicle || heavyFire)
+		{
+			if (!hasEnemyVehicle)
+			{
+				// Find nearest living enemy player as threat direction when taking fire.
+				for (int i = 1; i <= gpGlobals->maxClients; ++i)
+				{
+					edict_t* p = engine->PEntityOfEntIndex(i);
+					if (p == nullptr || p->IsFree() || CClassInterface::getTeam(p) != enemyTeam ||
+						!CBotGlobals::entityIsAlive(p))
+						continue;
+					const Vector at = CBotGlobals::entityOrigin(p);
+					const float d = (at - vehicleOrigin).Length2D();
+					if (d < nearestThreatDist)
+					{
+						nearestThreatDist = d;
+						threatOrigin = at;
+					}
+				}
+			}
+			Vector retreatGoal(0, 0, 0);
+			bool haveRetreat = false;
+			// Priority 1: finished own repair station further from the threat.
+			for (const BuildingInfo& info : buildings)
+			{
+				if (info.type != Repair || info.health < info.maxHealth)
+					continue;
+				edict_t* pad = engine->PEntityOfEntIndex(info.entity);
+				if (pad == nullptr || pad->IsFree())
+					continue;
+				const Vector padAt = CBotGlobals::entityOrigin(pad);
+				if ((padAt - vehicleOrigin).Length2D() < 500.0f)
+					continue;
+				if (nearestThreatDist < 1.0e8f && (padAt - threatOrigin).Length2D() <= nearestThreatDist)
+					continue;
+				retreatGoal = padAt;
+				haveRetreat = true;
+				break;
+			}
+			// Priority 2: reachable navmesh spot away from the threat (or back toward base home).
+			// Pick the candidate that maximizes distance from the threat (CVs often spawn near
+			// a map edge where straight back is off-mesh and escaping sideways is the best option).
+			if (!haveRetreat && RCBotNavMesh::IsLoaded())
+			{
+				Vector away = nearestThreatDist < 1.0e8f ? (vehicleOrigin - threatOrigin) : (home - vehicleOrigin);
+				away.z = 0.0f;
+				const float awayLen = away.Length();
+				const float baseYaw = awayLen > 1.0f ? RAD2DEG(std::atan2(away.y, away.x)) : 0.0f;
+				static const float kOffsets[] = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f, 90.0f, -90.0f, 120.0f, -120.0f};
+				float bestScore = -1.0f;
+				for (float dist : {1800.0f, 1200.0f, 800.0f})
+				{
+					for (float off : kOffsets)
+					{
+						const float rad = DEG2RAD(baseYaw + off);
+						const Vector cand(vehicleOrigin.x + std::cos(rad) * dist,
+							vehicleOrigin.y + std::sin(rad) * dist, vehicleOrigin.z);
+						Vector mesh;
+						if (!RCBotNavMesh::ClosestPointOnMesh(cand, 300.0f, mesh))
+							continue;
+						if (RCBotNavMesh::PointNearBuilding(mesh, 200.0f) ||
+							!RCBotNavMesh::CanReachComponent(vehicleOrigin, mesh))
+							continue;
+						if ((mesh - vehicleOrigin).Length2D() < 500.0f)
+							continue;
+						const float threatAfter = nearestThreatDist < 1.0e8f ?
+							(mesh - threatOrigin).Length2D() : (mesh - vehicleOrigin).Length2D();
+						if (nearestThreatDist < 1.0e8f && threatAfter < nearestThreatDist + 150.0f)
+							continue;
+						if (threatAfter > bestScore)
+						{
+							bestScore = threatAfter;
+							retreatGoal = mesh;
+							haveRetreat = true;
+						}
+					}
+				}
+			}
+			if (haveRetreat)
+			{
+				m_bCommanderSiteDrive = true;
+				m_bCommanderHunt = false;
+				m_bCommanderBuildTurret = false;
+				m_hCommanderBuildTarget = nullptr;
+				m_vCommanderBuildDriveGoal = retreatGoal;
+				m_iCommanderBuildStage = 3;
+				m_fCommanderBuildDeadline = now + 10.0f;
+				state.nextRetreatCheck = now + 20.0f;
+				state.nextTick = now + 0.1f;
+				RCBOT_DIAG("[RCBOT2] commander-cv retreat userid=%d reason=%s hp=%.0f/%.0f threat_dist=%.0f from=(%.0f %.0f %.0f) to=(%.0f %.0f %.0f)\n",
+					engine->GetPlayerUserId(m_pEdict), hasEnemyVehicle ? "enemy-vehicle" : "heavy-fire",
+					cvHealth, state.cvMaxHealth, nearestThreatDist < 1.0e8f ? nearestThreatDist : -1.0f,
+					vehicleOrigin.x, vehicleOrigin.y, vehicleOrigin.z,
+					retreatGoal.x, retreatGoal.y, retreatGoal.z);
+				return;
+			}
+		}
+	}
+
 	// --- Boomtanking (user 2026-11-12): enemy infantry inside the base zone -> drive the CV
 	// over them, then back here. Before any building work: the base comes first. ---
 	// Boomtanking: 1 = on except on rainbowroad (user: the CV would fall off the road), 2 = everywhere.

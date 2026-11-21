@@ -44,7 +44,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 
 | | Feature | Notes |
 |:-:|---|---|
-| ✅ | Take the command vehicle | When no human commands |
+| ✅ | Take the command vehicle | When no human commands; pulls the CV back to a repair pad or open ground away from danger when an enemy vehicle closes in or under heavy fire |
 | 🟡 | Prioritize the commander candidate | Avoids starting refinery turrets while taking the seat; match testing continues |
 | 🟡 | Hand over to a human | A human who gets in or uses the CV gets the seat; not tested with a real player yet |
 | ✅ | Build the base | Refineries, barracks, vehicle factory, armory, repair station in a fixed order |
@@ -126,7 +126,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | ✅ | Turret fire | Retreat out of a turret's range |
 | ✅ | Capture flags | On maps with capture points |
 | ✅ | Follow move orders | Move, abort and attack location from the commander; tested through the game's own order commands, not yet with a real human. A move ends within the game's 100 units (route extended straight to the spot when the mesh ends beside it) |
-| 🟡 | Destroy turrets and buildings | Grenadiers attack turrets, enemy buildings and the CV with RPG and mortar from outside the building; some map/state combinations still find no firing position. Riflemen use sticky grenades (up to 420 units) and scouts sabotage buildings; both are not yet confirmed in a full match |
+| 🟡 | Destroy turrets and buildings | Grenadiers attack turrets, enemy buildings and the CV with RPG and mortar from outside the building; some map/state combinations still find no firing position. Scouts sabotage enemy buildings (confirmed live); riflemen use sticky grenades (up to 420 units, not yet confirmed in a full match) |
 | 🟡 | Follow guard and attack-target orders | Infantry follow the guarded unit or the attack target; engineers build or repair the guarded building (also refineries). Attack target on an enemy is accepted by the game only from a human commander's view, so it was tested with a test hook; a test with a real human is open |
 | 🟡 | Water | Bots come up for air after 5 s with the head under water and avoid deep water when there is a way over land. Flags reachable only by ladders from the water (palmbay boats) are skipped for now |
 | ✅ | Team join | Bots join a team without the join suicide (marked dead before `jointeam`, as the game does for humans) |

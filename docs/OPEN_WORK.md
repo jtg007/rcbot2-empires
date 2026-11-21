@@ -127,7 +127,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky
   charges (`weapon_emp_*_sticky_grenade`, ≤ 420 HU) and scout sabotage (`IN_USE`) are
-  now implemented; confirmation in a full match is open.
+  implemented; scout sabotage was confirmed live (`20261120-231458` on an enemy refinery),
+  while rifleman sticky confirmation in a full match is open.
 - [ ] **Commander vehicle drive can get stuck:** in the production match an NF commander
   recovered on its second attempt. Identify the obstacle with a verified demo if it recurs.
   On `emp_slaughtered`, the CV stopped in front of the radar on the same approach at
@@ -321,12 +322,16 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   An occupied bay (3.17) is now cleared by adopting the empty vehicle (see
   the stall-escalate item); recovering wrecks abandoned twice is still open. The default is 0.
 
-- [ ] **Palmbay factory placement (5.8c):** the site search starts at the CV's home
-  position and requires reachable navmesh plus the game's own placement test; buyer walk
-  timeouts extend while moving, nav cooldowns clear on retry, and forward barracks are
-  built near the VF (0–2 purchases per 14-min 4× run). Open: remaining walk-timeout spots
-  and BE finding a reachable factory site on Palmbay. A map-built factory with an
-  unexpected team number is found by class name (5.22, not yet confirmed on such a map).
+- [ ] **Palmbay factory placement (5.8c):** `FindNearFactorySite` (100-unit ground grid,
+  radius 3600, reachable + exit lane) now reserves a free base factory spot before the
+  first building, and other buildings keep 1500 HU off it (Palmbay BE `(-7444 -9281)`,
+  `20261120-235714`: BE factory built first in base, 6 tanks in 8 min, 0 give-ups, 7
+  `navmesh-stuck`). As fallback (`near clear=0`, Palmbay NF), `FindRemoteFactorySite`
+  scans 11500 HU radius / 2400 HU depth with cluster fallback ≥ 1 and navmesh-snapped CV
+  goal (`20261120-225803`: both teams built VF + forward barracks, 7 heavy tanks, 0
+  `walk-timeout`). Open: spawning at forward barracks (5.24) and sporadic NF commander
+  CV entry stalls. A map-built factory with an unexpected team number is found by class
+  name (5.22, not yet confirmed on such a map).
 
 - [x] **Crossroads navigation around large props (3.4g):** a stall at prop 185
   closed 398 edges for 60 s, and `prop_dynamic` 180 closed 2244 links twice in a
@@ -365,12 +370,19 @@ When the following cases recur, compare the relevant trace and route.
   and each team bought three vehicles. Observe a destroyed radar and new research
   choices during later economy work.
 - Commander research & vehicle tiers (5.1, 5.2): post-VF research path (`NextResearch()`,
-  unit-tested: MG/ML turret L2 → APC spawn → Mechanical/Medium/Composite/Gas Turbine →
-  L3/Heavy) and radar-loss reset are implemented. Dynamic vehicle part selection by
-  research and budget (`bot_empires_vehicle_loadout.h`, unit-tested, live check
-  `20261120-193737`: NF/BE Heavy Tanks with Composite Armor, Gas Turbine and Medium Chain
-  Gun) is wired into purchase and pad refit. Open: confirm in a full normal-speed match;
-  rebuild lost buildings and choose resource points by value.
+  unit-tested: MG/ML turret L2 → Mechanical Engineering (27) → APC spawn (39) →
+  Upgraded/Medium/Composite/Gas Turbine → L3/Heavy) and radar-loss reset are implemented.
+  Live-verified without cheat research (`20261120-233436`, `emp_sv_research_complete 0`:
+  `60 → 61 → 62 → 64 → 27 → 39 → 28` all started and completed cleanly). Dynamic vehicle
+  part selection by research and budget (`bot_empires_vehicle_loadout.h`, unit-tested, live
+  check `20261120-193737`: NF/BE Heavy Tanks with Composite Armor, Gas Turbine and Medium
+  Chain Gun) is wired into purchase and pad refit. Open: confirm in a full normal-speed
+  match; rebuild lost buildings and choose resource points by value.
+- Commander CV survival & base defense (5.23): the commander pulls the CV back when an
+  alive enemy vehicle closes within 2200 HU or under heavy fire, preferring a finished own
+  repair station or open navmesh away from the threat (live test `20261121-002633`: NF CV
+  retreated 1800 HU sideways from a BE heavy tank at `threat_dist=1610`). Open: general
+  forward barracks near the front (beyond `5.8b`) and commander MG/ML turrets/walls.
 - Infantry combat, classes & barracks spawn (3.25, 5.25, 5.24): weapon ranges in
   `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
   (including rifleman stickies and scout sniper/shotgun) are active for all four classes,

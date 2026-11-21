@@ -797,6 +797,9 @@ public:
 		int lastSelfBuildSkip = 0;
 		float nextTurretCheck = 0.0f;
 		float nextHuntCheck = 0.0f;
+		float nextRetreatCheck = 0.0f;
+		float lastCvHealth = -1.0f;
+		float cvMaxHealth = 0.0f;
 		float blockedUntil[EmpiresCommanderEconomy::TypeCount] = {};
 		int failures[EmpiresCommanderEconomy::TypeCount] = {};
 		bool verifyPending = false;
