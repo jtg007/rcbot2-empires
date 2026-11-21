@@ -57,6 +57,8 @@ extern IServerTools* servertools;
 void getGrenadeAngle(double v, double g, double desx, double desy,
 	float* fa1, float* fa2);
 
+extern int g_exitBlockSpawnUserId; // bot_empires_vehicle.cpp, test-only
+
 namespace
 {
 	class CCommanderEntryTraceFilter : public CTraceFilter
@@ -1403,6 +1405,18 @@ float CBotEmpires::getEnemyFactor(edict_t* pEnemy)
 	else if (enemyPressingAttack)
 	{
 		factor -= 512.0f;
+	}
+
+	const int vehIdx = EmpiresVehiclePlayerVehicle(this, pEnemy);
+	if (vehIdx > 0 && engine != nullptr)
+	{
+		edict_t* veh = engine->PEntityOfEntIndex(vehIdx);
+		int chassis = -1;
+		if (veh != nullptr && !veh->IsFree() && readEmpiresEntityIntProperty(veh, "m_iChassis", chassis) &&
+			(chassis == 1 || chassis == 9))
+		{
+			factor -= 2000.0f;
+		}
 	}
 
 	return factor;
@@ -6712,6 +6726,9 @@ bool CBotEmpires::beginNormalRespawn()
 
 	m_eNormalSpawnState = EmpiresNormalSpawnState::IDLE;
 	m_iNormalSpawn = -1;
+	m_iNormalSpawnExcludeId = -1;
+	m_iNormalSpawnRetryCount = 0;
+	m_flNormalSpawnRetryAfter = 0.0f;
 	m_iNormalSpawnFrames = 0;
 	m_flNormalSpawnDeadline = 0.0f;
 	m_flNormalSpawnObserveDeadline = 0.0f;
@@ -13532,20 +13549,28 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		return false;
 	}
 
-	int candidateCount = 0;
-	int selectedId = -1;
-	edict_t* selectedEdict = nullptr;
-	bool selectedEnabled = false;
-	int selectedFrontScore = 1 << 20;
-	float selectedFrontDist2D = 1.0e9f;
+	struct SpawnCandidate
+	{
+		int id;
+		edict_t* edict;
+		Vector origin;
+		bool enabled;
+		int frontScore;
+		float frontDist2D;
+		bool isCapPoint;
+	};
+	std::vector<SpawnCandidate> candidates;
 
 	// Front line: spawn groups share pointNumber with capture points, and on
 	// linear maps the numbers follow the front (as_escort: BE holds 6, NF 1-5, NF
 	// must spawn at 5). Score = numeric gap to the nearest point this team does
-	// not own; groups without a capture point (base spawns and Commander-built
-	// barracks, which CBarracks::SetHealth creates as emp_info_player_* with
-	// CEmpParams::AddBarracks IDs — TODO 5.24) break ties by 2D distance to the
-	// front (nearest non-owned capture point, or own Vehicle Factory fallback).
+	// not own; groups without a capture point (base spawns, Commander-built
+	// barracks, and APC spawns — CEmpTank::AddSpawnPoint 0x69d910 — TODO 5.24)
+	// are ranked by situational rules:
+	//   1. base-defense: own CV/main base under attack & Engineer/Grenadier -> closest to own CV
+	//   2. vf-buyer: vehicle buyer -> closest to own VF
+	//   3. apc: living friendly APC with active spawn -> APC spawn point
+	//   4. forward-rax: closest to front (including Commander forward barracks)
 	std::vector<int> foreignPoints;
 	std::vector<int> knownPoints;
 	std::vector<Vector> frontAnchors;
@@ -13562,14 +13587,48 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 			if (point.originKnown && (!point.teamOwnerKnown || point.teamOwner != team))
 				frontAnchors.push_back(point.origin);
 		}
-	if (frontAnchors.empty())
+	edict_t* vfEdict = nullptr;
+	Vector vfOrigin = vec3_origin;
+	int vfIndex = -1;
+	const bool hasOwnVf = findEmpiresVehicleFactory(team, vfEdict, vfOrigin, vfIndex);
+	if (frontAnchors.empty() && engine != nullptr && gpGlobals != nullptr)
 	{
-		edict_t* vfEdict = nullptr;
-		Vector vfOrigin = vec3_origin;
-		int vfIndex = -1;
-		if (findEmpiresVehicleFactory(team, vfEdict, vfOrigin, vfIndex))
-			frontAnchors.push_back(vfOrigin);
+		// Flagless maps (e.g. emp_crossroads): orient the front toward the enemy CV so
+		// Commander forward barracks and front APCs beat the main base spawn.
+		const int enemyTeamForFront = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
+		const char* enemyCvCls = enemyTeamForFront == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+				continue;
+			const char* cname = e->GetClassName();
+			if (std::strcmp(cname, enemyCvCls) == 0)
+			{
+				frontAnchors.push_back(CBotGlobals::entityOrigin(e));
+				break;
+			}
+			if (std::strcmp(cname, "emp_vehicle") == 0)
+			{
+				int vTeam = -1, vChassis = -1;
+				if (readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) && vTeam == enemyTeamForFront &&
+					readEmpiresEntityIntProperty(e, "m_iChassis", vChassis) && vChassis >= 14 && vChassis <= 16)
+				{
+					frontAnchors.push_back(CBotGlobals::entityOrigin(e));
+					break;
+				}
+			}
+		}
 	}
+	if (frontAnchors.empty() && hasOwnVf)
+		frontAnchors.push_back(vfOrigin);
+
+	auto dist2D = [](const Vector& a, const Vector& b)
+	{
+		const float dx = a.x - b.x;
+		const float dy = a.y - b.y;
+		return std::sqrt(dx * dx + dy * dy);
+	};
 	auto spawnFrontScore = [&](const int id)
 	{
 		if (foreignPoints.empty() || std::find(knownPoints.begin(), knownPoints.end(), id) == knownPoints.end())
@@ -13579,20 +13638,13 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 			best = (std::min)(best, std::abs(foreign - id));
 		return best;
 	};
-	auto spawnFrontDist2D = [&](edict_t* edict)
+	auto spawnFrontDist2D = [&](const Vector& pos)
 	{
-		if (edict == nullptr || frontAnchors.empty())
+		if (frontAnchors.empty())
 			return 1.0e9f;
-		const Vector pos = CBotGlobals::entityOrigin(edict);
 		float best = 1.0e9f;
 		for (const Vector& anchor : frontAnchors)
-		{
-			const float dx = pos.x - anchor.x;
-			const float dy = pos.y - anchor.y;
-			const float d = std::sqrt(dx * dx + dy * dy);
-			if (d < best)
-				best = d;
-		}
+			best = (std::min)(best, dist2D(pos, anchor));
 		return best;
 	};
 
@@ -13626,25 +13678,16 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		const bool matchesConfiguredSpawn = !hasConfiguredSpawnId || candidateId == configuredSpawnId;
 		if (validSpawnPoint && matchesConfiguredSpawn && pCandidateEdict != nullptr && !pCandidateEdict->IsFree())
 		{
-			++candidateCount;
-			const int frontScore = spawnFrontScore(candidateId);
-			const float frontDist2D = spawnFrontDist2D(pCandidateEdict);
-			if (selectedEdict == nullptr || (enabled && !selectedEnabled) ||
-				(enabled == selectedEnabled && frontScore < selectedFrontScore) ||
-				(enabled == selectedEnabled && frontScore == selectedFrontScore && frontDist2D + 200.0f < selectedFrontDist2D))
-			{
-				selectedId = candidateId;
-				selectedEdict = pCandidateEdict;
-				selectedEnabled = enabled;
-				selectedFrontScore = frontScore;
-				selectedFrontDist2D = frontDist2D;
-			}
+			const Vector pos = CBotGlobals::entityOrigin(pCandidateEdict);
+			const bool isCap = std::find(knownPoints.begin(), knownPoints.end(), candidateId) != knownPoints.end();
+			candidates.push_back({ candidateId, pCandidateEdict, pos, enabled,
+				spawnFrontScore(candidateId), spawnFrontDist2D(pos), isCap });
 		}
 
 		pEntity = servertools->NextEntity(pEntity);
 	}
 
-	if (candidateCount == 0 || selectedEdict == nullptr)
+	if (candidates.empty())
 	{
 		if (hasConfiguredSpawnId)
 		{
@@ -13656,13 +13699,256 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		return false;
 	}
 
-	spawnId = selectedId;
-	spawnEdict = selectedEdict;
+	// Check if any enabled candidate exists outside m_iNormalSpawnExcludeId.
+	bool hasEnabledNonExcluded = false;
+	for (const SpawnCandidate& c : candidates)
+	{
+		if (c.enabled && (m_iNormalSpawnExcludeId < 0 || c.id != m_iNormalSpawnExcludeId))
+		{
+			hasEnabledNonExcluded = true;
+			break;
+		}
+	}
+
+	// Gather situational context: own CV, base-under-attack, and living friendly APCs.
+	const int enemyTeam = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
+	const char* ownCvClass = team == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";
+	bool ownCvKnown = false;
+	Vector ownCvOrigin = vec3_origin;
+	std::vector<Vector> ownBaseAnchors;
+	std::vector<Vector> friendlyApcOrigins;
+	if (engine != nullptr && gpGlobals != nullptr)
+	{
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+				continue;
+			const char* cname = e->GetClassName();
+			if (!ownCvKnown && std::strcmp(cname, ownCvClass) == 0)
+			{
+				ownCvOrigin = CBotGlobals::entityOrigin(e);
+				ownCvKnown = true;
+				ownBaseAnchors.push_back(ownCvOrigin);
+			}
+			else if (std::strcmp(cname, "emp_vehicle") == 0)
+			{
+				int vTeam = -1, vChassis = -1;
+				if (readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) && vTeam == team &&
+					readEmpiresEntityIntProperty(e, "m_iChassis", vChassis))
+				{
+					if (!ownCvKnown && vChassis >= 14 && vChassis <= 16)
+					{
+						ownCvOrigin = CBotGlobals::entityOrigin(e);
+						ownCvKnown = true;
+						ownBaseAnchors.push_back(ownCvOrigin);
+					}
+					else if ((vChassis == 1 || vChassis == 9) &&
+						EmpiresVehicleAlive(const_cast<CBotEmpires*>(this), e))
+					{
+						int health = 0, maxHealth = 0;
+						const bool hasHp = readEmpiresEntityIntProperty(e, "m_iHealth", health);
+						const bool hasMax = readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHealth);
+						const bool healthyEnough = !hasHp || health <= 0 ? true :
+							(!hasMax || maxHealth <= 0 || health * 100 >= maxHealth * 35);
+						if (healthyEnough)
+							friendlyApcOrigins.push_back(CBotGlobals::entityOrigin(e));
+					}
+				}
+			}
+		}
+	}
+	if (hasOwnVf)
+		ownBaseAnchors.push_back(vfOrigin);
+
+	bool baseUnderAttack = false;
+	if (!ownBaseAnchors.empty() && engine != nullptr && gpGlobals != nullptr)
+	{
+		for (int i = 1; i <= gpGlobals->maxClients && !baseUnderAttack; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			IPlayerInfo* info = e != nullptr && !e->IsFree() && playerinfomanager != nullptr ?
+				playerinfomanager->GetPlayerInfo(e) : nullptr;
+			if (info == nullptr || info->IsDead() || info->IsObserver() || info->GetHealth() <= 0 ||
+				info->GetTeamIndex() != enemyTeam)
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			for (const Vector& base : ownBaseAnchors)
+				if (dist2D(at, base) < 2200.0f)
+				{
+					baseUnderAttack = true;
+					break;
+				}
+		}
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && !baseUnderAttack; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
+				std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
+				continue;
+			int vTeam = -1;
+			if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) || vTeam != enemyTeam ||
+				!EmpiresVehicleAlive(const_cast<CBotEmpires*>(this), e))
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			for (const Vector& base : ownBaseAnchors)
+				if (dist2D(at, base) < 2500.0f)
+				{
+					baseUnderAttack = true;
+					break;
+				}
+		}
+	}
+
+	const bool isDefenderClass = (m_iDesiredClass == EMP_CLASS_ENGINEER || m_iDesiredClass == EMP_CLASS_GRENADIER);
+	const bool wantVfSpawn = !baseUnderAttack && hasOwnVf &&
+		m_iDesiredClass != EMP_CLASS_ENGINEER && EmpiresBotWantsVfSpawn(this, team);
+
+	auto candidateUsable = [&](const SpawnCandidate& c)
+	{
+		if (hasEnabledNonExcluded)
+			return c.enabled && (m_iNormalSpawnExcludeId < 0 || c.id != m_iNormalSpawnExcludeId);
+		return true;
+	};
+
+	const SpawnCandidate* chosen = nullptr;
+	const char* reason = (m_iNormalSpawnExcludeId >= 0) ? "fallback" : "forward-rax";
+
+	// Rule 1: Base defense (CV or base buildings under attack, Engineer/Grenadier).
+	if (!hasConfiguredSpawnId && baseUnderAttack && isDefenderClass && !ownBaseAnchors.empty())
+	{
+		const Vector& anchor = ownCvKnown ? ownCvOrigin : ownBaseAnchors.front();
+		float bestDist = 1.0e9f;
+		for (const SpawnCandidate& c : candidates)
+		{
+			if (!candidateUsable(c))
+				continue;
+			const float d = dist2D(c.origin, anchor);
+			if (chosen == nullptr || (c.enabled && !chosen->enabled) ||
+				(c.enabled == chosen->enabled && d < bestDist))
+			{
+				chosen = &c;
+				bestDist = d;
+			}
+		}
+		if (chosen != nullptr)
+			reason = "base-defense";
+	}
+
+	// Rule 2: Vehicle buyer -> closest spawn to own VF.
+	if (chosen == nullptr && !hasConfiguredSpawnId && wantVfSpawn && hasOwnVf)
+	{
+		float bestDist = 1.0e9f;
+		for (const SpawnCandidate& c : candidates)
+		{
+			if (!candidateUsable(c))
+				continue;
+			const float d = dist2D(c.origin, vfOrigin);
+			if (chosen == nullptr || (c.enabled && !chosen->enabled) ||
+				(c.enabled == chosen->enabled && d < bestDist))
+			{
+				chosen = &c;
+				bestDist = d;
+			}
+		}
+		if (chosen != nullptr)
+			reason = "vf-buyer";
+	}
+
+	// Rule 3: Living friendly APC with active spawn point -> infantry attacks from APC.
+	if (chosen == nullptr && !hasConfiguredSpawnId && !friendlyApcOrigins.empty())
+	{
+		float bestDistFront = 1.0e9f;
+		for (const SpawnCandidate& c : candidates)
+		{
+			if (!candidateUsable(c) || !c.enabled || c.isCapPoint)
+				continue;
+			bool matchesApc = false;
+			for (const Vector& apcPos : friendlyApcOrigins)
+				if (dist2D(c.origin, apcPos) < 350.0f)
+				{
+					matchesApc = true;
+					break;
+				}
+			if (!matchesApc)
+				continue;
+			if (chosen == nullptr || c.frontDist2D < bestDistFront)
+			{
+				chosen = &c;
+				bestDistFront = c.frontDist2D;
+			}
+		}
+		// A forward barracks clearly closer to the front beats an APC parked further
+		// back (run 20261121-132349: APC spawn 13060 HU vs barracks ~10000 HU).
+		// Test only (empires_test_exit_block 0 passenger): this respawn goes into the boxed APC.
+		const bool testApcSpawn = g_exitBlockSpawnUserId >= 0 && g_exitBlockSpawnUserId == engine->GetPlayerUserId(m_pEdict);
+		if (testApcSpawn)
+			g_exitBlockSpawnUserId = -1;
+		if (chosen != nullptr && !testApcSpawn)
+			for (const SpawnCandidate& c : candidates)
+				if (candidateUsable(c) && c.enabled && !c.isCapPoint && &c != chosen &&
+					c.frontDist2D + 1500.0f < chosen->frontDist2D)
+				{
+					RCBOT_DIAG("[RCBOT2] spawn-select apc-yield userid=%d apc_id=%d apc_front=%.0f other_id=%d other_front=%.0f\n",
+						engine->GetPlayerUserId(m_pEdict), chosen->id, chosen->frontDist2D, c.id, c.frontDist2D);
+					chosen = nullptr;
+					break;
+				}
+		if (chosen != nullptr)
+			reason = "apc";
+	}
+
+	// Rule 4: Front-nearest valid spawn (including Commander forward barracks).
+	if (chosen == nullptr)
+	{
+		for (const SpawnCandidate& c : candidates)
+		{
+			if (!candidateUsable(c))
+				continue;
+			if (chosen == nullptr || (c.enabled && !chosen->enabled) ||
+				(c.enabled == chosen->enabled && c.frontScore < chosen->frontScore) ||
+				(c.enabled == chosen->enabled && c.frontScore == chosen->frontScore &&
+					c.frontDist2D + 200.0f < chosen->frontDist2D))
+			{
+				chosen = &c;
+			}
+		}
+		if (m_iNormalSpawnExcludeId >= 0)
+			reason = "fallback";
+		// Rule 4 also returns the main base spawn when nothing is further forward; name it
+		// so the log does not claim a forward barracks.
+		else if (chosen != nullptr && !chosen->isCapPoint && ownCvKnown &&
+			dist2D(chosen->origin, ownCvOrigin) < 3000.0f)
+			reason = "base";
+	}
+
+	if (chosen == nullptr)
+		return false;
+
+	spawnId = chosen->id;
+	spawnEdict = chosen->edict;
+	int enabledCount = 0;
+	std::string candidateIds;
+	for (const SpawnCandidate& c : candidates)
+	{
+		if (c.enabled)
+			++enabledCount;
+		if (candidateIds.size() < 96)
+		{
+			char buf[24];
+			snprintf(buf, sizeof(buf), "%s%d%s", candidateIds.empty() ? "" : ",", c.id, c.enabled ? "" : "x");
+			candidateIds += buf;
+		}
+	}
+	RCBOT_DIAG("[RCBOT2] spawn-select userid=%d team=%d class=%d reason=%s spawn_id=%d dist_front=%.0f cands=%zu enabled=%d apcs=%zu base_attack=%d ids=%s\n",
+		m_pEdict != nullptr && engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1,
+		team, m_iDesiredClass, reason, spawnId, chosen->frontDist2D, candidates.size(), enabledCount,
+		friendlyApcOrigins.size(), baseUnderAttack ? 1 : 0, candidateIds.c_str());
 	logger->Log(LogLevel::INFO,
-		"Empires bootstrap spawn selection result map=%s team=%d spawn_id=%d source=%s enabled=%d front_score=%d cap_points=%zu foreign=%zu",
+		"Empires bootstrap spawn selection result map=%s team=%d spawn_id=%d source=%s reason=%s enabled=%d front_score=%d cap_points=%zu foreign=%zu",
 		gpGlobals != nullptr ? gpGlobals->mapname.ToCStr() : "unavailable", team, spawnId,
-		hasConfiguredSpawnId ? "config" : "first-live-fallback", selectedEnabled ? 1 : 0,
-		selectedFrontScore, knownPoints.size(), foreignPoints.size());
+		hasConfiguredSpawnId ? "config" : "first-live-fallback", reason, chosen->enabled ? 1 : 0,
+		chosen->frontScore, knownPoints.size(), foreignPoints.size());
 	return true;
 }
 
@@ -15396,13 +15682,40 @@ bool CBotEmpires::startGame()
 		const char* classPropertyName = nullptr;
 		const bool classKnown = readEmpiresClass(m_pEdict, classId, classDesired,
 			classDesiredKnown, classPropertyName);
-		if (info == nullptr || info->IsDead() || info->GetHealth() <= 0 ||
-			!classKnown || classId != m_iDesiredClass)
-			return false;
-		m_eNormalSpawnState = EmpiresNormalSpawnState::COMPLETE;
-		logger->Log(LogLevel::INFO,
-			"Empires normal spawn recovered-alive index=%d userid=%d class=%d health=%d",
-			engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict), classId, info->GetHealth());
+		if (info != nullptr && !info->IsDead() && info->GetHealth() > 0 &&
+			classKnown && classId == m_iDesiredClass)
+		{
+			m_eNormalSpawnState = EmpiresNormalSpawnState::COMPLETE;
+			m_iNormalSpawnExcludeId = -1;
+			m_iNormalSpawnRetryCount = 0;
+			m_flNormalSpawnRetryAfter = 0.0f;
+			logger->Log(LogLevel::INFO,
+				"Empires normal spawn recovered-alive index=%d userid=%d class=%d health=%d",
+				engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict), classId, info->GetHealth());
+		}
+		else
+		{
+			// Clean fallback (5.24): if the selected spawn (e.g. APC or forward barracks) was
+			// rejected or destroyed before respawn, exclude it and retry the next available spawn.
+			const float now = engine->Time();
+			if (now < m_flNormalSpawnRetryAfter)
+				return false;
+			if (m_iNormalSpawnRetryCount < 3)
+			{
+				m_iNormalSpawnExcludeId = m_iNormalSpawn;
+				++m_iNormalSpawnRetryCount;
+			}
+			else
+			{
+				m_iNormalSpawnExcludeId = -1;
+				m_iNormalSpawnRetryCount = 0;
+				m_flNormalSpawnRetryAfter = now + 5.0f;
+				return false;
+			}
+			m_eNormalSpawnState = EmpiresNormalSpawnState::IDLE;
+			m_iNormalSpawn = -1;
+			m_iNormalSpawnFrames = 0;
+		}
 	}
 	if (m_eNormalSpawnState == EmpiresNormalSpawnState::COMPLETE)
 	{

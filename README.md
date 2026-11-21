@@ -53,7 +53,7 @@ Bots that play Empires the way a team does, not generic shooter bots:
 | 🟡 | Drive the CV | Drives to distant buildings and enemy infantry. Checks shortcuts for buildings and backs up to line up with a detour when needed. A drive that makes no headway for 25 s ends, and the commander builds from where the CV stands if in range |
 | ✅ | Place the vehicle factory | Exit faces along the route towards the enemy. Before the first base building a fine ground scan reserves a free factory spot near the CV (single exact spots in cramped bases, e.g. Palmbay BE), other buildings keep 1500 units off it; without one the CV drives to a remote site |
 | 🟡 | Research | Radar, then Structural Engineering and Vehicle Factory before the factory is built; after the factory (from 350 resources) turret level 2, Mechanical Engineering, APC spawn, chassis, armour and engine research, then level 3 and heavy tanks (live-verified through Upgraded Chassis without cheat research) |
-| 🟡 | Expand and defend the base | Places a forward barracks beside a remote vehicle factory (> 3500 units from own barracks) and, once the vehicle factory is up, drops a second forward barracks near an on-foot teammate at the front (reserving 300 resources, assigning an engineer); after the repair pad, places up to two MG and two ML base defense turrets (`emp_build` 8/9) |
+| 🟡 | Expand and defend the base | Places a forward barracks beside a remote vehicle factory (> 3500 units from own barracks) and, once the vehicle factory is up, drops a second forward barracks near an on-foot teammate at the front (own half of the map only) (reserving 300 resources, assigning an engineer); after the repair pad, places up to two MG and two ML base defense turrets (`emp_build` 8/9) |
 | ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
 | 🟡 | Give orders to bots | The seated bot commander sends its free attackers (no engineers, defenders or bots with another order) to the next open capture point with an *attack location* order, re-targets when it is taken and releases them after 120 s without progress (`rcbot_empires_commander_orders`). Measured on palmbay and DMZ: orders arrive and bots walk there; no capture measured yet |
 
@@ -121,6 +121,7 @@ with a bot commander (`scripts/dev_engibot.sh`).
 | | Feature | Notes |
 |:-:|---|---|
 | ✅ | Classes | Scout, Rifleman, Grenadier, Engineer with several loadouts per class (e.g. rifleman stickies, scout sniper or shotgun) and class skills for all four |
+| 🟡 | Pick a spawn | Each (re)spawn picks by situation: Engineers/Grenadiers at the base when enemies are within ~2200 units of the CV or vehicle factory, vehicle buyers at the factory (limited by the per-team driver quota), otherwise a living friendly APC spawn, unless a spawn is more than 1500 units closer to the front, otherwise the spawn nearest the front (capture points first; on maps without flags toward the enemy CV). APC spawns and forward-barracks spawns confirmed in 10-bot Crossroads matches; bots that spawn inside an APC get out once it is slow, has no driver, or after 10 s. If the exit stays blocked (vehicle wedged, no room at the side), the bot backs up/moves forward as driver, tries another seat (other exit points), takes the driver seat back and retries after ~15 s (confirmed with a boxed-in heavy tank and a boxed-in APC, driver and passenger) |
 | ✅ | Fight | Aim, shoot, pick targets; engagement ranges per weapon (pistols ~1000, shotguns 700, SMGs ~1700, rifles ~3000, snipers up to 4500). Keeping class-typical distance and using cover are open |
 | 🟡 | Resupply | Engineer resupply exists; ammo requests and coverage for other classes remain open |
 | ✅ | Turret fire | Retreat out of a turret's range |
@@ -256,6 +257,7 @@ server, check out the `1.12-dev` branch there before building (reported working 
 - Vehicles can become stuck near the repair pad or in the BE base; crossroads gates and ramps need work.
 - On `emp_palmbay` BE builds its vehicle factory in the base; NF (no free spot near its CV) drives to a remote site and builds a forward barracks there. NF commander entry can occasionally stall at spawn.
 - On `emp_palmbay` NF tanks sometimes get stuck in the palm cluster on the way to the front and leave the tank; on `emp_crossroads` a concrete wall near (3800 5000) stops tanks.
+- Forward barracks are only placed on the own half of the map. A bot whose vehicle exit is blocked on all sides (after nudging and switching seats) stays seated and retries every ~15 s.
 - On `emp_coast` engineers find no stand point at the refineries, so they stay unfinished and income is lower.
 - Only Linux servers are tested.
 
@@ -320,6 +322,11 @@ Planned work includes coordinated squad passengers, jeep attacks and refinery de
   places a solid prop on a debug-bought driver's route
   (`rcbotd empires_vehicle_obstacle [ahead] [lateral] [entry_speed] [model]`)
   and logs how the driver gets past it.
+- `rcbotd empires_test_exit_block <bot_userid|0> [passenger]` boxes that bot's vehicle
+  (0 = the first APC driver) in with solid barriers once it drives and makes it get out;
+  with `passenger` the driver keeps driving and one teammate on foot respawns into the
+  vehicle. Logs `vehicle exit-block placed` and the `stall-escalate who=vehicle-exit`
+  stages (nudge, other seat, driver seat, reset).
   The planner searches for alternatives when the regular arc hits a blocking
   entity or during recovery from a maneuver stall. Regular steering handles
   world geometry and ground clearance. After a maneuver retry, it releases the

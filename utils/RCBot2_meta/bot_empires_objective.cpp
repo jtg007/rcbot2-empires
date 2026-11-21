@@ -1912,7 +1912,10 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		edict_t* best = nullptr;
 		const char* bestClass = nullptr;
 		float bestDist = 420.0f;
+		float bestScore = 1.0e9f;
 		int bestHealth = 0;
+		bool bestIsApc = false;
+		int bestChassis = -1;
 		for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 		{
 			edict_t* e = INDEXENT(index);
@@ -1920,7 +1923,21 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				continue;
 			const char* className = e->GetClassName();
 			const bool isCv = std::strcmp(className, enemyCvClass) == 0;
-			if (!isCv)
+			bool isEnemyVehicle = false;
+			bool isApc = false;
+			int chassis = -1;
+			if (!isCv && std::strcmp(className, "emp_vehicle") == 0)
+			{
+				int vTeam = -1;
+				if (readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) && vTeam == enemyTeam &&
+					EmpiresVehicleAlive(this, e))
+				{
+					isEnemyVehicle = true;
+					readEmpiresEntityIntProperty(e, "m_iChassis", chassis);
+					isApc = (chassis == 1 || chassis == 9);
+				}
+			}
+			if (!isCv && !isEnemyVehicle)
 			{
 				if (std::strncmp(className, "emp_building_", 13) != 0 ||
 					std::strstr(className, "physbox") != nullptr ||
@@ -1937,12 +1954,15 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 					continue;
 			}
 			int health = 0;
-			if (isCv ? !EmpiresVehicleAlive(this, e) :
+			if ((isCv || isEnemyVehicle) ? !EmpiresVehicleAlive(this, e) :
 				(!readEmpiresEntityIntProperty(e, "m_iHealth", health) || health <= 0))
 				continue;
 			const Vector at = CBotGlobals::entityOrigin(e);
 			const float dist = empiresNavGoalDistance2D(origin, at);
-			if (dist >= bestDist)
+			if (dist >= 420.0f)
+				continue;
+			const float score = dist - (isApc ? 1000.0f : (isEnemyVehicle ? 200.0f : 0.0f));
+			if (score >= bestScore)
 				continue;
 			QAngle aim;
 			if (!empiresTurretRocketAim(eye, m_pEdict, e, aim, true))
@@ -1950,7 +1970,10 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			best = e;
 			bestClass = className;
 			bestDist = dist;
+			bestScore = score;
 			bestHealth = health;
+			bestIsApc = isApc;
+			bestChassis = chassis;
 		}
 		if (best != nullptr)
 		{
@@ -1966,6 +1989,9 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			m_flEmpiresBuildingActionPressUntil = 0.0f;
 			m_bEmpiresBuildingActionThrown = false;
 			selectWeaponName(stickyName);
+			if (bestIsApc)
+				RCBOT_DIAG("[RCBOT2] anti-apc-priority who=rifleman-sticky userid=%d apc=%d chassis=%d dist=%.0f\n",
+					userId, engine->IndexOfEdict(best), bestChassis, bestDist);
 			RCBOT_DIAG("[RCBOT2] building-sticky armed userid=%d target=%d class=%s dist=%.0f health=%d ammo=%d\n",
 				userId, engine->IndexOfEdict(best), bestClass, bestDist, bestHealth, getAmmo(stickyAmmoType));
 			return true;
@@ -2079,6 +2105,8 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		float score;
 		int health;
 		bool isCv;
+		bool isApc;
+		int chassis;
 	};
 	std::vector<TargetCandidate> candidates;
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
@@ -2088,8 +2116,20 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			continue;
 		const char* className = e->GetClassName();
 		const bool isCv = std::strcmp(className, enemyCvClass) == 0;
+		bool isApc = false;
+		int chassis = -1;
+		if (!isCv && std::strcmp(className, "emp_vehicle") == 0)
+		{
+			int vTeam = -1;
+			if (readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) && vTeam == enemyTeam &&
+				readEmpiresEntityIntProperty(e, "m_iChassis", chassis) &&
+				(chassis == 1 || chassis == 9) && EmpiresVehicleAlive(this, e))
+			{
+				isApc = true;
+			}
+		}
 		bool isBuilding = false;
-		if (!isCv)
+		if (!isCv && !isApc)
 		{
 			if (std::strncmp(className, "emp_building_", 13) != 0 ||
 				std::strstr(className, "physbox") != nullptr ||
@@ -2108,14 +2148,16 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		}
 		int health = 0;
 		const bool hasHealth = readEmpiresEntityIntProperty(e, "m_iHealth", health);
-		if (isCv ? !EmpiresVehicleAlive(this, e) : (!hasHealth || health <= 0))
+		if ((isCv || isApc) ? !EmpiresVehicleAlive(this, e) : (!hasHealth || health <= 0))
 			continue;
 		const Vector at = CBotGlobals::entityOrigin(e);
 		const float dist = empiresNavGoalDistance2D(origin, at);
 		if (dist < 220.0f || dist > 3400.0f)
 			continue;
 		float bonus = 0.0f;
-		if (isCv)
+		if (isApc)
+			bonus = 1500.0f;
+		else if (isCv)
 			bonus = 800.0f;
 		else if (std::strstr(className, "barracks") != nullptr ||
 			std::strstr(className, "vehiclefactory") != nullptr)
@@ -2124,7 +2166,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			std::strstr(className, "radar") != nullptr ||
 			std::strstr(className, "turret") != nullptr)
 			bonus = 200.0f;
-		candidates.push_back({ e, className, at, dist, dist - bonus, health, isCv });
+		candidates.push_back({ e, className, at, dist, dist - bonus, health, isCv, isApc, chassis });
 	}
 	if (candidates.empty())
 	{
@@ -2164,6 +2206,9 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			m_bEmpiresTurretRocketIsThreat = false;
 			m_flEmpiresTurretRocketUntil = now + 10.0f;
 			selectWeaponName(rpgName);
+			if (c.isApc)
+				RCBOT_DIAG("[RCBOT2] anti-apc-priority who=grenadier-rpg userid=%d apc=%d chassis=%d dist=%.0f\n",
+					userId, engine->IndexOfEdict(c.edict), c.chassis, c.dist);
 			RCBOT_DIAG("[RCBOT2] building-rpg armed userid=%d target=%d class=%s dist=%.0f health=%d ammo=%d\n",
 				userId, engine->IndexOfEdict(c.edict), c.className, c.dist, c.health, m_iEmpiresTurretRocketAmmo);
 			return true;
@@ -2190,6 +2235,9 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			if (requestEmpiresMortarAtPointOnce(targetPoint, true))
 			{
 				m_flEmpiresBuildingAttackNext = now + 2.0f;
+				if (c.isApc)
+					RCBOT_DIAG("[RCBOT2] anti-apc-priority who=grenadier-mortar userid=%d apc=%d chassis=%d dist=%.0f\n",
+						userId, engine->IndexOfEdict(c.edict), c.chassis, c.dist);
 				RCBOT_DIAG("[RCBOT2] building-mortar fire userid=%d target=%d class=%s dist=%.0f health=%d\n",
 					userId, engine->IndexOfEdict(c.edict), c.className, c.dist, c.health);
 				return true;

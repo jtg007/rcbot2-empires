@@ -101,3 +101,13 @@ Static analysis, same binary. Symptom: every bot logs `joined team "..."` follow
 Static analysis of `CBarracks::SetHealth(int)` (0x6148a0):
 - When a barracks finishes construction, it calls `CEmpParams::AddBarracks(team)` (0x641c30) to obtain a spawn group ID, spawns `emp_info_player_nf` / `emp_info_player_imp` entities at its spawn attachments, writes that ID directly to `CEmpSpawn+0x358` (`pointNumber`), and enables them via `CEmpSpawn::SetEnabled(true, ...)` (0x67fd70, `+0x354`).
 - Consequently, `EntSelectSpawnPoint()` and `resolveBootstrapSpawnId()` both see Commander-built barracks as ordinary `emp_info_player_*` entities; selecting them only requires preferring closer enabled spawn origins when `pointNumber` is not tied to a map capture point.
+
+## APC mobile spawn points (2026-11-21)
+
+Static analysis of `CEmpTank::AddSpawnPoint()` (0x69d910):
+- When an APC with `APC_Spawn_Point` (39) activates its spawn point, it creates an ordinary `emp_info_player_nf` / `emp_info_player_imp` entity via `CreateEntityByName`, obtains a spawn group ID from `CEmpParams::AddBarracks(team)` (0x641c30), writes that ID to `CEmpSpawn+0x358` (`pointNumber`), positions it at `CEmpTank::GetExitPoint()`, and enables it via `CEmpSpawn::SetEnabled(true, ...)` (`+0x354`).
+- Consequently, APC spawns require no new binary offsets: they appear as enabled `emp_info_player_*` entities within ~350 HU of a living friendly APC (`chassis=1` NF / `chassis=9` BE) whose `pointNumber` is not a map capture point.
+
+## Spawning at an APC seats the player (runtime, 2026-11-21)
+
+Runtime observation, not traced in the binary: a player that respawns at an APC spawn point is placed in a passenger seat of the APC (`EmpiresVehiclePlayerVehicle` >= 0, run 20261121-133146 userid 6/8 in APC 574). While seated, the player origin is vehicle-local (always about (90 -60 -17) / (56 -86 9)), so on-foot planning, stall checks and stand-spot searches based on `getOrigin()` are meaningless until the player presses USE to leave. The bot now leaves the seat when the vehicle has no driver or moves slower than 150 u/s.

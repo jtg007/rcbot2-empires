@@ -36,6 +36,9 @@ extern IServerGameEnts* servergameents;
 extern IServerTools* servertools;
 extern IStaticPropMgrServer* staticpropmgr;
 bool CGameRulesShouldCollide(int collisionGroup0, int collisionGroup1); // navmesh/util/UtilTrace.cpp
+int g_exitBlockUserId = -1; // test-only, rcbotd empires_test_exit_block (bot_commands.cpp); 0 = first APC driver
+int g_exitBlockSpawnUserId = -1; // the bot respawned by the passenger test skips the APC yield once
+bool g_exitBlockPassenger = false; // ... passenger: a teammate respawns into the boxed vehicle
 
 namespace
 {
@@ -895,7 +898,56 @@ bool IsCommanderChassis(int chassis)
 	return chassis >= 14 && chassis <= 16;
 }
 
+bool IsApcChassis(int chassis)
+{
+	return chassis == 1 || chassis == 9;
+}
+
 } // namespace
+
+bool EmpiresBotWantsVfSpawn(const CBotEmpires* bot, int team)
+{
+	if (bot == nullptr || bot->getEdict() == nullptr || !rcbot_empires_vehicles.GetBool())
+		return false;
+	float pool = -1.0f;
+	EmpiresTeamResources(team, pool);
+	const float wages = EmpiresPlayerWages(bot->getEdict());
+	const EmpiresTeamEconomy::TeamState& money = EmpiresTeamEconomy::Team(team);
+	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
+	const float reserve = EmpiresTeamEconomy::ActiveReserve(money, now);
+	if (!EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
+		return false;
+
+	// Same driver quota as the vehicle buy path (TODO 5.24): without it every
+	// non-Engineer spawned at the VF as soon as the team could afford one tank
+	// (run 20261121-130658). Recent VF-spawn claims of bots that are not driving
+	// yet count as drivers, so simultaneous respawns do not all pick the VF.
+	constexpr float kClaimFor = 30.0f;
+	static float s_vfSpawnClaim[RCBOT_MAXPLAYERS] = {};
+	int drivers = 0;
+	int teamBots = 1;
+	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+	{
+		CBot* other = CBots::getBot(slot);
+		if (other == nullptr || other == bot || !other->inUse() || other->getEdict() == nullptr ||
+			CClassInterface::getTeam(other->getEdict()) != team)
+			continue;
+		const CBotEmpires* empOther = static_cast<const CBotEmpires*>(other);
+		++teamBots;
+		if (empOther->m_vehicle.stage != EmpiresVehicleStage::NONE && !empOther->m_vehicle.billNye)
+			++drivers;
+		else if (s_vfSpawnClaim[slot] > 0.0f && now - s_vfSpawnClaim[slot] < kClaimFor)
+			++drivers;
+	}
+	const int limit = rcbot_empires_vehicle_drivers.GetInt() >= 0 ? rcbot_empires_vehicle_drivers.GetInt() :
+		(std::max)(2, (teamBots * 2 + 2) / 5);
+	if (drivers >= limit)
+		return false;
+	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
+		if (CBots::getBot(slot) == bot)
+			s_vfSpawnClaim[slot] = now;
+	return true;
+}
 
 bool EmpiresVehicleAlive(const CBotEmpires* bot, const edict_t* vehicle)
 {
@@ -1233,6 +1285,55 @@ struct VehicleObstacleTest
 	float entry = 0.0f;
 };
 VehicleObstacleTest g_obstacleTest;
+
+// Test-only (rcbotd empires_test_exit_block <userid>, TODO 5.29): box the bot's vehicle in
+// with solid barriers around its hull so every exit point is blocked, then make it get out.
+int ExitBlockSurround(edict_t* vehicle)
+{
+	ICollideable* hull = vehicle != nullptr ? vehicle->GetCollideable() : nullptr;
+	if (hull == nullptr || servertools == nullptr || servergameents == nullptr)
+		return 0;
+	static const char* kModel = "models/props/concretebarrier.mdl"; // 224 x 26 x 54
+	engine->PrecacheModel(kModel, true);
+	const matrix3x4_t& toWorld = hull->CollisionToWorldTransform();
+	const Vector mins = hull->OBBMins();
+	const Vector maxs = hull->OBBMaxs();
+	int placed = 0;
+	for (const float margin : {20.0f, 60.0f}) // exit points lie ~35 outside the hull (run 144340)
+	{
+		const float x0 = mins.x - margin, x1 = maxs.x + margin, y0 = mins.y - margin, y1 = maxs.y + margin;
+		const Vector corners[5] = {Vector(x0, y0, mins.z), Vector(x1, y0, mins.z), Vector(x1, y1, mins.z),
+			Vector(x0, y1, mins.z), Vector(x0, y0, mins.z)};
+		for (int edge = 0; edge < 4; ++edge)
+		{
+			Vector a, b;
+			VectorTransform(corners[edge], toWorld, a);
+			VectorTransform(corners[edge + 1], toWorld, b);
+			const float length = Dist2D(a, b);
+			const int count = (std::max)(1, static_cast<int>(std::ceil(length / 200.0f)));
+			char angles[64];
+			snprintf(angles, sizeof(angles), "0 %.1f 0", YawTo(a, b));
+			for (int i = 0; i < count; ++i)
+			{
+				for (int layer = 0; layer < 3; ++layer)
+				{
+					Vector at = a + (b - a) * ((i + 0.5f) / count);
+					at.z = a.z + 54.0f * layer;
+					CBaseEntity* entity = servertools->CreateEntityByName("prop_dynamic");
+					if (entity == nullptr)
+						continue;
+					servertools->SetKeyValue(entity, "model", kModel);
+					servertools->SetKeyValue(entity, "solid", "6");
+					servertools->SetKeyValue(entity, "angles", angles);
+					servertools->SetKeyValue(entity, "origin", at);
+					servertools->DispatchSpawn(entity);
+					++placed;
+				}
+			}
+		}
+	}
+	return placed;
+}
 
 // Places the armed obstacle `ahead` along the driver's remaining route and
 // then reports how the driver gets past it: "vehicle obstacle placed",
@@ -2374,8 +2475,14 @@ void CBotEmpires::tickEmpiresVehicle()
 			resetEmpiresVehicle("dead", 3.0f);
 		return;
 	}
-	if (commanderVehicleEntryActive() || m_iBuildAssignStage > 0 ||
-		isEmpiresCommanderMoveActive() || isEmpiresVehicleActionActive())
+	// An engineer with a build order who spawned in an APC seat must still get out (run
+	// 20261121-135318: BE engineer userid=9 sat in APC 572 until its order stalled at 232/250).
+	const bool buildAssignPassengerExit = m_iBuildAssignStage > 0 && !commanderVehicleEntryActive() &&
+		!isEmpiresCommanderMoveActive() && !isEmpiresVehicleActionActive() &&
+		((v.stage == EmpiresVehicleStage::NONE && EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0) ||
+		 (v.stage == EmpiresVehicleStage::GIVE_UP_EXIT && v.passengerExit));
+	if (!buildAssignPassengerExit && (commanderVehicleEntryActive() || m_iBuildAssignStage > 0 ||
+		isEmpiresCommanderMoveActive() || isEmpiresVehicleActionActive()))
 	{
 		if (v.stage != EmpiresVehicleStage::NONE &&
 			v.stage != EmpiresVehicleStage::DRIVING)
@@ -2417,6 +2524,54 @@ void CBotEmpires::tickEmpiresVehicle()
 		v.bailLogAt = now + (v.bailLogStep == 2 ? 0.7f : 1.0f);
 	}
 
+	if (g_exitBlockUserId >= 0 && inVehicle >= 0 && v.stage == EmpiresVehicleStage::DRIVING &&
+		inVehicle == v.vehicleIndex && v.vehicle != nullptr &&
+		(g_exitBlockUserId == userId ||
+		 (g_exitBlockUserId == 0 && (EmpiresVehicleReadInt(this, v.vehicle, "m_iChassis", -1) == 1 ||
+			 EmpiresVehicleReadInt(this, v.vehicle, "m_iChassis", -1) == 9))))
+	{
+		g_exitBlockUserId = -1;
+		edict_t* boxed = engine->PEntityOfEntIndex(inVehicle);
+		const int props = ExitBlockSurround(boxed);
+		const Vector at = boxed != nullptr ? CBotGlobals::entityOrigin(boxed) : Vector(0, 0, 0);
+		// Passenger test: one teammate bot on foot (engineer first, never the commander)
+		// respawns, so it lands in the boxed APC's passenger seat.
+		int respawned = -1;
+		if (g_exitBlockPassenger)
+		{
+			int fallback = -1;
+			for (int i = 1; gpGlobals != nullptr && i <= gpGlobals->maxClients && respawned < 0; ++i)
+			{
+				edict_t* p = engine->PEntityOfEntIndex(i);
+				CBot* bot = p != nullptr && !p->IsFree() && p != m_pEdict ? CBots::getBotPointer(p) : nullptr;
+				int commander = 0;
+				if (bot == nullptr || CClassInterface::getTeam(p) != team || EmpiresVehiclePlayerVehicle(this, p) >= 0 ||
+					(readEmpiresEntityIntProperty(p, "m_bCommander", commander) && commander != 0))
+					continue;
+				if (static_cast<CBotEmpires*>(bot)->isEmpiresEngineerClass())
+					respawned = i;
+				else if (fallback < 0)
+					fallback = i;
+			}
+			if (respawned < 0)
+				respawned = fallback;
+			if (respawned > 0)
+			{
+				g_exitBlockSpawnUserId = engine->GetPlayerUserId(engine->PEntityOfEntIndex(respawned));
+				helpers->ClientCommand(engine->PEntityOfEntIndex(respawned), "kill\n");
+			}
+		}
+		RCBOT_DIAG("[RCBOT2] vehicle exit-block placed userid=%d vehicle=%d chassis=%d props=%d respawn_userid=%d at=(%.0f %.0f %.0f)\n",
+			userId, inVehicle, EmpiresVehicleReadInt(this, boxed, "m_iChassis", -1), props,
+			respawned > 0 ? engine->GetPlayerUserId(engine->PEntityOfEntIndex(respawned)) : -1, at.x, at.y, at.z);
+		if (!g_exitBlockPassenger)
+		{
+			v.nextAction = now;
+			setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 10.0f);
+			return;
+		}
+	}
+
 	// ---------------------------------------------------------------- decide
 	if (v.stage == EmpiresVehicleStage::NONE)
 	{
@@ -2434,7 +2589,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			// idle with "skip in-vehicle"): take it over and drive.
 			edict_t* seat = engine->PEntityOfEntIndex(inVehicle);
 			int driver = -1;
-			if (seat != nullptr && IsClass(seat, "emp_vehicle") &&
+			if (m_iBuildAssignStage == 0 && seat != nullptr && IsClass(seat, "emp_vehicle") &&
 				EmpiresVehicleReadInt(this, seat, "m_iTeamNum", -1) == team &&
 				!IsCommanderChassis(EmpiresVehicleReadInt(this, seat, "m_iChassis", -1)) &&
 				EmpiresVehicleAlive(this, seat) &&
@@ -2447,6 +2602,39 @@ void CBotEmpires::tickEmpiresVehicle()
 				RCBOT_DIAG("[RCBOT2] vehicle adopt userid=%d vehicle=%d\n", userId, inVehicle);
 				setStage(EmpiresVehicleStage::DRIVING, 0.0f);
 				return;
+			}
+			// Passenger seat of an own vehicle, e.g. after spawning at an APC (TODO 5.23, run
+			// 20261121-133146: engineer userid=8 sat in APC 574 for minutes with its build order,
+			// origin vehicle-local (90 -60 -17)). A human gets out once the vehicle is slow or
+			// has no driver; the commander in its CV is the driver and never reaches this.
+			if (seat != nullptr && IsClass(seat, "emp_vehicle") &&
+				EmpiresVehicleReadInt(this, seat, "m_iTeamNum", -1) == team &&
+				EmpiresVehicleAlive(this, seat) &&
+				readEmpiresEntityHandleProperty(seat, "m_hPassengers", 0, driver) &&
+				driver != engine->IndexOfEdict(m_pEdict))
+			{
+				const Vector at = CBotGlobals::entityOrigin(seat);
+				const bool sampled = v.passengerSeat == inVehicle && v.lastSampleTime > 0.0f && now > v.lastSampleTime;
+				const float speed = sampled ? Dist2D(at, v.lastVehicleOrigin) / (now - v.lastSampleTime) : -1.0f;
+				if (v.passengerSeat != inVehicle || v.passengerSince <= 0.0f)
+					v.passengerSince = now;
+				v.passengerSeat = inVehicle;
+				v.lastVehicleOrigin = at;
+				v.lastSampleTime = now;
+				// A driver that never slows down would carry the passenger for minutes; the exit
+				// works while moving, so get out after 10 s anyway.
+				const bool seatedLong = now - v.passengerSince > 10.0f;
+				if (driver < 0 || (sampled && speed < 150.0f) || seatedLong)
+				{
+					RCBOT_DIAG("[RCBOT2] vehicle passenger-exit userid=%d vehicle=%d driver=%d speed=%.0f seated=%.0f at=(%.0f %.0f %.0f)\n",
+						userId, inVehicle, driver, speed, now - v.passengerSince, at.x, at.y, at.z);
+					v.vehicle = seat;
+					v.vehicleIndex = inVehicle;
+					v.passengerExit = true;
+					v.nextAction = now;
+					setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
+					return;
+				}
 			}
 			skip = "in-vehicle";
 		}
@@ -3242,7 +3430,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			const Vector at = getOrigin();
 			RCBOT_DIAG("[RCBOT2] vehicle bail-exit userid=%d t=0 pos=(%.0f %.0f %.0f) ground=%d\n", userId, at.x, at.y, at.z,
 				GroundAt(at, at.z) ? 1 : 0);
-			resetEmpiresVehicle("gave-up-stuck", 30.0f);
+			const bool passenger = v.passengerExit;
+			resetEmpiresVehicle(passenger ? "passenger-exit" : "gave-up-stuck", passenger ? 2.0f : 30.0f);
 			v.bailLogAt = now + 0.3f; // after the reset, which clears the whole brain
 			v.bailLogStep = 1;
 			return;
@@ -3251,6 +3440,82 @@ void CBotEmpires::tickEmpiresVehicle()
 		{
 			resetEmpiresVehicle("vehicle-changed", 5.0f);
 			return;
+		}
+		// The game only lets a player out where an exit point of the seat is free
+		// (CEmpTank::GetExitPoint 0x69c620); a vehicle wedged against a wall or another
+		// vehicle refuses USE forever. Like a human: switch to another seat (other side,
+		// emp_change_seat -> CEmpPlayer::ChangeSeats 0x65ee90), take the free driver seat
+		// and move a little, and finally give up and stay seated for now.
+		if (v.exitSince <= 0.0f)
+			v.exitSince = now;
+		edict_t* exitVehicle = engine->PEntityOfEntIndex(inVehicle);
+		if (now < v.exitNudgeUntil)
+		{
+			// Back up first (front usually hit something), then forward.
+			v.forward = now < v.exitNudgeUntil - 0.8f ? -kMaxMove * 0.6f : kMaxMove * 0.6f;
+			v.buttons = 0;
+			return;
+		}
+		v.forward = 0.0f;
+		constexpr float kExitStepFor = 3.0f;
+		if (exitVehicle != nullptr && now - v.exitSince > kExitStepFor * (v.exitStep + 1))
+		{
+			const int self = engine->IndexOfEdict(m_pEdict);
+			int mySeat = -1;
+			int freeSeat = -1;
+			bool driverFree = false;
+			// m_hPassengers always has 8 entries; only the chassis' seats exist
+			// (vehicle_chassis.txt, reverse-engineering/notes/vehicle-driving.md).
+			static const int kChassisSeats[14] = {4, 8, 2, 2, 1, 2, 0, 0, 2, 8, 4, 2, 1, 2};
+			const int chassis = EmpiresVehicleReadInt(this, exitVehicle, "m_iChassis", -1);
+			const int seats = chassis >= 0 && chassis < 14 && kChassisSeats[chassis] > 0 ? kChassisSeats[chassis] : 8;
+			for (int seatIndex = 0; seatIndex < seats; ++seatIndex)
+			{
+				int occupant = -1;
+				if (!readEmpiresEntityHandleProperty(exitVehicle, "m_hPassengers", seatIndex, occupant))
+					break;
+				if (occupant == self)
+					mySeat = seatIndex;
+				else if (occupant < 0)
+				{
+					if (seatIndex == 0)
+						driverFree = true;
+					else if (freeSeat < 0 || (v.exitStep >= 2 && seatIndex > freeSeat))
+						freeSeat = seatIndex;
+				}
+			}
+			++v.exitStep;
+			const char* tried = "none";
+			// Driver: nudge, then the other seat (other exit points, exit_pos_<seat>_<n>), then
+			// back to the driver seat; a passenger takes the free driver seat first.
+			const bool driverTriesSeat = mySeat == 0 && v.exitStep == 2 && freeSeat > 0;
+			if (v.exitStep <= 3 && mySeat == 0 && !driverTriesSeat)
+			{
+				// Driver: move the vehicle a little so an exit point becomes free.
+				v.exitNudgeUntil = now + 1.6f;
+				tried = "nudge";
+			}
+			else if (v.exitStep <= 3 && driverFree)
+			{
+				helpers->ClientCommand(m_pEdict, "emp_change_seat 0\n");
+				tried = "driver-seat";
+			}
+			else if (v.exitStep <= 3 && freeSeat > 0 && freeSeat != mySeat)
+			{
+				char cmd[32];
+				snprintf(cmd, sizeof(cmd), "emp_change_seat %d\n", freeSeat);
+				helpers->ClientCommand(m_pEdict, cmd);
+				tried = "other-seat";
+			}
+			const Vector at = CBotGlobals::entityOrigin(exitVehicle);
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-exit userid=%d stage=%d reason=exit-blocked vehicle=%d seat=%d free_seat=%d driver_free=%d tried=%s at=(%.0f %.0f %.0f)\n",
+				userId, v.exitStep, inVehicle, mySeat, freeSeat, driverFree ? 1 : 0, tried, at.x, at.y, at.z);
+			if (v.exitStep > 3 || std::strcmp(tried, "none") == 0)
+			{
+				// Give up for now: stay seated; the passenger path retries after the cooldown.
+				resetEmpiresVehicle("exit-blocked", 15.0f);
+				return;
+			}
 		}
 		v.buttons = 0x08000000; // handbrake (exit itself works up to 100 mph)
 		if (now >= v.nextAction)
@@ -3616,8 +3881,45 @@ void CBotEmpires::tickEmpiresVehicle()
 		edict_t* bestEmpty = nullptr;
 		float bestEmptyScore = 1500.0f; // empty enemy vehicles only close by, after everything else
 		// Enemy vehicles: Bill Nye pushes them, armed vehicles shoot them.
+		// Anti-APC priority #1 (5.27): enemy APCs (NF chassis=1, BE chassis=9) are mobile spawn points
+		// and get top priority even when parked/empty, unless own CV is immediately threatened.
+		bool bestIsApc = false;
+		int bestApcChassis = -1;
+		float bestApcDist = 0.0f;
+		float bestApcAssetDist = 1.0e9f;
 		if (v.billNye || armed)
 		{
+			std::vector<Vector> combatAssets;
+			Vector combatOwnCv(0, 0, 0);
+			bool combatOwnCvKnown = false;
+			const char* ownCvCls = team == 2 ? "emp_nf_commander" : "emp_imp_commander";
+			for (int a = gpGlobals->maxClients + 1; a < gpGlobals->maxEntities; ++a)
+			{
+				edict_t* ae = engine->PEntityOfEntIndex(a);
+				if (ae == nullptr || ae->IsFree() || ae->GetClassName() == nullptr)
+					continue;
+				const char* aname = ae->GetClassName();
+				if (!combatOwnCvKnown &&
+					(std::strcmp(aname, ownCvCls) == 0 ||
+					(IsClass(ae, "emp_vehicle") && EmpiresVehicleReadInt(this, ae, "m_iTeamNum", -1) == team &&
+						IsCommanderChassis(EmpiresVehicleReadInt(this, ae, "m_iChassis", -1)))))
+				{
+					combatOwnCv = CBotGlobals::entityOrigin(ae);
+					combatOwnCvKnown = true;
+					combatAssets.push_back(combatOwnCv);
+				}
+				else if (std::strncmp(aname, "emp_building_", 13) == 0 &&
+					(std::strstr(aname, "refinery") != nullptr || std::strstr(aname, "barracks") != nullptr ||
+					 std::strstr(aname, "vehiclefactory") != nullptr))
+				{
+					int bTeam = EmpiresVehicleReadInt(this, ae, "m_iTeamNum", -1);
+					if (bTeam != 2 && bTeam != 3)
+						bTeam = std::strncmp(aname, "emp_building_nf_", 16) == 0 ? 2 :
+							(std::strncmp(aname, "emp_building_imp_", 17) == 0 ? 3 : -1);
+					if (bTeam == team)
+						combatAssets.push_back(CBotGlobals::entityOrigin(ae));
+				}
+			}
 			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 			{
 				edict_t* e = engine->PEntityOfEntIndex(i);
@@ -3630,29 +3932,49 @@ void CBotEmpires::tickEmpiresVehicle()
 				const Vector at = CBotGlobals::entityOrigin(e);
 				if (!GroundAt(at, at.z)) // already falling
 					continue;
-				const float score = Dist2D(origin, at);
+				const float dist = Dist2D(origin, at);
+				const int eChassis = IsClass(e, "emp_vehicle") ? EmpiresVehicleReadInt(this, e, "m_iChassis", -1) : -1;
+				const bool isApc = !v.billNye && IsApcChassis(eChassis);
+				float score = dist;
+				float assetDist = 1.0e9f;
 				if (!v.billNye && !enemyCommander)
 				{
 					int driver = -1;
 					const bool empty = !readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver < 0;
 					// Enemy armour first, but only within cannon range (user: tanks first when in
 					// range, then infantry).
-					if (score >= 3500.0f || !inSight(e))
+					if (dist >= 3500.0f || !inSight(e))
 						continue;
-					if (empty)
+					if (empty && !isApc)
 					{
-						if (score < bestEmptyScore)
+						if (dist < bestEmptyScore)
 						{
-							bestEmptyScore = score;
+							bestEmptyScore = dist;
 							bestEmpty = e;
 						}
 						continue;
 					}
+					if (isApc)
+					{
+						for (const Vector& asset : combatAssets)
+							assetDist = (std::min)(assetDist, Dist2D(asset, at));
+						score -= 2500.0f;
+						if (assetDist < 3000.0f)
+							score -= 1000.0f;
+					}
+					else if (combatOwnCvKnown && Dist2D(combatOwnCv, at) < 1500.0f)
+					{
+						score -= 3600.0f; // immediate CV threat overrides APC priority
+					}
 				}
-				if (score < (v.billNye ? 20000.0f : 4000.0f) && score < bestScore)
+				if (dist < (v.billNye ? 20000.0f : 4000.0f) && score < bestScore)
 				{
 					bestScore = score;
 					best = e;
+					bestIsApc = isApc;
+					bestApcChassis = eChassis;
+					bestApcDist = dist;
+					bestApcAssetDist = assetDist;
 				}
 			}
 		}
@@ -3728,6 +4050,9 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 		if (best != v.target.get())
 		{
+			if (best != nullptr && bestIsApc)
+				RCBOT_DIAG("[RCBOT2] anti-apc-priority who=vehicle userid=%d apc=%d chassis=%d dist=%.0f asset_dist=%.0f\n",
+					userId, engine->IndexOfEdict(best), bestApcChassis, bestApcDist, bestApcAssetDist);
 			v.aimSince = now;
 			v.contactSince = 0.0f;
 			v.ramming = false;
@@ -3788,7 +4113,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				edict_t* e = engine->PEntityOfEntIndex(i);
 				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr ||
 					std::strncmp(e->GetClassName(), "emp_building_", 13) != 0 ||
-					std::strstr(e->GetClassName(), "refinery") == nullptr)
+					(std::strstr(e->GetClassName(), "refinery") == nullptr &&
+					 std::strstr(e->GetClassName(), "barracks") == nullptr &&
+					 std::strstr(e->GetClassName(), "vehiclefactory") == nullptr))
 					continue;
 				int buildingTeam = EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1);
 				if (buildingTeam != 2 && buildingTeam != 3)
@@ -3797,30 +4124,44 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (buildingTeam == team)
 					ownAssets.push_back(CBotGlobals::entityOrigin(e));
 			}
-			// 1. Defend: enemy armour within 3000 of the own CV or an own refinery.
+			// 1. Defend: enemy armour within 3000 of the own CV or an own refinery/barracks/VF.
 			// 2. Hunt: enemy armour within 6000 that this tank or a living teammate sees.
+			// Enemy APCs (5.27) receive top priority even when parked/unmanned.
 			float bestDefend = 1.0e9f, bestHunt = 1.0e9f;
 			Vector defendAt(0, 0, 0), huntAt(0, 0, 0);
+			int defendApcEnt = -1, huntApcEnt = -1;
+			int defendApcChassis = -1, huntApcChassis = -1;
+			float defendApcDist = 0.0f, huntApcDist = 0.0f;
+			float defendApcAssetDist = 1.0e9f, huntApcAssetDist = 1.0e9f;
 			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 			{
 				edict_t* e = engine->PEntityOfEntIndex(i);
+				const int eChassis = IsClass(e, "emp_vehicle") ? EmpiresVehicleReadInt(this, e, "m_iChassis", -1) : -1;
 				if (!IsClass(e, "emp_vehicle") || EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != enemyTeam ||
-					!EmpiresVehicleAlive(this, e) || IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)))
+					!EmpiresVehicleAlive(this, e) || IsCommanderChassis(eChassis))
 					continue;
+				const bool isApc = IsApcChassis(eChassis);
 				int driver = -1;
-				if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver < 0)
-					continue; // empty wrecks and parked vehicles are not a threat
+				if (!isApc && (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver < 0))
+					continue; // empty wrecks and parked non-APC vehicles are not a threat
 				const Vector at = CBotGlobals::entityOrigin(e);
 				const float d = Dist2D(origin, at);
-				bool nearAsset = false;
+				float minAssetDist = 1.0e9f;
 				for (const Vector& asset : ownAssets)
-					nearAsset = nearAsset || Dist2D(asset, at) < 3000.0f;
-				if (nearAsset && d < bestDefend)
+					minAssetDist = (std::min)(minAssetDist, Dist2D(asset, at));
+				const bool nearAsset = minAssetDist < (isApc ? 3500.0f : 3000.0f);
+				const float defendScore = d - (isApc ? 3000.0f : 0.0f);
+				if (nearAsset && defendScore < bestDefend)
 				{
-					bestDefend = d;
+					bestDefend = defendScore;
 					defendAt = at;
+					defendApcEnt = isApc ? i : -1;
+					defendApcChassis = eChassis;
+					defendApcDist = d;
+					defendApcAssetDist = minAssetDist;
 				}
-				if (d >= 6000.0f || d >= bestHunt)
+				const float huntScore = d - (isApc ? 3000.0f : 0.0f);
+				if (d >= (isApc ? 7000.0f : 6000.0f) || huntScore >= bestHunt)
 					continue;
 				const Vector centre = EntityCenter(e);
 				bool spotted = d < 4000.0f && worldClear(origin + Vector(0, 0, 90), centre);
@@ -3835,8 +4176,12 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				if (spotted)
 				{
-					bestHunt = d;
+					bestHunt = huntScore;
 					huntAt = at;
+					huntApcEnt = isApc ? i : -1;
+					huntApcChassis = eChassis;
+					huntApcDist = d;
+					huntApcAssetDist = minAssetDist;
 				}
 			}
 			if (bestDefend < 1.0e9f)
@@ -3844,12 +4189,18 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.goal = defendAt;
 				v.goalValid = true;
 				goalKind = 0;
+				if (defendApcEnt > 0)
+					RCBOT_DIAG("[RCBOT2] anti-apc-priority who=vehicle-goal userid=%d apc=%d chassis=%d dist=%.0f asset_dist=%.0f\n",
+						userId, defendApcEnt, defendApcChassis, defendApcDist, defendApcAssetDist);
 			}
 			else if (bestHunt < 1.0e9f)
 			{
 				v.goal = huntAt;
 				v.goalValid = true;
 				goalKind = 1;
+				if (huntApcEnt > 0)
+					RCBOT_DIAG("[RCBOT2] anti-apc-priority who=vehicle-goal userid=%d apc=%d chassis=%d dist=%.0f asset_dist=%.0f\n",
+						userId, huntApcEnt, huntApcChassis, huntApcDist, huntApcAssetDist);
 			}
 			// 3. Front: a contested flag (own one under attack, or one we can take). The tank holds a
 			// reachable spot about 1200 HU before it on its own side and never drives in (emp_coast:

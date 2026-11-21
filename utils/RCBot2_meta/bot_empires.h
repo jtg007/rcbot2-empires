@@ -490,6 +490,12 @@ struct EmpiresVehicleBrain
 	float reverseSide = 0.0f;
 	int stuckReverses = 0;
 	bool clearBeforeExit = false; // 3.26 (3b): backed clear once before giving up
+	int passengerSeat = -1;       // seated as passenger (APC spawn): sampled vehicle for the speed check
+	bool passengerExit = false;   // GIVE_UP_EXIT started as passenger: short cooldown after leaving
+	float passengerSince = 0.0f;  // first seen in this passenger seat
+	float exitSince = 0.0f;       // GIVE_UP_EXIT start: escalate when the exit stays blocked
+	int exitStep = 0;             // 0 = USE only, 1.. = seat change / nudge tried
+	float exitNudgeUntil = 0.0f;  // after taking the driver seat: drive a little to free an exit point
 	float movingSince = 0.0f;
 	int abandonedVehicle = -1;
 	float abandonedUntil = 0.0f;
@@ -756,6 +762,7 @@ public:
 	friend int EmpiresVehicleReadInt(const CBotEmpires*, const edict_t*, const char*, int);
 	friend int EmpiresVehiclePlayerVehicle(const CBotEmpires*, const edict_t*);
 	friend bool EmpiresVehicleAlive(const CBotEmpires*, const edict_t*);
+	friend bool EmpiresBotWantsVfSpawn(const CBotEmpires*, int);
 	// Walks to the team's Command Vehicle, enters it and takes the Commander
 	// seat. Stage 4 means the bot is seated and stays there.
 	bool requestCommanderVehicleEntryOnce();
@@ -1444,6 +1451,9 @@ private:
 	float m_flNormalClassDeadline = 0.0f;
 	EmpiresNormalSpawnState m_eNormalSpawnState = EmpiresNormalSpawnState::IDLE;
 	int m_iNormalSpawn = -1;
+	int m_iNormalSpawnExcludeId = -1;
+	int m_iNormalSpawnRetryCount = 0;
+	float m_flNormalSpawnRetryAfter = 0.0f;
 	int m_iNormalSpawnFrames = 0;
 	float m_flNormalSpawnDeadline = 0.0f;
 	float m_flNormalSpawnObserveDeadline = 0.0f;

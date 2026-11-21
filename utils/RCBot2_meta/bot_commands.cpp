@@ -2166,6 +2166,20 @@ CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_botcmd <bot_userid> <repeat> <command> [args]" : test-only, the bot runs a client command)");
 
+extern int g_exitBlockUserId; // bot_empires_vehicle.cpp
+extern bool g_exitBlockPassenger;
+
+CBotCommandInline EmpiresExitBlockTestCommand("empires_test_exit_block", CMD_ACCESS_CONSOLE_ONLY,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		g_exitBlockUserId = args[0] != nullptr && *args[0] != '\0' ? std::atoi(args[0]) : -1;
+		g_exitBlockPassenger = args[1] != nullptr && std::strcmp(args[1], "passenger") == 0;
+		Msg("[RCBOT2] exit-block armed userid=%d passenger=%d\n", g_exitBlockUserId, g_exitBlockPassenger ? 1 : 0);
+		CBotGlobals::botMessage(pEntity, 0, "empires_test_exit_block armed userid=%d", g_exitBlockUserId);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_exit_block <bot_userid|0> [passenger]" : test-only, once that bot (0 = the first APC driver) drives a vehicle, solid barriers box the vehicle in and the bot tries to get out; with passenger the driver keeps driving and a teammate on foot respawns into the vehicle (logs vehicle exit-block placed, stall-escalate who=vehicle-exit))");
+
 CBotCommandInline EmpiresCommanderYieldTestCommand("empires_test_commander_yield", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
@@ -4163,6 +4177,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresGuardTestCommand,
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,
+	&EmpiresExitBlockTestCommand,
 	&EmpiresRecoveryCaptureAcceptanceCommand,
 	&EmpiresRecoverySquadAcceptanceCommand,
 	&EmpiresScoutBuildingVisibilityScanCommand,

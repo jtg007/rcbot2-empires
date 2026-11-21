@@ -30,8 +30,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
    research order before selecting improved vehicle parts (5.2). Use the resulting
    late-game match to measure the commander reserve and research pauses (5.5a/5.1).
    APCs: after APC Spawn Point research each team keeps one APC in the field
-   (`20261121-115623`: NF and BE APC bought and driven to the front); spawning in it and
-   squad transport still need their own acceptance checks.
+   (`20261121-115623`: NF and BE APC bought and driven to the front); spawning in it is
+   confirmed (passengers get out when it is slow, driverless or after 10 s; a blocked exit
+   escalates nudge -> other seat -> driver seat -> retry after 15 s, measured with
+   `rcbotd empires_test_exit_block` in a boxed-in heavy tank and APC). Squad transport
+   still needs its own acceptance check.
 5. When a human session is available, verify the EngiBot crash fix with SourceMod
    first, then check commander orders, seat handover and other player interactions.
    Investigate intermittent issues as they recur. Combine short map and mode checks

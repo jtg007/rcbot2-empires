@@ -1856,6 +1856,10 @@ void CBotEmpires::tickCommanderEconomy()
 			const Vector at = CBotGlobals::entityOrigin(player);
 			if (haveEnemyCv && (at - enemyCv).Length2D() < 2500.0f)
 				continue;
+			// Own half only: run 20261121-133146 placed NF barracks 570 at y=+6674 next to a pushed-on
+			// teammate (BE base y=+13000); enemy vehicles shot the builder and it never finished.
+			if (haveEnemyCv && (at - enemyCv).Length2D() < (at - vehicleOrigin).Length2D())
+				continue;
 			float nearestBarracks = 1.0e9f;
 			for (const BuildingInfo& info : buildings)
 				if (info.type == Barracks)

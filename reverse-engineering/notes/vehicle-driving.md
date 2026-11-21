@@ -386,3 +386,13 @@ symbols (`GetChangeAccessor`, `g_pSharedChangeInfo`) and stop the plugin from lo
   prop origin (89 of 166 palms gave >= 3 hits).
 - Tanks still stall in the palm cluster around (2800-3300, 800-1550) on Palmbay (route to the front goal),
   even with probed trunk circles and route points pushed off trunks; hits spread over several palms.
+
+## Seat change (`emp_change_seat`, 2026-11-21)
+
+- `Command_emp_change_seat` 0x64c340: needs exactly one argument (`argc == 2`), `strtol(arg, 0, 10)`,
+  player must be in a vehicle (vfunc 0x4cc), then `CEmpPlayer::ChangeSeats(seat)` 0x65ee90.
+- `ChangeSeats`: the seat index is **0-based** (0 = driver); it does nothing if the target seat is
+  occupied (vehicle vfunc +0x4 `GetPassenger(seat)` non-null) or `seat >= ` seat count (vfunc +0x0).
+- `m_hPassengers` always reads 8 entries; seats beyond the chassis seat count read as empty.
+- Measured (`20261121-145414`, NF heavy tank boxed in by barriers): `emp_change_seat 1` moved the
+  driver to seat 1, `emp_change_seat 0` back. Without a driver the vehicle stops.
