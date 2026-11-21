@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <vector>
@@ -1751,6 +1752,13 @@ bool CBotEmpires::handleEmpiresGrenadierTurretAttack()
 // - Grenadier: RPG on direct sight (220..2600 HU) and mortar fallback (600..3400 HU).
 // - Rifleman: sticky grenade throw on close buildings/CV (<= 420 HU with clear LOS).
 // - Scout: hold IN_USE on close unsabotaged enemy buildings (CEmpBuilding::Use 0x61e438).
+namespace
+{
+constexpr float kScoutStunApproach = 1200.0f; // a visible enemy vehicle this close: walk up to it
+constexpr float kScoutStunThrow = 250.0f;    // throw the sticky stun from here
+constexpr float kScoutStunGiveUp = 1500.0f;  // vehicle drove off
+}
+
 bool CBotEmpires::handleEmpiresBuildingAttack()
 {
 	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
@@ -1763,7 +1771,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	const float now = gpGlobals->curtime;
 	const int userId = engine->GetPlayerUserId(m_pEdict);
 
-	// Tick active Rifleman sticky throw (mode 1) or Scout sabotage (mode 2).
+	// Tick active Rifleman sticky throw (mode 1), Scout sabotage (mode 2) or Scout stun approach (mode 3).
 	if (m_iEmpiresBuildingActionMode != 0)
 	{
 		edict_t* target = m_hEmpiresBuildingActionTarget.get();
@@ -1771,11 +1779,16 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		int health = 0;
 		const bool isCv = targetClass != nullptr &&
 			(std::strcmp(targetClass, "emp_nf_commander") == 0 || std::strcmp(targetClass, "emp_imp_commander") == 0);
+		// Vehicles carry m_flTotalHealth, not m_iHealth: a sticky armed on an emp_vehicle was dropped
+		// before the throw (logs 20.-21.11.: 2x armed class=emp_vehicle, 0x thrown).
+		const bool isVehicleTarget = isCv || (targetClass != nullptr && std::strcmp(targetClass, "emp_vehicle") == 0);
 		const bool alive = target != nullptr && !target->IsFree() && targetClass != nullptr &&
-			(isCv ? EmpiresVehicleAlive(this, target) :
+			(isVehicleTarget ? EmpiresVehicleAlive(this, target) :
 				(readEmpiresEntityIntProperty(target, "m_iHealth", health) && health > 0));
 		if (!alive || now >= m_flEmpiresBuildingActionUntil)
 		{
+			if (m_iEmpiresBuildingActionMode == 3)
+				RCBOT_DIAG("[RCBOT2] scout-stun end userid=%d reason=%s\n", userId, alive ? "timeout" : "target-gone");
 			if (m_pButtons != nullptr)
 			{
 				m_pButtons->letGo(IN_ATTACK);
@@ -1792,6 +1805,42 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		if (ICollideable* col = target->GetCollideable())
 			targetCenter = col->GetCollisionOrigin() + (col->OBBMins() + col->OBBMaxs()) * 0.5f;
 		const float dist = empiresNavGoalDistance2D(getOrigin(), targetCenter);
+		if (m_iEmpiresBuildingActionMode == 3)
+		{
+			// Scout closing in on an enemy vehicle with the stun grenade out; a sticky arc from 420
+			// rarely touched a moving vehicle (user 21.11.).
+			if (dist > kScoutStunGiveUp)
+			{
+				RCBOT_DIAG("[RCBOT2] scout-stun lost userid=%d target=%d dist=%.0f\n", userId,
+					engine->IndexOfEdict(target), dist);
+				m_hEmpiresBuildingActionTarget = nullptr;
+				m_iEmpiresBuildingActionMode = 0;
+				m_flEmpiresBuildingActionUntil = 0.0f;
+				m_flEmpiresBuildingAttackNext = now + 3.0f;
+				return false;
+			}
+			setLookAtTask(LOOK_VECTOR, 0.25f);
+			setLookVector(targetCenter);
+			if (dist > kScoutStunThrow)
+			{
+				if (now >= m_flKillSpawnNextBlockLog)
+				{
+					m_flKillSpawnNextBlockLog = now + 1.0f;
+					RCBOT_DIAG("[RCBOT2] scout-stun closing userid=%d dist=%.0f\n", userId, dist);
+				}
+				setMoveTo(targetCenter);
+				return true;
+			}
+			stopMoving();
+			m_iEmpiresBuildingActionMode = 1;
+			m_flEmpiresBuildingActionUntil = now + 3.0f;
+			m_flEmpiresBuildingActionReadyAt = now + 0.2f;
+			m_flEmpiresBuildingActionPressUntil = 0.0f;
+			m_bEmpiresBuildingActionThrown = false;
+			RCBOT_DIAG("[RCBOT2] scout-stun armed userid=%d target=%d dist=%.0f\n", userId,
+				engine->IndexOfEdict(target), dist);
+			return true;
+		}
 		if (m_iEmpiresBuildingActionMode == 1)
 		{
 			stopMoving();
@@ -2003,6 +2052,83 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	// Scout sabotage on close unsabotaged enemy buildings (CEmpBuilding::Use 0x61e438).
 	if (classId == EMP_CLASS_SCOUT)
 	{
+		// Sticky stun grenade on a close enemy vehicle first (TODO 3.22): Detonate 0x3e2770 calls
+		// DisableVehicle(10) on an enemy vehicle it sticks to, no weapons for 10 s (vehicle-driving.md 7).
+		// Thrown with the Rifleman sticky action (mode 1). NF class name is "..._sticky_Stun_grenade".
+		const char* stunName = team == EMP_TEAM_BE ? "weapon_emp_imp_sticky_stun_grenade" : "weapon_emp_nf_sticky_stun_grenade";
+		edict_t* stunWeapon = nullptr;
+		int stunAmmoType = -1;
+		if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+		{
+			for (int slot = 0; slot < MAX_WEAPONS && stunWeapon == nullptr; ++slot)
+			{
+				const int index = weapons[slot].GetEntryIndex();
+				edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
+				const char* wc = weapon != nullptr && !weapon->IsFree() ? weapon->GetClassName() : nullptr;
+				if (wc == nullptr || CClassInterface::getWeaponState(weapon) == WEAPON_NOT_CARRIED)
+					continue;
+				bool same = std::strlen(wc) == std::strlen(stunName);
+				for (size_t c = 0; same && wc[c] != '\0'; ++c)
+					same = std::tolower(static_cast<unsigned char>(wc[c])) == stunName[c];
+				if (!same)
+					continue;
+				stunWeapon = weapon;
+				stunName = wc; // the game's spelling for weapon selection
+				int secondary = -1;
+				CClassInterface::getAmmoTypes(stunWeapon, &stunAmmoType, &secondary);
+			}
+		}
+		const bool stunReady = stunWeapon != nullptr && stunAmmoType >= 0 && getAmmo(stunAmmoType) > 0;
+		{
+			edict_t* bestVehicle = nullptr;
+			float bestVehicleDist = kScoutStunApproach;
+			float nearestSeen = 1.0e9f, nearestAny = 1.0e9f;
+			for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+			{
+				edict_t* e = INDEXENT(index);
+				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr ||
+					std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
+					continue;
+				int vTeam = -1;
+				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) || vTeam != enemyTeam || !EmpiresVehicleAlive(this, e))
+					continue;
+				const float dist = empiresNavGoalDistance2D(origin, CBotGlobals::entityOrigin(e));
+				nearestAny = (std::min)(nearestAny, dist);
+				QAngle aim;
+				if (dist >= 1500.0f || !empiresTurretRocketAim(eye, m_pEdict, e, aim, true))
+					continue;
+				nearestSeen = (std::min)(nearestSeen, dist);
+				if (dist >= bestVehicleDist)
+					continue;
+				bestVehicle = e;
+				bestVehicleDist = dist;
+			}
+			// Why a scout near an enemy vehicle does not go for it (every 10 s at most).
+			if ((bestVehicle == nullptr || !stunReady) && nearestAny < 1500.0f && now >= m_flKillSpawnNextBlockLog)
+			{
+				m_flKillSpawnNextBlockLog = now + 10.0f;
+				RCBOT_DIAG("[RCBOT2] scout-stun skip userid=%d reason=%s nearest=%.0f seen=%.0f\n", userId,
+					stunWeapon == nullptr ? "no-weapon" : (!stunReady ? "no-ammo" :
+					(nearestSeen < 1.0e9f ? "far" : "no-sight")), nearestAny, nearestSeen < 1.0e9f ? nearestSeen : -1.0f);
+			}
+			if (bestVehicle != nullptr && stunReady)
+			{
+				cancelNavigationAttempt("scout-stun");
+				m_pSchedules->freeMemory();
+				if (m_bEmpiresNavGoalActive)
+					endEmpiresNavmeshGoal("drop", "scout-stun", 0.0f);
+				// Walk up with the grenade out (mode 3), throw from <= kScoutStunThrow (mode 1).
+				m_hEmpiresBuildingActionTarget = bestVehicle;
+				m_iEmpiresBuildingActionMode = 3;
+				m_flEmpiresBuildingActionUntil = now + 8.0f;
+				m_flEmpiresBuildingActionPressUntil = 0.0f;
+				m_bEmpiresBuildingActionThrown = false;
+				selectWeaponName(stunName);
+				RCBOT_DIAG("[RCBOT2] scout-stun approach userid=%d target=%d dist=%.0f ammo=%d\n",
+					userId, engine->IndexOfEdict(bestVehicle), bestVehicleDist, getAmmo(stunAmmoType));
+				return true;
+			}
+		}
 		edict_t* best = nullptr;
 		const char* bestClass = nullptr;
 		float bestDist = 260.0f;

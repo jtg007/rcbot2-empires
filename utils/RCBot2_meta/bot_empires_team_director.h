@@ -102,6 +102,19 @@ inline RoleSplit SplitRoles(int eligible, int teamBots, int phase, bool haveHold
 	return split;
 }
 
+// Alert target switch: a new alert, the same building, damage, a stronger threat or an alert building
+// without own trigger for kAlertSwitchSeconds takes the target over; a weaker threat elsewhere only keeps
+// the alert alive (with the 40 s alert hold an infantry alert at a forward refinery kept defenders there
+// while an enemy vehicle stood at the CV).
+constexpr float kAlertSwitchSeconds = 10.0f;
+inline bool AlertTakesOver(bool alertActive, bool sameEntity, bool damage, int score, int alertScore,
+	float alertQuietSeconds)
+{
+	// Scores are tier*10 + building weight: only a real step (one more enemy, a worse threat) switches,
+	// not the weight alone (palmbay 174745: barracks 414 -> cv 415 at the same base).
+	return !alertActive || sameEntity || damage || score >= alertScore + 10 || alertQuietSeconds > kAlertSwitchSeconds;
+}
+
 // Position of a point between the own base (0) and the enemy base (1), from its 2D distances to both.
 inline float FrontShare(float distHome, float distEnemy)
 {

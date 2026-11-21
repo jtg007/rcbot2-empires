@@ -96,6 +96,7 @@ extern ConVar rcbot_empires_kill_spawn;
 extern ConVar rcbot_empires_engibot_leash;
 extern ConVar rcbot_empires_engineer_help_human;
 extern ConVar rcbot_empires_vehicle_drivers;
+extern ConVar rcbot_empires_vehicle_debug_team;
 extern ConVar rcbot_empires_vehicle_debug_buy;
 extern ConVar rcbot_empires_vehicle_debug_mixed;
 extern ConVar rcbot_empires_debug_log;

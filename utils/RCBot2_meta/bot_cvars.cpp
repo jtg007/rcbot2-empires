@@ -123,6 +123,7 @@ ConVar rcbot_empires_engineer_help_human("rcbot_empires_engineer_help_human", "2
 ConVar rcbot_empires_engibot_leash("rcbot_empires_engibot_leash", "2500", 0, "EngiBots work only within this distance of their team CV (else their first spawn)");
 ConVar rcbot_empires_vehicle_drivers("rcbot_empires_vehicle_drivers", "-1", 0, "maximum number of bots per team that use a vehicle at the same time (Bill Nye not counted); -1 = 40% of the team bots, at least 2");
 ConVar rcbot_empires_vehicle_debug_mixed("rcbot_empires_vehicle_debug_mixed", "0", 0, "tests only: bought tanks get the MG on the cannon's fire button (mixed loadout, TODO 3.10d)");
+ConVar rcbot_empires_vehicle_debug_team("rcbot_empires_vehicle_debug_team", "0", 0, "tests only: 2 or 3 = only bots of this team buy or adopt vehicles (infantry-vs-vehicle tests); 0 = both");
 ConVar rcbot_empires_vehicle_debug_buy("rcbot_empires_vehicle_debug_buy", "0", 0, "tests only: with emp_sv_debug_build_vehicles 1 buy in place (also when a vehicle factory exists); 0 = only at a vehicle factory");
 ConVar rcbot_empires_billnye("rcbot_empires_billnye", "-1", 0, "Bill Nye mode: one Scout bot of a team always takes a jeep, rams enemy vehicles off the map, stuns them when stuck and runs over infantry. -1 = on maps named *rainbowroad* for NF, 0 = off, 2 = NF, 3 = BE");
 ConVar rcbot_empires_commander_engineer("rcbot_empires_commander_engineer", "1", 0, "the auto Commander seat goes to the team's first Engineer bot (Repair role); he leaves the CV to finish buildings near it when no other Engineer is close and idle");

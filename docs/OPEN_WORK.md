@@ -174,7 +174,10 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   coast flag captured by an ordered bot; open: kill-spawn for defenders never triggered yet, contact rate on coast
   (kills 15 vs 33). Roles now last at least 40 s and an alert at a hold goal is answered by the holders
   (palmbay 4x push<->defense swaps 16/15 -> 10/9 per match); open: a team with only one free infantry bot still
-  sends it back and forth when alerts at a forward refinery keep returning (palmbay 1x: 6 swaps of one bot).
+  sent it back and forth when alerts at a forward refinery kept returning (palmbay 1x: 6 swaps of one bot); now an
+  alert lasts 40 s after its last trigger and moves to another building only for a clearly stronger threat, and a
+  bot stalled at a building forbids that mesh link for 60 s (palmbay 1x: swaps 11 -> 8, max per bot 6 -> 3, a 4 min
+  stall at the own barracks -> 68 s). How the roles feel needs a human test.
 - [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
   20 HP/s once the centre is wet). Fords on emp_cyclopean are not measured yet. palmbay boat flags (deck only by
@@ -450,7 +453,9 @@ When the following cases recur, compare the relevant trace and route.
   before the first ramp from the spawn as the match goes on. First inspect route geometry and
   available space; ramp detection is not yet part of the planner.
 - Infantry against vehicles (user 15.11.): only Grenadiers target vehicle crews now (rifles did nothing).
-  Open: Scout stun grenade and Rifleman sticky grenade thrown at vehicles.
+  Rifleman sticky grenades at vehicles never left the hand (the throw step read the wrong health field) - fixed.
+  Scouts walk up to a visible enemy vehicle (<= 1200) with the sticky stun grenade and throw from 250; in short 1x
+  runs a driving tank outran the scout. Open: approach only slow or firing vehicles, then measure the stun effect.
 - Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
   modes, groups, magazine and reserve every 0.25 s; MG only against infantry (up to 1200, the MG

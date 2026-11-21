@@ -171,6 +171,15 @@ int main()
 		Check(RoleGoal(b, 5) == nullptr, "hold without hold goal");
 	}
 
+	// Alert target switch.
+	Check(AlertTakesOver(false, false, false, 410, 0, 0.0f), "new alert");
+	Check(!AlertTakesOver(true, false, false, 413, 603, 2.0f), "weaker threat elsewhere keeps target");
+	Check(AlertTakesOver(true, false, false, 605, 413, 2.0f), "stronger threat takes over");
+	Check(!AlertTakesOver(true, false, false, 415, 414, 2.0f), "building weight alone does not switch");
+	Check(AlertTakesOver(true, false, false, 424, 414, 2.0f), "one more enemy switches");
+	Check(AlertTakesOver(true, false, true, 1001, 1004, 2.0f), "damage takes over");
+	Check(AlertTakesOver(true, false, false, 303, 413, 12.0f), "quiet alert building is replaced");
+
 	if (g_failures == 0)
 		std::printf("team director tests PASS\n");
 	return g_failures == 0 ? 0 : 1;

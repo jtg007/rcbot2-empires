@@ -664,7 +664,9 @@ void Frame()
 					route.jumps, engine->Time() - route.lastJump, gpGlobals->tickcount);
 				bool worldBlocked = false;
 				bool doorBlocked = false;
+				bool buildingBlocked = false;
 				edict_t* closedDoor = nullptr;
+				edict_t* blockingBuilding = nullptr;
 				// What blocks the bot: sweep its hull toward the target at two heights.
 				if (enginetrace != nullptr && bot->getEdict() != nullptr)
 				{
@@ -720,6 +722,14 @@ void Frame()
 						// (as_escort BE base: emp_imp_health_crate 428 at (-413 5175)) and the like.
 						// Buildings have their own detours, an unused door gets a use first.
 						const char* hitName = e != nullptr ? e->GetClassName() : nullptr;
+						// A building the detour could not plan around (palmbay 171039: NF barracks
+						// next to the CV, nav-detour-fail no-exit, the mesh planned through it for 4 min).
+						if (lift == 2.0f && !hit.startsolid && hit.fraction < 1.0f && hitName != nullptr &&
+							std::strncmp(hitName, "emp_building", 12) == 0)
+						{
+							buildingBlocked = true;
+							blockingBuilding = e;
+						}
 						// A parked or abandoned vehicle is just as unknown to the mesh; a bot already
 						// pressed into its hull (start_solid) must plan around it too (TODO 3.16/3.26:
 						// Crossroads 212642 20 of 39, Palmbay 211833 14 of 23 stalls hit emp_vehicle).
@@ -815,6 +825,26 @@ void Frame()
 						closedDoor != nullptr ? closedDoor->GetClassName() : "-", blockSeconds, links,
 						mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z, boxSkipped ? 1 : 0);
 				}
+				// Building fallback: forbid only the link the bot is stuck on for 60 s (no box block,
+				// bots spawn inside barracks boxes); repeated stalls walk the plan around it. Not when
+				// the route ends at that building (engineer repair / build jobs).
+				float edgeSeconds = blockSeconds;
+				if (buildingBlocked && !worldBlocked && blockingBuilding != nullptr &&
+					blockingBuilding->GetCollideable() != nullptr)
+				{
+					Vector bmins, bmaxs;
+					blockingBuilding->GetCollideable()->WorldSpaceSurroundingBounds(&bmins, &bmaxs);
+					const Vector& goal = route.goal;
+					const bool goalAtBuilding = goal.x >= bmins.x - 150.0f && goal.x <= bmaxs.x + 150.0f &&
+						goal.y >= bmins.y - 150.0f && goal.y <= bmaxs.y + 150.0f;
+					RCBOT_DIAG("[RCBOT2] navmesh-building-blocked building=%s index=%d goal_at_building=%d\n",
+						blockingBuilding->GetClassName(), engine->IndexOfEdict(blockingBuilding), goalAtBuilding ? 1 : 0);
+					if (!goalAtBuilding)
+					{
+						worldBlocked = true;
+						edgeSeconds = 60.0f;
+					}
+				}
 				if (worldBlocked)
 				{
 					const int exactArea = RCBotNavMesh::GetAreaIdAtPosition(here);
@@ -825,7 +855,7 @@ void Frame()
 						const int id = static_cast<int>(route.path.areaIds[i]);
 						if (id != exactArea && id != nearArea)
 							continue;
-						RCBotNavMesh::BlockEdge(route.path.areaIds[i], route.path.areaIds[i + 1], blockSeconds);
+						RCBotNavMesh::BlockEdge(route.path.areaIds[i], route.path.areaIds[i + 1], edgeSeconds);
 						RCBOT_DIAG("[RCBOT2] navmesh-edge-blocked from=%u to=%u\n",
 							route.path.areaIds[i], route.path.areaIds[i + 1]);
 						blocked = true;
@@ -833,7 +863,7 @@ void Frame()
 					if (!blocked)
 					{
 						unsigned fromId = 0, toId = 0;
-						if (RCBotNavMesh::BlockEdgeNearestOnPath(here, route.path.areaIds, fromId, toId, blockSeconds))
+						if (RCBotNavMesh::BlockEdgeNearestOnPath(here, route.path.areaIds, fromId, toId, edgeSeconds))
 							RCBOT_DIAG("[RCBOT2] navmesh-edge-blocked from=%u to=%u (nearest)\n", fromId, toId);
 						else
 							RCBOT_DIAG("[RCBOT2] navmesh-edge-block-miss exact=%d near=%d areas=%zu\n",

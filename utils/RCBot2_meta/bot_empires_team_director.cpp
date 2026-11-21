@@ -41,7 +41,9 @@ namespace
 {
 constexpr float kUpdateSeconds = 1.5f;
 constexpr float kLogEvery = 30.0f;
-constexpr float kAlertHold = 15.0f;        // alert stays this long after the last trigger
+// Alert stays this long after the last trigger. 15 s let alerts at a forward refinery come back 1-12 s after
+// the defender left (palmbay 171039: the only free BE bot swapped 6x); 40 s matches kRoleMinSeconds.
+constexpr float kAlertHold = 40.0f;
 constexpr float kStabilizeHold = 60.0f;
 constexpr float kEnemyInfantryRadius = 1500.0f;
 constexpr float kEnemyVehicleRadius = 2500.0f;
@@ -63,6 +65,8 @@ struct TeamState
 	float nextLog = 0.0f;
 	std::string lastSignature;
 	float alertUntil = -1.0f;
+	int alertScore = 0;       // threat score of board.alert's own building, last time it triggered
+	float alertSeen = -1.0f;  // last time board.alert's building triggered itself
 	float stabilizeUntil = -1.0f;
 	const char* stabilizeReason = "";
 	int coreCounts[4] = { -1, -1, -1, -1 }; // barracks, factory, refinery, radar
@@ -439,6 +443,11 @@ void CBotEmpires::tickTeamDirector()
 		if (score == 0)
 			continue;
 		score = score * 10 + w.weight;
+		if (board.alert.valid() && w.entity == board.alert.entity)
+		{
+			state.alertScore = score;
+			state.alertSeen = now;
+		}
 		if (score > threatScore)
 		{
 			threatScore = score;
@@ -450,12 +459,19 @@ void CBotEmpires::tickTeamDirector()
 	{
 		Vector spot;
 		// A new alert or a stronger one replaces the target; a weaker one only keeps the alert alive.
-		const bool replace = now > state.alertUntil || board.alert.entity == threat->entity ||
-			std::strcmp(threatReason, "damage") == 0;
+		const bool replace = AlertTakesOver(now <= state.alertUntil && board.alert.valid(),
+			board.alert.entity == threat->entity, std::strcmp(threatReason, "damage") == 0, threatScore,
+			state.alertScore, now - state.alertSeen);
 		if (replace && ApproachSpot(threat->at, homeKnown, home, 300.0f, spot))
 		{
+			if (board.alert.valid() && board.alert.entity != threat->entity)
+				RCBOT_DIAG("[RCBOT2] team-director team=%d alert-switch from=%s:%d to=%s:%d score=%d old=%d quiet=%.0f\n",
+					team, board.alert.kind, board.alert.entity, threat->kind, threat->entity, threatScore,
+					state.alertScore, now - state.alertSeen);
 			SetGoal(board.alert, threat->entity, spot, threat->kind);
 			board.alertReason = threatReason;
+			state.alertScore = threatScore;
+			state.alertSeen = now;
 		}
 		state.alertUntil = now + kAlertHold;
 	}

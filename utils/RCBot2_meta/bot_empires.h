@@ -1934,7 +1934,7 @@ private:
 	bool m_bEmpiresTurretRocketIsThreat = false;
 	float m_flEmpiresBuildingAttackNext = 0.0f;
 	MyEHandle m_hEmpiresBuildingActionTarget;
-	int m_iEmpiresBuildingActionMode = 0; // 0 none, 1 rifleman sticky, 2 scout sabotage
+	int m_iEmpiresBuildingActionMode = 0; // 0 none, 1 sticky/stun throw, 2 scout sabotage, 3 scout stun approach
 	float m_flEmpiresBuildingActionUntil = 0.0f;
 	float m_flEmpiresBuildingActionReadyAt = 0.0f;
 	float m_flEmpiresBuildingActionPressUntil = 0.0f;

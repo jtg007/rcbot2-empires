@@ -2729,6 +2729,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (drivers >= limit)
 				return;
 		}
+		if (rcbot_empires_vehicle_debug_team.GetInt() > 0 && team != rcbot_empires_vehicle_debug_team.GetInt())
+			return;
 
 		// An empty own vehicle close by is used before buying a new one:
 		// (A) blocking our own VF bay (3.17): adopt after 5 s if no human is right there;

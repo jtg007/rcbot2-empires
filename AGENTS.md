@@ -73,6 +73,8 @@ macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain 
 APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
+Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
+`scripts/dev_team_match.sh [map] [minutes]`.
 Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with
 `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL`, `QUICK_SHOW`; `QUICK_FAIR=1` = both teams start together): `scripts/dev_quick.sh [map] [minutes]`.
 `rcbot_empires_vehicle_shell_trace 1` logs shell flight and impact (`vehicle shell-end`) and turret aim.
