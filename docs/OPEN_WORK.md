@@ -17,14 +17,12 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 1. Repeat the 10-bot match on Palmbay with the new tank goals (3.24, confirmed on Coast).
    Fix the engineer stand spot at the Coast refineries (5.8e). Remaining tank issues: another
    tank's turret blocking the fire line, refineries destroyed while still under construction.
-2. Complete infantry attacks on buildings and the CV (3.23: rifleman sticky charges,
-   scout sabotage).
+2. Infantry attacks on buildings and the CV (3.23) are done; remaining: scout stun grenades
+   on slow vehicles (3.22).
 3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
-   and speed. For tank combat (3.21), use the same hit and damage measures for moving
-   targets, armour facing and later changes. Measure the team director's contact rate on
+   and speed. Measure the team director's contact rate on
    coast (5.4/5.8) and check reachable and unreachable off-mesh MOVE targets in one server
-   (3.18). Check a full refit with production settings (5.10) during the next loadout
-   change test.
+   (3.18).
 4. Extend refitting, vehicle and infantry resupply, fire groups and team behavior.
    Reuse the engineer crate and request paths for infantry resupply. Agree on the
    research order before selecting improved vehicle parts (5.2). Use the resulting
@@ -126,16 +124,20 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   Commander buildings no engineer could take after 6 tries no longer stall the build order.
   10-bot Coast match, 10 min, 1x: 0 tanks (`20261120-154142`, 15 min, stalled economy) ->
   4 tanks (`20261120-165710`), all goal kinds used, 5 retreats, 3 repairs, 0 give-ups,
-  0 bail-outs. Open: Palmbay match, hits on moving targets and MG lead.
+  0 bail-outs. MG lead fixed 21.11.: the vehicle MG is hitscan (`Speed` in `vehicle_weapons.txt`
+  applies to projectile types 1-4 only), so the old range/1000 lead missed moving infantry.
+  Without lead (log line `vehicle mg-engage`), moving infantry at 500-900 HU took 1.5 -> 23.2 HP/s
+  in two Crossroads 10-bot 1x matches. Open: Palmbay match.
 - [ ] **Coast refineries without an engineer stand spot (5.8e):** the ground trace next to both
   Coast refineries starts solid (64/64); starting it higher finds ground, but then no kit aim
   reaches the building (64/64). Both refineries stay at 50/150.
-- [ ] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
+- [x] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky
   charges (`weapon_emp_*_sticky_grenade`, ≤ 420 HU) and scout sabotage (`IN_USE`) are
   implemented; scout sabotage was confirmed live (`20261120-231458` on an enemy refinery),
-  while rifleman sticky confirmation in a full match is open.
+  rifleman stickies once pressed fire before the grenade was in hand (no throw); the throw now
+  waits for the grenade and was confirmed on an enemy refinery (damage alert right after).
 - [ ] **Commander vehicle drive can get stuck:** in the production match an NF commander
   recovered on its second attempt. Identify the obstacle with a verified demo if it recurs.
   On `emp_slaughtered`, the CV stopped in front of the radar on the same approach at
@@ -349,7 +351,7 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   goal (`20261120-225803`: both teams built VF + forward barracks, 7 heavy tanks, 0
   `walk-timeout`). Open: spawning at forward barracks (5.24) and sporadic NF commander
   CV entry stalls. A map-built factory with an unexpected team number is found by class
-  name (5.22, not yet confirmed on such a map).
+  name (5.22, confirmed on a test map with built-in factories).
 
 - [x] **Crossroads navigation around large props (3.4g):** a stall at prop 185
   closed 398 edges for 60 s, and `prop_dynamic` 180 closed 2244 links twice in a
@@ -511,8 +513,8 @@ When the following cases recur, compare the relevant trace and route.
   (run `20261115-145901-con_urbanchaos-1b-1m-p49979`).
 - Fairness: vehicle and objective targets are picked from the full entity list; limit to
   what a player could know.
-- A production settings match recorded ten pad repairs and the start of a
-  refit. Confirm a full refit command during the next loadout change test.
+- Full pad refit (5.10) is covered by the `dev_check` pad test; bot-bought loadouts never trigger
+  it in matches (0 of 25), where the pad only repairs with the same loadout.
 
 ## 5. Coverage
 
@@ -531,10 +533,6 @@ When the following cases recur, compare the relevant trace and route.
 - Clarify file open warnings when touching file loading. The profile and waypoint
   directories exist, and the specific files were absent. Navmeshes loaded and all
   four health checks passed despite the map material warnings.
-- The development-only controller probe (`empires_bootstrap_controllerprobe_*`) now lives
-  in `bot_empires_controller_probe.cpp` and is unused by the scripts. Removing it also
-  needs its member fields in `bot_empires.h`, its console commands and the
-  `m_bControllerProbeOnly` checks; run `dev_check.sh` afterwards.
 - Split the huge functions (`tickEmpiresVehicle`, `getTasks`, `tickCommanderEconomy`)
   only when touching them.
 

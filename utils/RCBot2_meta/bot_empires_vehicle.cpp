@@ -4017,8 +4017,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (std::fabs(at.z - origin.z) > 160.0f)
 					continue;
 				const float score = Dist2D(origin, at);
-				// MG on infantry up to 1200: the MG round flies 1000 u/s, so farther out the lead
-				// (over a second) only sprayed into empty ground (human test 15.11.).
+				// MG on infantry up to 1200 (human test 15.11.: farther out it only sprayed empty
+				// ground; that was with a wrong lead, the MG is hitscan, see 3.21 below).
 				if (score < kVehicleMgInfantryRange && score < bestScore && inSight(e))
 				{
 					bestScore = score;
@@ -6155,11 +6155,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.aimLastPos = centre;
 			v.aimLastTime = now;
 		}
-		// vehicle_weapons.txt: Standard Machine Gun 1000 u/s no gravity, no effect on armour,
-		// falloff end 3000; Standard Cannon 3300 u/s, gravity 0.5, splash 250.
-		// Infantry: MG, plus the cannon close in. Vehicles and buildings: cannon.
+		// vehicle_weapons.txt: "Speed"/"Gravity" apply only to projectile types 1-4; machine guns
+		// (type 0) fire hitscan bullets with a tracer, so no lead on infantry (3.21: with the old
+		// range/1000 lead, moving infantry at 500-900 took 1.5 HP/s vs 18.9 standing, run 211230).
+		// Standard Cannon 3300 u/s, gravity 0.5, splash 250.
 		const float range = (centre - eye).Length();
-		const float flight = range / (infantry ? 1000.0f : 3300.0f);
+		const float flight = infantry ? 0.0f : range / 3300.0f;
 		Vector aim = centre + v.aimVel * flight;
 		if (!infantry)
 			aim.z += 0.5f * 0.5f * 600.0f * flight * flight; // drop at sv_gravity 600 (assumed)
@@ -6271,6 +6272,42 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				else if (distance < 4000.0f)
 					buttons |= kCannon;
+				// 3.21 diagnosis: one line per MG engagement on infantry (fire time, time the target
+				// moved > 80 u/s, health at start and end).
+				{
+					const bool mgFire = infantry && std::strcmp(why, "mg") == 0;
+					const bool gap = now - v.mgEngLastTick > 2.0f;
+					if (v.mgEngTarget >= 0 && (gap || (mgFire && targetIndex != v.mgEngTarget)))
+					{
+						RCBOT_DIAG("[RCBOT2] vehicle mg-engage userid=%d target=%d fired=%.1f moving=%.1f dist=%.0f hp=%d->%d\n",
+							userId, v.mgEngTarget, v.mgEngFired, v.mgEngMoving,
+							v.mgEngTicks > 0 ? v.mgEngDistSum / v.mgEngTicks : 0.0f, v.mgEngHp0, v.mgEngHpLast);
+						v.mgEngTarget = -1;
+					}
+					if (mgFire)
+					{
+						IPlayerInfo* tinfo = playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(target) : nullptr;
+						const int hp = tinfo != nullptr && !tinfo->IsDead() ? tinfo->GetHealth() : 0;
+						if (v.mgEngTarget != targetIndex)
+						{
+							v.mgEngTarget = targetIndex;
+							v.mgEngFired = v.mgEngMoving = v.mgEngDistSum = 0.0f;
+							v.mgEngTicks = 0;
+							v.mgEngHp0 = hp;
+						}
+						else
+						{
+							const float dt = (std::min)(now - v.mgEngLastTick, 0.2f);
+							v.mgEngFired += dt;
+							if (Vector(v.aimVel.x, v.aimVel.y, 0.0f).Length() > 80.0f)
+								v.mgEngMoving += dt;
+						}
+						v.mgEngHpLast = hp;
+						v.mgEngDistSum += distance;
+						++v.mgEngTicks;
+						v.mgEngLastTick = now;
+					}
+				}
 				if (now >= v.nextAimLog - 3.5f && now >= v.nextAimCheck && rcbot_empires_vehicle_shell_trace.GetBool())
 				{
 					v.nextAimCheck = now + 1.5f;

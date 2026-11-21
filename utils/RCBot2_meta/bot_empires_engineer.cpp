@@ -142,7 +142,7 @@ bool CBotEmpires::findEmpiresEngineerNearbySupportTarget(
 	if (servertools == nullptr || engine == nullptr || gpGlobals == nullptr ||
 		m_pEdict == nullptr || m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		m_pPlayerInfo->IsDead() || m_pPlayerInfo->GetHealth() <= 0 ||
-		m_bBootstrapOnly || m_bControllerProbeOnly)
+		m_bBootstrapOnly)
 	{
 		return false;
 	}
@@ -243,7 +243,7 @@ bool CBotEmpires::findEmpiresEngineerSupportTarget(
 	if (servertools == nullptr || engine == nullptr || gpGlobals == nullptr ||
 		m_pEdict == nullptr || m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		m_pPlayerInfo->IsDead() || m_pPlayerInfo->GetHealth() <= 0 ||
-		m_bBootstrapOnly || m_bControllerProbeOnly)
+		m_bBootstrapOnly)
 	{
 		return false;
 	}
@@ -395,7 +395,7 @@ bool CBotEmpires::isEmpiresEngineerResupplyActionActive() const
 
 bool CBotEmpires::isEmpiresEngineerResupplyNeeded() const
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		!m_pPlayerInfo->IsConnected() || m_pPlayerInfo->IsObserver() ||
 		m_pPlayerInfo->IsDead() || m_pPlayerInfo->GetHealth() <= 0 ||
@@ -635,7 +635,7 @@ bool CBotEmpires::requestEmpiresEngineerResupplyOnce(const bool fixtureMode,
 		isEmpiresEngineerBuildActionActive() ||
 		isEmpiresEngineerResupplyActionActive() ||
 		isEmpiresMortarProbeActive() || isEmpiresMortarActionActive() ||
-		m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+		m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || engine == nullptr || gpGlobals == nullptr ||
 		servertools == nullptr || !m_pPlayerInfo->IsConnected() ||

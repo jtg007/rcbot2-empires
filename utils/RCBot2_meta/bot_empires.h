@@ -259,152 +259,6 @@ enum class EmpiresScoutBinocularActionState
 	FAILED
 };
 
-enum class EmpiresControllerProbeLifecycle
-{
-	INACTIVE,
-	ENGINE_BOT_CREATED,
-	SLOT_BOUND,
-	CONTROLLER_VERIFIED,
-	REMOVAL_PENDING
-};
-
-enum class EmpiresControllerProbeSpawnSequenceState
-{
-	IDLE,
-	JOIN_NF_REQUESTED,
-	OBSERVE_TEAM,
-	RIFLEMAN_REQUESTED,
-	OBSERVE_CLASS,
-	SPAWNPOINT_REQUESTED,
-	OBSERVE_SPAWNPOINT,
-	ATTACK_PRESS_PENDING,
-	ATTACK_RELEASE_PENDING,
-	OBSERVE_SPAWN,
-	COMPLETE,
-	FAILED
-};
-
-enum class EmpiresControllerProbeSpawnHoldState
-{
-	IDLE,
-	JOIN_NF_REQUESTED,
-	OBSERVE_TEAM,
-	RIFLEMAN_REQUESTED,
-	OBSERVE_CLASS,
-	SPAWNPOINT_REQUESTED,
-	OBSERVE_SPAWNPOINT,
-	WAITING_FOR_READY,
-	ATTACK_FRAME_1,
-	ATTACK_FRAME_2,
-	RELEASE_FRAME,
-	OBSERVE_RESULT,
-	COMPLETE,
-	FAILED
-};
-
-enum class EmpiresControllerProbeNeutralReadinessState
-{
-	IDLE,
-	JOIN_NF_REQUESTED,
-	OBSERVE_TEAM,
-	RIFLEMAN_REQUESTED,
-	OBSERVE_CLASS,
-	SPAWNPOINT_REQUESTED,
-	OBSERVE_SPAWNPOINT,
-	NEUTRAL_SIMULATION,
-	LIFE_RESPAWNABLE_REACHED,
-	COMPLETE,
-	FAILED
-};
-
-enum class EmpiresControllerProbeLoadoutReadinessState
-{
-	IDLE,
-	JOIN_NF_REQUESTED,
-	OBSERVE_TEAM,
-	SET_SIDEARM,
-	OBSERVE_SIDEARM,
-	SET_PRIMARY,
-	OBSERVE_PRIMARY,
-	SET_GRENADE,
-	OBSERVE_GRENADE,
-	SET_EQUIPMENT,
-	OBSERVE_EQUIPMENT,
-	REQUEST_RIFLEMAN,
-	OBSERVE_CLASS,
-	SELECT_SPAWNPOINT,
-	OBSERVE_SPAWNPOINT,
-	NEUTRAL_SIMULATION,
-	LIFE_RESPAWNABLE_REACHED,
-	COMPLETE,
-	FAILED
-};
-
-enum class EmpiresControllerProbeAppliedLoadoutReadinessState
-{
-	IDLE,
-	JOIN_NF,
-	OBSERVE_TEAM,
-	REQUEST_RIFLEMAN,
-	OBSERVE_CLASS_REQUEST,
-	SET_SIDEARM,
-	OBSERVE_SIDEARM,
-	SET_PRIMARY,
-	OBSERVE_PRIMARY,
-	SET_GRENADE,
-	OBSERVE_GRENADE,
-	SET_EQUIPMENT,
-	OBSERVE_APPLIED_LOADOUT,
-	SELECT_SPAWN,
-	OBSERVE_SPAWN,
-	NEUTRAL_SIMULATION,
-	LIFE_RESPAWNABLE_REACHED,
-	COMPLETE,
-	FAILED
-};
-
-// A separate one-press spawn-confirmation test. This state machine is entered
-// only after applied-loadout readiness has completed and owns the only two
-// UserCmd submissions in this test: one attack press and the next-frame
-// neutral release.
-enum class EmpiresControllerProbeSpawnConfirmReadyState
-{
-	IDLE,
-	ATTACK_PRESS_PENDING,
-	ATTACK_RELEASE_PENDING,
-	OBSERVE_SPAWN,
-	COMPLETE,
-	FAILED
-};
-
-// One-shot movement proof entered only after spawn confirmation has completed.
-// It owns a short forward input, one neutral release and bounded post-stop
-// observations; normal bot AI remains suppressed throughout.
-enum class EmpiresControllerProbeMovementState
-{
-	IDLE,
-	MOVE_START_PENDING,
-	MOVE_ACTIVE,
-	MOVE_STOP_PENDING,
-	FINAL_OBSERVE,
-	COMPLETE,
-	FAILED
-};
-
-// One-shot development proof that reuses the loaded waypoint data but does
-// not enter the normal navigator, schedules or bot AI.  It selects one nearby
-// waypoint and submits only direct forward input toward it.
-enum class EmpiresControllerProbeWaypointState
-{
-	IDLE,
-	TARGET_SELECTED,
-	MOVE_ACTIVE,
-	MOVE_STOP_PENDING,
-	FINAL_OBSERVE,
-	COMPLETE,
-	FAILED
-};
-
 bool parseEmpiresBootstrapClass(const char* requested, int& classId, const char*& canonicalName);
 
 // Production vehicle use (bot_empires_vehicle.cpp): buy at the team's vehicle
@@ -599,6 +453,15 @@ struct EmpiresVehicleBrain
 	Vector aimVel = Vector(0, 0, 0);
 	float nextAimLog = 0.0f;
 	float nextAimCheck = 0.0f;
+	// MG engagement on one infantry target (diagnosis 3.21: does the lead hit moving infantry).
+	int mgEngTarget = -1;
+	float mgEngLastTick = 0.0f;
+	float mgEngFired = 0.0f;
+	float mgEngMoving = 0.0f;
+	float mgEngDistSum = 0.0f;
+	int mgEngTicks = 0;
+	int mgEngHp0 = 0;
+	int mgEngHpLast = 0;
 	int goalKind = -1; // strategic goal: 0 defend, 1 hunt, 2 front support, 3 push (building), 4 CV
 	Vector supportFlag = Vector(0, 0, 0); // front flag the support spot belongs to
 	Vector supportSpot = Vector(0, 0, 0);
@@ -679,50 +542,17 @@ public:
 	~CBotEmpires() override;
 
 	bool attachBootstrapEdict(edict_t* pEdict);
-	bool attachControllerProbeEdict(edict_t* pEdict, int slot);
 	bool requestBootstrapRemoval();
-	bool requestControllerProbeRemoval();
 	bool removalRequested() const { return m_bRemovalRequested; }
 	bool isBootstrapOnly() const override { return m_bBootstrapOnly; }
-	bool isControllerProbeOnly() const { return m_bControllerProbeOnly; }
-	bool isControlledTestOnly() const override { return m_bBootstrapOnly || m_bControllerProbeOnly; }
-	int getTeam() override;
+	bool isControlledTestOnly() const override { return m_bBootstrapOnly; }
 	bool isEnemy(edict_t* pEdict, bool bCheckWeapons = true) override;
 	bool wantToListenToPlayerAttack(edict_t* pPlayer, int iWeaponID = -1) override;
 	float getEnemyFactor(edict_t* pEnemy) override;
 	void enemyFound(edict_t* pEnemy) override;
 	void receiveEmpiresSpottedEnemy(edict_t* pEnemy, int sourceIndex);
 	void updateConditions() override;
-	bool canGotoWaypoint(const Vector& vPrevWaypoint, CWaypoint* pWaypoint,
-		CWaypoint* pPrev = nullptr) override;
-	EmpiresControllerProbeLifecycle controllerProbeLifecycle() const { return m_eControllerProbeLifecycle; }
-	const char* controllerProbeLifecycleName() const;
-	int controllerProbeSlot() const { return m_iControllerProbeSlot; }
-	int controllerProbeClientIndex() const { return m_iControllerProbeClientIndex; }
-	EmpiresControllerProbeSpawnSequenceState controllerProbeSpawnSequenceState() const
-	{
-		return m_eControllerProbeSpawnSequenceState;
-	}
-	const char* controllerProbeSpawnSequenceStateName() const;
-	const char* controllerProbeSpawnHoldStateName() const;
 	edict_t* getCurrentControlledTestEdict() const;
-	bool requestControllerProbeTeam(int requestedTeam);
-	bool requestControllerProbeSpawnSequence();
-	bool requestControllerProbeSpawnHoldTest();
-	bool requestControllerProbeReadinessTest();
-	bool requestControllerProbeNeutralReadiness();
-	bool requestControllerProbeLoadoutReadiness();
-	bool requestControllerProbeLoadoutReadinessClassFirst();
-	bool requestControllerProbeAppliedLoadoutReadiness();
-	bool requestControllerProbeSpawnConfirmReady();
-	const char* controllerProbeSpawnConfirmReadyStateName() const;
-	bool requestControllerProbeMovementProof();
-	const char* controllerProbeMovementStateName() const;
-	bool requestControllerProbeWaypointOnce();
-	bool requestControllerProbeWaypointRouteOnce();
-	bool requestControllerProbePathOnce(int startWaypoint = -1,
-		int destinationWaypoint = -1);
-	const char* controllerProbeWaypointStateName() const;
 	void setup() override;
 	bool suppressBotThink() override;
 	bool startGame() override;
@@ -1058,15 +888,6 @@ private:
 	void observePendingClassChange();
 	void observePendingSpawn();
 	void processBootstrapSpawnConfirmation();
-	void observeControllerProbeSpawnSequence();
-	void observeControllerProbeSpawnHoldTest();
-	void observeControllerProbeNeutralReadiness();
-	void observeControllerProbeLoadoutReadiness();
-	void observeControllerProbeAppliedLoadoutReadiness();
-	void observeControllerProbeSpawnConfirmReady();
-	void observeControllerProbeMovementProof();
-	void observeControllerProbeWaypointOnce();
-	void observeControllerProbePathOnce();
 	void continueNormalPathSearch(bool restart);
 	bool readEmpiresCommanderMove(Vector& target, bool& synthetic,
 		bool& expired, int& commandType) const;
@@ -1121,75 +942,6 @@ private:
 		int reentryWaypoint);
 	void prepareEmpiresEnemyLosFixture();
 	bool beginNormalRespawn();
-	void logControllerProbeSpawnSequenceState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void logControllerProbeSpawnHoldState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void recordControllerProbeReadinessChanges(
-		const EmpiresBootstrapPlayerState& state);
-	bool issueControllerProbeClientCommand(const char* command, const char* phase);
-	bool submitControllerProbeUserCmd(int buttons, const char* phase);
-	bool issueControllerProbeNeutralClientCommand(const char* command, const char* phase);
-	bool submitControllerProbeNeutralUserCmd(const char* phase);
-	bool controllerProbeSpawnSequenceIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	void failControllerProbeSpawnSequence(const char* reason);
-	bool controllerProbeSpawnHoldIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	void failControllerProbeSpawnHoldTest(const char* reason);
-	void failControllerProbeNeutralReadiness(const char* reason);
-	bool controllerProbeReadinessTimedOut(
-		const EmpiresBootstrapPlayerState& state) const;
-	bool requestControllerProbeSpawnHoldTestInternal(bool readinessOnly);
-	bool controllerProbeNeutralIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	const char* controllerProbeNeutralReadinessStateName() const;
-	void logControllerProbeNeutralReadinessState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void recordControllerProbeNeutralReadinessChanges(
-		const EmpiresBootstrapPlayerState& state);
-	void recordControllerProbeAppliedLoadoutReadinessChanges(
-		const EmpiresBootstrapPlayerState& state);
-	bool controllerProbeLoadoutIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	bool controllerProbeAppliedLoadoutIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	const char* controllerProbeLoadoutReadinessStateName() const;
-	const char* controllerProbeAppliedLoadoutReadinessStateName() const;
-	void logControllerProbeLoadoutReadinessState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void logControllerProbeAppliedLoadoutReadinessState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void recordControllerProbeLoadoutReadinessChanges(
-		const EmpiresBootstrapPlayerState& state);
-	void failControllerProbeLoadoutReadiness(const char* reason);
-	void failControllerProbeAppliedLoadoutReadiness(const char* reason);
-	void failControllerProbeSpawnConfirmReady(const char* reason);
-	bool requestControllerProbeLoadoutReadinessInternal(bool classFirst);
-	bool issueControllerProbeLoadoutClientCommand(const char* command,
-		const char* phase);
-	bool issueControllerProbeAppliedLoadoutClientCommand(const char* command,
-		const char* phase);
-	bool submitControllerProbeLoadoutNeutralUserCmd(const char* phase);
-	bool submitControllerProbeAppliedLoadoutNeutralUserCmd(const char* phase);
-	bool submitControllerProbeSpawnConfirmReadyUserCmd(int buttons, const char* phase);
-	bool controllerProbeSpawnConfirmReadyIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	void logControllerProbeSpawnConfirmReadyState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	bool submitControllerProbeMovementUserCmd(int buttons, float forwardmove,
-		const char* phase, const QAngle* viewAngles = nullptr);
-	bool controllerProbeMovementIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	void logControllerProbeMovementState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void failControllerProbeMovement(const char* reason);
-	bool controllerProbeWaypointIdentityMatches(
-		const EmpiresBootstrapPlayerState& state) const;
-	void logControllerProbeWaypointState(const char* phase,
-		const EmpiresBootstrapPlayerState& state) const;
-	void failControllerProbeWaypoint(const char* reason);
-	void failControllerProbePath(const char* result, const char* reason);
 	bool submitBootstrapUserCmd(int buttons, const char* phase);
 	void failBootstrapSpawnConfirmation(const char* reason);
 	bool readBootstrapClass(int& classId, bool& classDesired, bool& classDesiredKnown,
@@ -1275,172 +1027,6 @@ private:
 	void resetControlledTestState();
 
 	bool m_bBootstrapOnly = false;
-	bool m_bControllerProbeOnly = false;
-	EmpiresControllerProbeLifecycle m_eControllerProbeLifecycle =
-		EmpiresControllerProbeLifecycle::INACTIVE;
-	EmpiresControllerProbeSpawnSequenceState m_eControllerProbeSpawnSequenceState =
-		EmpiresControllerProbeSpawnSequenceState::IDLE;
-	EmpiresControllerProbeSpawnHoldState m_eControllerProbeSpawnHoldState =
-		EmpiresControllerProbeSpawnHoldState::IDLE;
-	EmpiresControllerProbeNeutralReadinessState m_eControllerProbeNeutralReadinessState =
-		EmpiresControllerProbeNeutralReadinessState::IDLE;
-	EmpiresControllerProbeLoadoutReadinessState m_eControllerProbeLoadoutReadinessState =
-		EmpiresControllerProbeLoadoutReadinessState::IDLE;
-	EmpiresControllerProbeAppliedLoadoutReadinessState
-		m_eControllerProbeAppliedLoadoutReadinessState =
-		EmpiresControllerProbeAppliedLoadoutReadinessState::IDLE;
-	EmpiresControllerProbeSpawnConfirmReadyState
-		m_eControllerProbeSpawnConfirmReadyState =
-		EmpiresControllerProbeSpawnConfirmReadyState::IDLE;
-	bool m_bControllerProbeReadinessOnly = false;
-	int m_iControllerProbeSlot = -1;
-	int m_iControllerProbeClientIndex = -1;
-	int m_iControllerProbePathTeam = -1;
-	int m_iControllerProbeSequenceExpectedIndex = -1;
-	int m_iControllerProbeSequenceExpectedUserId = -1;
-	int m_iControllerProbeSequenceStageFrames = 0;
-	int m_iControllerProbeSequencePressCount = 0;
-	int m_iControllerProbeSequenceReleaseCount = 0;
-	int m_iControllerProbeSequenceStableSamples = 0;
-	bool m_bControllerProbeSequenceInitialAlive = false;
-	Vector m_vControllerProbeSequenceOrigin;
-	bool m_bControllerProbeSequenceOriginKnown = false;
-	int m_iControllerProbeHoldExpectedIndex = -1;
-	int m_iControllerProbeHoldExpectedUserId = -1;
-	const edict_t* m_pControllerProbeHoldExpectedEdict = nullptr;
-	int m_iControllerProbeHoldStageFrames = 0;
-	int m_iControllerProbeHoldObserveFrames = 0;
-	int m_iControllerProbeHoldAttackCount = 0;
-	int m_iControllerProbeHoldReleaseCount = 0;
-	bool m_bControllerProbeHoldTimerKnownEverySample = true;
-	bool m_bControllerProbeHoldTimerFutureObserved = false;
-	bool m_bControllerProbeHoldTimerExpired = false;
-	bool m_bControllerProbeReadinessStartTimeKnown = false;
-	float m_flControllerProbeReadinessStartTime = 0.0f;
-	bool m_bControllerProbeReadinessLastLifeStateKnown = false;
-	int m_iControllerProbeReadinessLastLifeState = -1;
-	bool m_bControllerProbeReadinessLastTimerKnown = false;
-	float m_flControllerProbeReadinessLastTimer = 0.0f;
-	bool m_bControllerProbeReadinessLatestDeadlineKnown = false;
-	float m_flControllerProbeReadinessLatestDeadline = 0.0f;
-	int m_iControllerProbeNeutralExpectedIndex = -1;
-	int m_iControllerProbeNeutralExpectedUserId = -1;
-	const edict_t* m_pControllerProbeNeutralExpectedEdict = nullptr;
-	int m_iControllerProbeNeutralStageFrames = 0;
-	int m_iControllerProbeNeutralSubmittedCommands = 0;
-	int m_iControllerProbeNeutralMaxCommands = 0;
-	int m_iControllerProbeNeutralLastSubmittedTick = -1;
-	int m_iControllerProbeNeutralLastSubmittedCommand = 0;
-	int m_iControllerProbeNeutralLastProgressLogCommand = 0;
-	bool m_bControllerProbeNeutralStartTimeKnown = false;
-	float m_flControllerProbeNeutralStartTime = 0.0f;
-	bool m_bControllerProbeNeutralLastLifeStateKnown = false;
-	int m_iControllerProbeNeutralLastLifeState = -1;
-	bool m_bControllerProbeNeutralLastTimerKnown = false;
-	float m_flControllerProbeNeutralLastTimer = 0.0f;
-	bool m_bControllerProbeNeutralLatestDeadlineKnown = false;
-	float m_flControllerProbeNeutralLatestDeadline = 0.0f;
-	int m_iControllerProbeLoadoutExpectedIndex = -1;
-	int m_iControllerProbeLoadoutExpectedUserId = -1;
-	const edict_t* m_pControllerProbeLoadoutExpectedEdict = nullptr;
-	int m_iControllerProbeLoadoutStageFrames = 0;
-	int m_iControllerProbeLoadoutSubmittedCommands = 0;
-	int m_iControllerProbeLoadoutMaxCommands = 0;
-	int m_iControllerProbeLoadoutLastSubmittedTick = -1;
-	int m_iControllerProbeLoadoutLastSubmittedCommand = 0;
-	int m_iControllerProbeLoadoutLastProgressLogCommand = 0;
-	bool m_bControllerProbeLoadoutClassFirst = false;
-	bool m_bControllerProbeLoadoutStartTimeKnown = false;
-	float m_flControllerProbeLoadoutStartTime = 0.0f;
-	bool m_bControllerProbeLoadoutNeutralStartTimeKnown = false;
-	float m_flControllerProbeLoadoutNeutralStartTime = 0.0f;
-	bool m_bControllerProbeLoadoutLastLifeStateKnown = false;
-	int m_iControllerProbeLoadoutLastLifeState = -1;
-	bool m_bControllerProbeLoadoutLastTimerKnown = false;
-	float m_flControllerProbeLoadoutLastTimer = 0.0f;
-	bool m_bControllerProbeLoadoutLatestDeadlineKnown = false;
-	float m_flControllerProbeLoadoutLatestDeadline = 0.0f;
-	int m_iControllerProbeAppliedLoadoutExpectedIndex = -1;
-	int m_iControllerProbeAppliedLoadoutExpectedUserId = -1;
-	const edict_t* m_pControllerProbeAppliedLoadoutExpectedEdict = nullptr;
-	int m_iControllerProbeAppliedLoadoutStageFrames = 0;
-	int m_iControllerProbeAppliedLoadoutSubmittedCommands = 0;
-	int m_iControllerProbeAppliedLoadoutMaxCommands = 0;
-	int m_iControllerProbeAppliedLoadoutLastSubmittedTick = -1;
-	int m_iControllerProbeAppliedLoadoutLastSubmittedCommand = 0;
-	int m_iControllerProbeAppliedLoadoutLastProgressLogCommand = 0;
-	bool m_bControllerProbeAppliedLoadoutStartTimeKnown = false;
-	float m_flControllerProbeAppliedLoadoutStartTime = 0.0f;
-	bool m_bControllerProbeAppliedLoadoutNeutralStartTimeKnown = false;
-	float m_flControllerProbeAppliedLoadoutNeutralStartTime = 0.0f;
-	bool m_bControllerProbeAppliedLoadoutLastStateKnown = false;
-	EmpiresBootstrapPlayerState m_controllerProbeAppliedLoadoutLastState;
-	bool m_bControllerProbeAppliedLoadoutBeforeEquipmentKnown = false;
-	EmpiresBootstrapPlayerState m_controllerProbeAppliedLoadoutBeforeEquipment;
-	int m_iControllerProbeSpawnConfirmReadyExpectedIndex = -1;
-	int m_iControllerProbeSpawnConfirmReadyExpectedUserId = -1;
-	const edict_t* m_pControllerProbeSpawnConfirmReadyExpectedEdict = nullptr;
-	int m_iControllerProbeSpawnConfirmReadyPressCount = 0;
-	int m_iControllerProbeSpawnConfirmReadyReleaseCount = 0;
-	int m_iControllerProbeSpawnConfirmReadyObserveFrames = 0;
-	int m_iControllerProbeSpawnConfirmReadyLastSubmittedCommand = 0;
-	int m_iControllerProbeSpawnConfirmReadyLastSubmittedTick = -1;
-	int m_iControllerProbeSpawnConfirmReadyLastLifeState = -1;
-	bool m_bControllerProbeSpawnConfirmReadyLastLifeStateKnown = false;
-	Vector m_vControllerProbeSpawnConfirmReadyOrigin;
-	bool m_bControllerProbeSpawnConfirmReadyOriginKnown = false;
-	EmpiresControllerProbeMovementState m_eControllerProbeMovementState =
-		EmpiresControllerProbeMovementState::IDLE;
-	EmpiresControllerProbeWaypointState m_eControllerProbeWaypointState =
-		EmpiresControllerProbeWaypointState::IDLE;
-	int m_iControllerProbeMovementExpectedIndex = -1;
-	int m_iControllerProbeMovementExpectedUserId = -1;
-	const edict_t* m_pControllerProbeMovementExpectedEdict = nullptr;
-	int m_iControllerProbeMovementActiveFrames = 0;
-	int m_iControllerProbeMovementFinalObserveFrames = 0;
-	int m_iControllerProbeMovementSubmittedCommands = 0;
-	int m_iControllerProbeMovementLastSubmittedCommand = 0;
-	int m_iControllerProbeMovementLastSubmittedTick = -1;
-	bool m_bControllerProbeMovementStartOriginKnown = false;
-	Vector m_vControllerProbeMovementStartOrigin;
-	bool m_bControllerProbeMovementFinalOriginKnown = false;
-	Vector m_vControllerProbeMovementFinalOrigin;
-	QAngle m_vControllerProbeMovementViewAngles;
-	int m_iControllerProbeWaypointExpectedIndex = -1;
-	int m_iControllerProbeWaypointExpectedUserId = -1;
-	const edict_t* m_pControllerProbeWaypointExpectedEdict = nullptr;
-	int m_iControllerProbeWaypointId = -1;
-	int m_iControllerProbePathStartWaypoint = -1;
-	int m_iControllerProbePathDestinationWaypoint = -1;
-	bool m_bControllerProbeWaypointRouteMode = false;
-	bool m_bControllerProbeWaypointPathMode = false;
-	bool m_bControllerProbeWaypointPathSearchStarted = false;
-	int m_iControllerProbeWaypointPathSearchFrames = 0;
-	int m_iControllerProbeWaypointPathNodeIndex = 0;
-	std::vector<int> m_ControllerProbeWaypointPath;
-	int m_iControllerProbeWaypointRouteTargetsVisited = 0;
-	int m_iControllerProbeWaypointRoutePreviousId = -1;
-	int m_iControllerProbeWaypointRouteSegmentFrames = 0;
-	int m_iControllerProbeWaypointActiveFrames = 0;
-	int m_iControllerProbeWaypointFinalObserveFrames = 0;
-	int m_iControllerProbeWaypointSubmittedCommands = 0;
-	int m_iControllerProbeWaypointLastSubmittedCommand = 0;
-	int m_iControllerProbeWaypointLastSubmittedTick = -1;
-	int m_iControllerProbeWaypointNoProgressFrames = 0;
-	bool m_bControllerProbeWaypointInputActive = false;
-	bool m_bControllerProbeWaypointStartOriginKnown = false;
-	Vector m_vControllerProbeWaypointStartOrigin;
-	QAngle m_vControllerProbeWaypointViewAngles;
-	bool m_bControllerProbeWaypointTargetKnown = false;
-	Vector m_vControllerProbeWaypointTargetOrigin;
-	bool m_bControllerProbeWaypointFinalOriginKnown = false;
-	Vector m_vControllerProbeWaypointFinalOrigin;
-	float m_flControllerProbeWaypointStartTime = 0.0f;
-	float m_flControllerProbeWaypointInitialDistance = 0.0f;
-	float m_flControllerProbeWaypointBestDistance = 0.0f;
-	bool m_bControllerProbeWaypointReached = false;
-	bool m_bControllerProbeWaypointTimedOut = false;
-	bool m_bControllerProbeWaypointNoProgress = false;
 	bool m_bThinkGateLogged = false;
 	bool m_bStartGameGateLogged = false;
 	// Normal Empires bots start unassigned. Keep team selection explicit and

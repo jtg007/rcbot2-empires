@@ -4049,7 +4049,7 @@ void CBotEmpires::continueNormalPathSearch(const bool restart)
 bool CBotEmpires::requestNormalPathOnce(const int startWaypoint,
 	const int destinationWaypoint, const bool terminalAfterStop)
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		engine == nullptr || gpGlobals == nullptr || m_pNavigator == nullptr)
 	{
@@ -4498,7 +4498,7 @@ void CBotEmpires::clearEmpiresCommanderMoveState(const char* reason)
 
 bool CBotEmpires::requestEmpiresCommanderMoveTest(const Vector& target)
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		engine == nullptr || gpGlobals == nullptr ||
 		!m_pPlayerInfo->IsFakeClient() || m_pPlayerInfo->IsDead() ||
@@ -4519,7 +4519,7 @@ bool CBotEmpires::requestEmpiresCommanderMoveTest(const Vector& target)
 bool CBotEmpires::requestEmpiresSquadMoveTestFixture(const int team,
 	const int squadId, const Vector& target)
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		!m_pPlayerInfo->IsConnected() || !m_pPlayerInfo->IsFakeClient() ||
 		m_pPlayerInfo->IsObserver() || m_pPlayerInfo->IsDead() ||
@@ -4651,7 +4651,7 @@ bool CBotEmpires::requestEmpiresRecoveryCaptureAcceptance(const char* phase)
 		(std::strcmp(phase, "prepare") != 0 &&
 			std::strcmp(phase, "progress") != 0 &&
 			std::strcmp(phase, "select") != 0) ||
-		m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+		m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		!m_pPlayerInfo->IsFakeClient() || m_pPlayerInfo->IsDead() ||
 		m_pPlayerInfo->GetHealth() <= 0 || m_pSchedules == nullptr ||
@@ -4751,7 +4751,7 @@ bool CBotEmpires::requestEmpiresRecoveryCaptureAcceptance(const char* phase)
 
 bool CBotEmpires::requestEmpiresRecoverySquadAcceptance()
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		!m_pPlayerInfo->IsFakeClient() || m_pPlayerInfo->IsDead() ||
 		m_pPlayerInfo->GetHealth() <= 0 || m_pSchedules == nullptr ||
@@ -6683,7 +6683,7 @@ void CBotEmpires::modThink()
 
 bool CBotEmpires::beginNormalRespawn()
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly ||
+	if (m_bBootstrapOnly ||
 		(!m_bNormalDeathEventPending &&
 			m_eNormalSpawnState != EmpiresNormalSpawnState::COMPLETE) ||
 		m_pEdict == nullptr || m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
@@ -6753,66 +6753,17 @@ bool CBotEmpires::beginNormalRespawn()
 	return true;
 }
 
-int CBotEmpires::getTeam()
-{
-	// Controller probes intentionally do not retain IPlayerInfo. The existing
-	// waypoint search calls CBot::getTeam() repeatedly, so use the team that
-	// was validated immediately before this bounded path test instead of
-	// dereferencing the deliberately empty base pointer.
-	if (m_bControllerProbeOnly && m_pPlayerInfo == nullptr)
-		return m_iControllerProbePathTeam;
-
-	return CBot::getTeam();
-}
-
-bool CBotEmpires::canGotoWaypoint(const Vector& vPrevWaypoint,
-	CWaypoint* pWaypoint, CWaypoint* pPrev)
-{
-	// CBot::canGotoWaypoint() reads getHealthPercent() for fall waypoints.
-	// That sensor is not available on the controller probe. Reject only this
-	// input-requiring route condition for the probe; normal bots retain the
-	// established implementation unchanged.
-	if (m_bControllerProbeOnly && m_pPlayerInfo == nullptr && pWaypoint != nullptr &&
-		pWaypoint->hasFlag(CWaypointTypes::W_FL_FALL))
-		return false;
-
-	return CBot::canGotoWaypoint(vPrevWaypoint, pWaypoint, pPrev);
-}
-
-const char* CBotEmpires::controllerProbeLifecycleName() const
-{
-	switch (m_eControllerProbeLifecycle)
-	{
-	case EmpiresControllerProbeLifecycle::INACTIVE:
-		return "INACTIVE";
-	case EmpiresControllerProbeLifecycle::ENGINE_BOT_CREATED:
-		return "ENGINE_BOT_CREATED";
-	case EmpiresControllerProbeLifecycle::SLOT_BOUND:
-		return "SLOT_BOUND";
-	case EmpiresControllerProbeLifecycle::CONTROLLER_VERIFIED:
-		return "CONTROLLER_VERIFIED";
-	case EmpiresControllerProbeLifecycle::REMOVAL_PENDING:
-		return "REMOVAL_PENDING";
-	}
-
-	return "UNKNOWN";
-}
-
 edict_t* CBotEmpires::getCurrentControlledTestEdict() const
 {
 	if (!isControlledTestOnly() || engine == nullptr || gpGlobals == nullptr)
 		return nullptr;
 
-	const int index = m_bControllerProbeOnly ? m_iControllerProbeClientIndex :
-		(m_pEdict != nullptr ? engine->IndexOfEdict(m_pEdict) : -1);
+	const int index = m_pEdict != nullptr ? engine->IndexOfEdict(m_pEdict) : -1;
 	if (index <= 0 || index > gpGlobals->maxClients)
 		return nullptr;
 
 	edict_t* pCurrentEdict = engine->PEntityOfEntIndex(index);
 	if (pCurrentEdict == nullptr || pCurrentEdict->IsFree())
-		return nullptr;
-
-	if (m_bControllerProbeOnly && m_iControllerProbeSlot != index - 1)
 		return nullptr;
 
 	return pCurrentEdict;
@@ -8093,7 +8044,7 @@ void CBotEmpires::handleCommanderVehicleEntry()
 
 bool CBotEmpires::requestEmpiresVehicleFactoryDriveOnce()
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly ||
+	if (m_bBootstrapOnly ||
 		isEmpiresVehicleActionActive() || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr ||
 		m_pController == nullptr || m_pSchedules == nullptr ||
@@ -9134,7 +9085,7 @@ bool CBotEmpires::requestEmpiresMortarSmoke()
 	constexpr const char* mortarClassName = "weapon_emp_nf_mortar";
 
 	if (isEmpiresMortarProbeActive() || m_bBootstrapOnly ||
-		m_bControllerProbeOnly || m_pEdict == nullptr || m_pEdict->IsFree() ||
+		m_pEdict == nullptr || m_pEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || m_pWeapons == nullptr || engine == nullptr ||
 		gpGlobals == nullptr ||
@@ -9235,7 +9186,7 @@ bool CBotEmpires::requestEmpiresMortarFireOnce()
 	const int team = m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetTeamIndex() : -1;
 	const char* mortarClassName = empiresMortarClassName(team);
 	if (isEmpiresMortarActionActive() || isEmpiresMortarProbeActive() ||
-		m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+		m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || m_pWeapons == nullptr || engine == nullptr ||
 		gpGlobals == nullptr || playerinfomanager == nullptr || mortarClassName == nullptr ||
@@ -9412,7 +9363,7 @@ bool CBotEmpires::requestEmpiresMineFireOnce()
 	const char* mineClassName = empiresMineClassName(team);
 	if (isEmpiresMineActionActive() || isEmpiresMortarProbeActive() ||
 		isEmpiresMortarActionActive() || m_bBootstrapOnly ||
-		m_bControllerProbeOnly || m_pEdict == nullptr || m_pEdict->IsFree() ||
+		m_pEdict == nullptr || m_pEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || engine == nullptr || gpGlobals == nullptr ||
 		playerinfomanager == nullptr || mineClassName == nullptr ||
@@ -9532,7 +9483,7 @@ bool CBotEmpires::requestEmpiresMineTriggerOnce(const int targetUserId,
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pPlayerInfo->IsDead() || m_pPlayerInfo->GetHealth() <= 0 ||
 		engine == nullptr || playerinfomanager == nullptr ||
-		m_bBootstrapOnly || m_bControllerProbeOnly)
+		m_bBootstrapOnly)
 	{
 		return false;
 	}
@@ -10061,7 +10012,7 @@ void CBotEmpires::updateEmpiresVacancyReviveIntervention()
 
 	if (!rcbot_empires_vacancy_revive.GetBool())
 		return;
-	if (m_bBootstrapOnly || m_bControllerProbeOnly ||
+	if (m_bBootstrapOnly ||
 		m_pEdict == nullptr || m_pPlayerInfo == nullptr ||
 		engine == nullptr || playerinfomanager == nullptr ||
 		gpGlobals == nullptr || helpers == nullptr || logger == nullptr)
@@ -10590,7 +10541,7 @@ void CBotEmpires::updateEmpiresVacancyReviveIntervention()
 
 void CBotEmpires::observeEmpiresSquadRuntimeShadow()
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pPlayerInfo == nullptr || engine == nullptr ||
 		playerinfomanager == nullptr || gpGlobals == nullptr ||
 		!m_pPlayerInfo->IsConnected() || !m_pPlayerInfo->IsFakeClient() ||
@@ -10901,7 +10852,7 @@ void CBotEmpires::observeEmpiresSquadGameplay()
 	// a human-owned squad is never selected, and all decisions are based on the
 	// public squad id/position readback. Formation movement and leader powers are
 	// separate, not implied by this membership bridge.
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pPlayerInfo == nullptr || helpers == nullptr || engine == nullptr ||
 		playerinfomanager == nullptr || gpGlobals == nullptr ||
 		!m_pPlayerInfo->IsConnected() || !m_pPlayerInfo->IsFakeClient() ||
@@ -11443,7 +11394,7 @@ int CBotEmpires::findEmpiresSquadLeader(const int team, const int squad) const
 
 bool CBotEmpires::handleEmpiresSquadGoal()
 {
-	if (m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+	if (m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pSchedules == nullptr || engine == nullptr ||
 		playerinfomanager == nullptr || gpGlobals == nullptr ||
@@ -11708,7 +11659,7 @@ bool CBotEmpires::requestEmpiresScoutBinocularTarget(edict_t* pTargetEdict,
 	const bool targetBuilding)
 {
 	if (isEmpiresScoutBinocularActionActive() ||
-		m_bBootstrapOnly || m_bControllerProbeOnly || m_pEdict == nullptr ||
+		m_bBootstrapOnly || m_pEdict == nullptr ||
 		m_pEdict->IsFree() || pTargetEdict == nullptr || pTargetEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || m_pWeapons == nullptr || engine == nullptr ||
@@ -12280,7 +12231,7 @@ bool CBotEmpires::requestEmpiresEngineerRepairOnce(const int buildingIndex,
 {
 	if (isEmpiresEngineerRepairActionActive() || isEmpiresMortarProbeActive() ||
 		isEmpiresMortarActionActive() || m_bBootstrapOnly ||
-		m_bControllerProbeOnly || m_pEdict == nullptr || m_pEdict->IsFree() ||
+		m_pEdict == nullptr || m_pEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr || m_pButtons == nullptr ||
 		engine == nullptr || gpGlobals == nullptr || servertools == nullptr ||
 		!m_pPlayerInfo->IsConnected() || m_pPlayerInfo->IsObserver() ||
@@ -12440,7 +12391,7 @@ bool CBotEmpires::requestEmpiresEngineerBuildSelectionOnce()
 	if (isEmpiresEngineerRepairActionActive() ||
 		isEmpiresEngineerBuildSelectionActive() || isEmpiresMortarProbeActive() ||
 		isEmpiresMortarActionActive() || m_bBootstrapOnly ||
-		m_bControllerProbeOnly || m_pEdict == nullptr || m_pEdict->IsFree() ||
+		m_pEdict == nullptr || m_pEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr || m_pButtons == nullptr ||
 		engine == nullptr || gpGlobals == nullptr ||
 		!m_pPlayerInfo->IsConnected() || m_pPlayerInfo->IsObserver() ||
@@ -12528,7 +12479,7 @@ bool CBotEmpires::requestEmpiresEngineerBuildOnce(const int targetWaypoint,
 		isEmpiresEngineerBuildSelectionActive() ||
 		isEmpiresEngineerBuildActionActive() || isEmpiresMortarProbeActive() ||
 		isEmpiresMortarActionActive() || m_bBootstrapOnly ||
-		m_bControllerProbeOnly || m_pEdict == nullptr || m_pEdict->IsFree() ||
+		m_pEdict == nullptr || m_pEdict->IsFree() ||
 		m_pPlayerInfo == nullptr || m_pController == nullptr ||
 		m_pButtons == nullptr || engine == nullptr || gpGlobals == nullptr ||
 		servertools == nullptr || !m_pPlayerInfo->IsConnected() ||
@@ -15044,168 +14995,6 @@ void CBotEmpires::observePendingSpawn()
 void CBotEmpires::resetControlledTestState()
 {
 	m_bBootstrapOnly = false;
-	m_bControllerProbeOnly = false;
-	m_eControllerProbeLifecycle = EmpiresControllerProbeLifecycle::INACTIVE;
-	m_eControllerProbeSpawnSequenceState =
-		EmpiresControllerProbeSpawnSequenceState::IDLE;
-	m_eControllerProbeSpawnHoldState = EmpiresControllerProbeSpawnHoldState::IDLE;
-	m_eControllerProbeNeutralReadinessState =
-		EmpiresControllerProbeNeutralReadinessState::IDLE;
-	m_eControllerProbeLoadoutReadinessState =
-		EmpiresControllerProbeLoadoutReadinessState::IDLE;
-	m_eControllerProbeAppliedLoadoutReadinessState =
-		EmpiresControllerProbeAppliedLoadoutReadinessState::IDLE;
-	m_eControllerProbeSpawnConfirmReadyState =
-		EmpiresControllerProbeSpawnConfirmReadyState::IDLE;
-	m_bControllerProbeReadinessOnly = false;
-	m_iControllerProbeSlot = -1;
-	m_iControllerProbeClientIndex = -1;
-	m_iControllerProbePathTeam = -1;
-	m_iControllerProbeSequenceExpectedIndex = -1;
-	m_iControllerProbeSequenceExpectedUserId = -1;
-	m_iControllerProbeSequenceStageFrames = 0;
-	m_iControllerProbeSequencePressCount = 0;
-	m_iControllerProbeSequenceReleaseCount = 0;
-	m_iControllerProbeSequenceStableSamples = 0;
-	m_bControllerProbeSequenceInitialAlive = false;
-	m_vControllerProbeSequenceOrigin = Vector();
-	m_bControllerProbeSequenceOriginKnown = false;
-	m_iControllerProbeHoldExpectedIndex = -1;
-	m_iControllerProbeHoldExpectedUserId = -1;
-	m_pControllerProbeHoldExpectedEdict = nullptr;
-	m_iControllerProbeHoldStageFrames = 0;
-	m_iControllerProbeHoldObserveFrames = 0;
-	m_iControllerProbeHoldAttackCount = 0;
-	m_iControllerProbeHoldReleaseCount = 0;
-	m_bControllerProbeHoldTimerKnownEverySample = true;
-	m_bControllerProbeHoldTimerFutureObserved = false;
-	m_bControllerProbeHoldTimerExpired = false;
-	m_bControllerProbeReadinessStartTimeKnown = false;
-	m_flControllerProbeReadinessStartTime = 0.0f;
-	m_bControllerProbeReadinessLastLifeStateKnown = false;
-	m_iControllerProbeReadinessLastLifeState = -1;
-	m_bControllerProbeReadinessLastTimerKnown = false;
-	m_flControllerProbeReadinessLastTimer = 0.0f;
-	m_bControllerProbeReadinessLatestDeadlineKnown = false;
-	m_flControllerProbeReadinessLatestDeadline = 0.0f;
-	m_iControllerProbeNeutralExpectedIndex = -1;
-	m_iControllerProbeNeutralExpectedUserId = -1;
-	m_pControllerProbeNeutralExpectedEdict = nullptr;
-	m_iControllerProbeNeutralStageFrames = 0;
-	m_iControllerProbeNeutralSubmittedCommands = 0;
-	m_iControllerProbeNeutralMaxCommands = 0;
-	m_iControllerProbeNeutralLastSubmittedTick = -1;
-	m_iControllerProbeNeutralLastSubmittedCommand = 0;
-	m_iControllerProbeNeutralLastProgressLogCommand = 0;
-	m_bControllerProbeNeutralStartTimeKnown = false;
-	m_flControllerProbeNeutralStartTime = 0.0f;
-	m_bControllerProbeNeutralLastLifeStateKnown = false;
-	m_iControllerProbeNeutralLastLifeState = -1;
-	m_bControllerProbeNeutralLastTimerKnown = false;
-	m_flControllerProbeNeutralLastTimer = 0.0f;
-	m_bControllerProbeNeutralLatestDeadlineKnown = false;
-	m_flControllerProbeNeutralLatestDeadline = 0.0f;
-	m_iControllerProbeLoadoutExpectedIndex = -1;
-	m_iControllerProbeLoadoutExpectedUserId = -1;
-	m_pControllerProbeLoadoutExpectedEdict = nullptr;
-	m_iControllerProbeLoadoutStageFrames = 0;
-	m_iControllerProbeLoadoutSubmittedCommands = 0;
-	m_iControllerProbeLoadoutMaxCommands = 0;
-	m_iControllerProbeLoadoutLastSubmittedTick = -1;
-	m_iControllerProbeLoadoutLastSubmittedCommand = 0;
-	m_iControllerProbeLoadoutLastProgressLogCommand = 0;
-	m_bControllerProbeLoadoutClassFirst = false;
-	m_bControllerProbeLoadoutStartTimeKnown = false;
-	m_flControllerProbeLoadoutStartTime = 0.0f;
-	m_bControllerProbeLoadoutNeutralStartTimeKnown = false;
-	m_flControllerProbeLoadoutNeutralStartTime = 0.0f;
-	m_bControllerProbeLoadoutLastLifeStateKnown = false;
-	m_iControllerProbeLoadoutLastLifeState = -1;
-	m_bControllerProbeLoadoutLastTimerKnown = false;
-	m_flControllerProbeLoadoutLastTimer = 0.0f;
-	m_bControllerProbeLoadoutLatestDeadlineKnown = false;
-	m_flControllerProbeLoadoutLatestDeadline = 0.0f;
-	m_iControllerProbeAppliedLoadoutExpectedIndex = -1;
-	m_iControllerProbeAppliedLoadoutExpectedUserId = -1;
-	m_pControllerProbeAppliedLoadoutExpectedEdict = nullptr;
-	m_iControllerProbeAppliedLoadoutStageFrames = 0;
-	m_iControllerProbeAppliedLoadoutSubmittedCommands = 0;
-	m_iControllerProbeAppliedLoadoutMaxCommands = 0;
-	m_iControllerProbeAppliedLoadoutLastSubmittedTick = -1;
-	m_iControllerProbeAppliedLoadoutLastSubmittedCommand = 0;
-	m_iControllerProbeAppliedLoadoutLastProgressLogCommand = 0;
-	m_bControllerProbeAppliedLoadoutStartTimeKnown = false;
-	m_flControllerProbeAppliedLoadoutStartTime = 0.0f;
-	m_bControllerProbeAppliedLoadoutNeutralStartTimeKnown = false;
-	m_flControllerProbeAppliedLoadoutNeutralStartTime = 0.0f;
-	m_bControllerProbeAppliedLoadoutLastStateKnown = false;
-	m_controllerProbeAppliedLoadoutLastState = {};
-	m_bControllerProbeAppliedLoadoutBeforeEquipmentKnown = false;
-	m_controllerProbeAppliedLoadoutBeforeEquipment = {};
-	m_iControllerProbeSpawnConfirmReadyExpectedIndex = -1;
-	m_iControllerProbeSpawnConfirmReadyExpectedUserId = -1;
-	m_pControllerProbeSpawnConfirmReadyExpectedEdict = nullptr;
-	m_iControllerProbeSpawnConfirmReadyPressCount = 0;
-	m_iControllerProbeSpawnConfirmReadyReleaseCount = 0;
-	m_iControllerProbeSpawnConfirmReadyObserveFrames = 0;
-	m_iControllerProbeSpawnConfirmReadyLastSubmittedCommand = 0;
-	m_iControllerProbeSpawnConfirmReadyLastSubmittedTick = -1;
-	m_iControllerProbeSpawnConfirmReadyLastLifeState = -1;
-	m_bControllerProbeSpawnConfirmReadyLastLifeStateKnown = false;
-	m_vControllerProbeSpawnConfirmReadyOrigin = Vector();
-	m_bControllerProbeSpawnConfirmReadyOriginKnown = false;
-	m_eControllerProbeMovementState =
-		EmpiresControllerProbeMovementState::IDLE;
-	m_eControllerProbeWaypointState =
-		EmpiresControllerProbeWaypointState::IDLE;
-	m_iControllerProbeMovementExpectedIndex = -1;
-	m_iControllerProbeMovementExpectedUserId = -1;
-	m_pControllerProbeMovementExpectedEdict = nullptr;
-	m_iControllerProbeMovementActiveFrames = 0;
-	m_iControllerProbeMovementFinalObserveFrames = 0;
-	m_iControllerProbeMovementSubmittedCommands = 0;
-	m_iControllerProbeMovementLastSubmittedCommand = 0;
-	m_iControllerProbeMovementLastSubmittedTick = -1;
-	m_bControllerProbeMovementStartOriginKnown = false;
-	m_vControllerProbeMovementStartOrigin = Vector();
-	m_bControllerProbeMovementFinalOriginKnown = false;
-	m_vControllerProbeMovementFinalOrigin = Vector();
-	m_vControllerProbeMovementViewAngles = QAngle(0.0f, 0.0f, 0.0f);
-	m_iControllerProbeWaypointExpectedIndex = -1;
-	m_iControllerProbeWaypointExpectedUserId = -1;
-	m_pControllerProbeWaypointExpectedEdict = nullptr;
-	m_iControllerProbeWaypointId = -1;
-	m_iControllerProbePathStartWaypoint = -1;
-	m_iControllerProbePathDestinationWaypoint = -1;
-	m_bControllerProbeWaypointRouteMode = false;
-	m_bControllerProbeWaypointPathMode = false;
-	m_bControllerProbeWaypointPathSearchStarted = false;
-	m_iControllerProbeWaypointPathSearchFrames = 0;
-	m_iControllerProbeWaypointPathNodeIndex = 0;
-	m_ControllerProbeWaypointPath.clear();
-	m_iControllerProbeWaypointRouteTargetsVisited = 0;
-	m_iControllerProbeWaypointRoutePreviousId = -1;
-	m_iControllerProbeWaypointRouteSegmentFrames = 0;
-	m_iControllerProbeWaypointActiveFrames = 0;
-	m_iControllerProbeWaypointFinalObserveFrames = 0;
-	m_iControllerProbeWaypointSubmittedCommands = 0;
-	m_iControllerProbeWaypointLastSubmittedCommand = 0;
-	m_iControllerProbeWaypointLastSubmittedTick = -1;
-	m_iControllerProbeWaypointNoProgressFrames = 0;
-	m_bControllerProbeWaypointInputActive = false;
-	m_bControllerProbeWaypointStartOriginKnown = false;
-	m_vControllerProbeWaypointStartOrigin = Vector();
-	m_vControllerProbeWaypointViewAngles = QAngle(0.0f, 0.0f, 0.0f);
-	m_bControllerProbeWaypointTargetKnown = false;
-	m_vControllerProbeWaypointTargetOrigin = Vector();
-	m_bControllerProbeWaypointFinalOriginKnown = false;
-	m_vControllerProbeWaypointFinalOrigin = Vector();
-	m_flControllerProbeWaypointStartTime = 0.0f;
-	m_flControllerProbeWaypointInitialDistance = 0.0f;
-	m_flControllerProbeWaypointBestDistance = 0.0f;
-	m_bControllerProbeWaypointReached = false;
-	m_bControllerProbeWaypointTimedOut = false;
-	m_bControllerProbeWaypointNoProgress = false;
 	m_bThinkGateLogged = false;
 	m_bStartGameGateLogged = false;
 	m_bNormalTeamStartComplete = false;
@@ -15318,45 +15107,21 @@ bool CBotEmpires::attachBootstrapEdict(edict_t* pEdict)
 	return true;
 }
 
-bool CBotEmpires::suppressBotThink()
+bool CBotEmpires::requestBootstrapRemoval()
 {
-	if (m_bControllerProbeOnly)
+	if (!m_bBootstrapOnly || m_pEdict == nullptr || m_bRemovalRequested)
 	{
-		if (m_bControllerProbeWaypointPathMode &&
-			m_eControllerProbeWaypointState !=
-			EmpiresControllerProbeWaypointState::IDLE)
-			observeControllerProbePathOnce();
-		else if (m_eControllerProbeWaypointState !=
-			EmpiresControllerProbeWaypointState::IDLE)
-			observeControllerProbeWaypointOnce();
-		else if (m_eControllerProbeMovementState !=
-			EmpiresControllerProbeMovementState::IDLE)
-			observeControllerProbeMovementProof();
-		else if (m_eControllerProbeSpawnConfirmReadyState !=
-			EmpiresControllerProbeSpawnConfirmReadyState::IDLE)
-			observeControllerProbeSpawnConfirmReady();
-		else if (m_eControllerProbeAppliedLoadoutReadinessState !=
-			EmpiresControllerProbeAppliedLoadoutReadinessState::IDLE)
-			observeControllerProbeAppliedLoadoutReadiness();
-		else if (m_eControllerProbeLoadoutReadinessState !=
-			EmpiresControllerProbeLoadoutReadinessState::IDLE)
-			observeControllerProbeLoadoutReadiness();
-		else if (m_eControllerProbeNeutralReadinessState !=
-			EmpiresControllerProbeNeutralReadinessState::IDLE)
-			observeControllerProbeNeutralReadiness();
-		else if (m_eControllerProbeSpawnHoldState != EmpiresControllerProbeSpawnHoldState::IDLE)
-			observeControllerProbeSpawnHoldTest();
-		else
-			observeControllerProbeSpawnSequence();
-		if (!m_bThinkGateLogged)
-		{
-			logger->Log(LogLevel::INFO, "Empires controller probe lifecycle=think-gated index=%d",
-				engine != nullptr && m_pEdict != nullptr ? engine->IndexOfEdict(m_pEdict) : -1);
-			m_bThinkGateLogged = true;
-		}
-		return true;
+		return false;
 	}
 
+	m_bRemovalRequested = true;
+	const int index = engine != nullptr ? engine->IndexOfEdict(m_pEdict) : -1;
+	logger->Log(LogLevel::INFO, "Empires bootstrap lifecycle=remove-requested index=%d", index);
+	return true;
+}
+
+bool CBotEmpires::suppressBotThink()
+{
 	// Observe before any Empires-specific think gate. Normal spawn and respawn
 	// confirmation runs behind this gate, so observing only from modThink()
 	// misses the dead state and cannot report the later alive transition.
@@ -16018,9 +15783,7 @@ void CBotEmpires::freeMapMemory()
 	clearEmpiresScoutPriorityFixture("map-shutdown");
 	clearEmpiresSquadGoals();
 	const bool wasAttached = isControlledTestOnly() || m_pEdict != nullptr;
-	const int previousSlot = m_iControllerProbeSlot;
-	const int previousIndex = m_iControllerProbeClientIndex;
-	const char* previousLifecycle = controllerProbeLifecycleName();
+	const int previousIndex = m_pEdict != nullptr && engine != nullptr ? engine->IndexOfEdict(m_pEdict) : -1;
 	CBot::freeMapMemory();
 	for (int i = 0; i < RCBOT_MAXPLAYERS; ++i)
 	{
@@ -16343,8 +16106,8 @@ void CBotEmpires::freeMapMemory()
 	if (wasAttached)
 	{
 		logger->Log(LogLevel::INFO,
-			"Empires controlled test lifecycle=INACTIVE cleared slot=%d index=%d previous=%s in_use=0",
-			previousSlot, previousIndex, previousLifecycle);
+			"Empires controlled test lifecycle=INACTIVE cleared index=%d in_use=0",
+			previousIndex);
 	}
 
 	CBots::controlledTestLifecycleMayEnd();

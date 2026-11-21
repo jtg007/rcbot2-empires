@@ -1852,8 +1852,35 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				return true;
 			if (!m_bEmpiresBuildingActionThrown)
 			{
+				// Press only with the grenade in hand: the 0.75 s after selectWeaponName were not
+				// always enough, the press then went to the rifle (Palmbay 170243: 2x thrown, ammo 3
+				// and refinery health 150 unchanged).
 				if (m_flEmpiresBuildingActionPressUntil <= 0.0f)
+				{
+					const edict_t* active = CClassInterface::getCurrentWeapon(m_pEdict);
+					const char* activeClass = active != nullptr && !active->IsFree() ? active->GetClassName() : nullptr;
+					if (activeClass == nullptr || std::strstr(activeClass, "sticky") == nullptr)
+					{
+						const bool be = getTeam() == EMP_TEAM_BE;
+						int cls = -1;
+						bool clsDesired = false;
+						bool clsKnown = false;
+						const char* clsProp = nullptr;
+						const bool scout = readEmpiresClass(m_pEdict, cls, clsDesired, clsKnown, clsProp) &&
+							cls == EMP_CLASS_SCOUT;
+						selectWeaponName(scout ?
+							(be ? "weapon_emp_imp_sticky_stun_grenade" : "weapon_emp_nf_sticky_Stun_grenade") :
+							(be ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade"));
+						if (now >= m_flKillSpawnNextBlockLog)
+						{
+							m_flKillSpawnNextBlockLog = now + 1.0f;
+							RCBOT_DIAG("[RCBOT2] building-sticky wait-weapon userid=%d active=%s\n", userId,
+								activeClass != nullptr ? activeClass : "-");
+						}
+						return true;
+					}
 					m_flEmpiresBuildingActionPressUntil = now + 0.45f;
+				}
 				if (now < m_flEmpiresBuildingActionPressUntil)
 				{
 					if (m_pButtons != nullptr)

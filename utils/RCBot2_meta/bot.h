@@ -492,9 +492,8 @@ public:
 	// attached to an engine fake client before game-specific initialization is
 	// implemented. Normal bots return false and retain the existing lifecycle.
 	virtual bool isBootstrapOnly () const { return false; }
-	// Controlled Empires probes are also attached without normal bot setup.
-	// Keep this separate from isBootstrapOnly() so the existing bootstrap
-	// commands cannot accidentally operate on a controller probe.
+	// Any bot attached without normal setup (currently the Empires bootstrap
+	// client); normal bot loops skip these.
 	virtual bool isControlledTestOnly () const { return isBootstrapOnly(); }
 	virtual bool suppressBotThink () { return false; }
 
@@ -1332,14 +1331,10 @@ public:
 	static int createDefaultBot(const char* szName);
 	static bool createEmpiresBootstrapBot();
 	static bool removeEmpiresBootstrapBot();
-	static bool createEmpiresControllerProbe();
-	static bool removeEmpiresControllerProbe();
 
 	static int numBots ();
 	static bool hasBootstrapOnlyBot ();
 	static CBot* getBootstrapOnlyBot ();
-	static bool hasControllerProbeOnlyBot ();
-	static CBot* getControllerProbeOnlyBot ();
 	static bool hasControlledTestOnlyBot ();
 	static CBot* getFirstNormalBot ();
 	static void controlledTestLifecycleMayEnd ();
