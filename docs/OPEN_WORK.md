@@ -21,8 +21,9 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
    on slow vehicles (3.22).
 3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
    and speed. Measure the team director's contact rate on
-   coast (5.4/5.8) and check reachable and unreachable off-mesh MOVE targets in one server
-   (3.18).
+   coast (5.4/5.8). Off-mesh MOVE targets (3.18) are checked: a bot stops at the nearest
+   reachable mesh point on the target's level (about 60 units tolerance) and reports COMPLETE
+   with the remaining distance; no stalls.
 4. Extend refitting, vehicle and infantry resupply, fire groups and team behavior.
    Reuse the engineer crate and request paths for infantry resupply. Agree on the
    research order before selecting improved vehicle parts (5.2). Use the resulting
