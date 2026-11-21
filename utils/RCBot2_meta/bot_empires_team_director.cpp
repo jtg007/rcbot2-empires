@@ -70,6 +70,7 @@ struct TeamState
 	std::unordered_map<int, float> pushSince;   // flag entity -> first time it was a push goal
 	std::unordered_map<int, float> pushAvoid;   // flag entity -> avoided until
 	int lastRole[kMaxClients] = {};
+	float roleSince[kMaxClients] = {};          // game time the current role was given
 	std::unordered_map<int, int> flagOwner;     // flag entity -> last known owner (gain/loss log)
 };
 TeamState s_team[4];
@@ -625,6 +626,7 @@ void CBotEmpires::tickTeamDirector()
 	// --- Roles of the free infantry bots (stable by client index).
 	int clients[kMaxClients];
 	int prev[kMaxClients];
+	bool locked[kMaxClients];
 	int count = 0;
 	for (int i = 1; i <= gpGlobals->maxClients && i < kMaxClients; ++i)
 	{
@@ -655,12 +657,24 @@ void CBotEmpires::tickTeamDirector()
 			continue; // a human (or anyone else) ordered this bot: hands off
 		clients[count] = i;
 		prev[count] = state.lastRole[i];
+		locked[count] = state.lastRole[i] != ROLE_NONE && now - state.roleSince[i] < kRoleMinSeconds;
 		++count;
 	}
 	board.teamBots = teamBots;
+	// Alert at a hold goal (a forward own refinery): the hold bots answer it, no extra defenders are
+	// pulled from the push (palmbay 164001: the only pusher became defender at every such alert).
+	int alertHold = -1;
+	if (board.phase == PHASE_BASE_ALERT)
+		for (int g = 0; g < board.holdCount; ++g)
+			if (board.hold[g].entity >= 0 && board.hold[g].entity == board.alert.entity)
+				alertHold = g;
 	board.split = SplitRoles(count, teamBots, board.phase, board.holdCount > 0);
-	const int alertOverride = board.phase == PHASE_BASE_ALERT ?
-		board.split.defense - SplitRoles(count, teamBots, PHASE_PUSH, board.holdCount > 0).defense : 0;
+	const RoleSplit calm = SplitRoles(count, teamBots, PHASE_PUSH, board.holdCount > 0);
+	if (alertHold >= 0 && calm.hold > 0)
+		board.split = calm;
+	else
+		alertHold = -1;
+	const int alertOverride = board.split.defense - calm.defense;
 	if (board.pushCount == 0)
 	{
 		// Nothing to push: pushers hold, or defend without hold goals.
@@ -671,7 +685,7 @@ void CBotEmpires::tickTeamDirector()
 		board.split.push = 0;
 	}
 	int roles[kMaxClients];
-	AssignRoles(prev, count, board.split, roles);
+	AssignRoles(prev, locked, count, board.split, roles);
 	int pushIndex = 0, holdIndex = 0;
 	for (int k = 0; k < count; ++k)
 	{
@@ -680,13 +694,15 @@ void CBotEmpires::tickTeamDirector()
 		if (roles[k] == ROLE_PUSH)
 			board.goal[i] = board.pushCount > 0 ? pushIndex++ % board.pushCount : -1;
 		else if (roles[k] == ROLE_HOLD)
-			board.goal[i] = board.holdCount > 0 ? holdIndex++ % board.holdCount : -1;
+			board.goal[i] = alertHold >= 0 ? alertHold : (board.holdCount > 0 ? holdIndex++ % board.holdCount : -1);
 		if (roles[k] != state.lastRole[i])
 		{
 			const Goal* goal = RoleGoal(board, i);
-			RCBOT_DIAG("[RCBOT2] team-director role team=%d userid=%d role=%s from=%s goal=%s:%d\n", team,
+			RCBOT_DIAG("[RCBOT2] team-director role team=%d userid=%d role=%s from=%s goal=%s:%d t=%.0f held=%.0f\n", team,
 				engine->GetPlayerUserId(engine->PEntityOfEntIndex(i)), RoleName(roles[k]), RoleName(state.lastRole[i]),
-				goal != nullptr ? goal->kind : "-", goal != nullptr ? goal->entity : -1);
+				goal != nullptr ? goal->kind : "-", goal != nullptr ? goal->entity : -1, now,
+				state.lastRole[i] != ROLE_NONE ? now - state.roleSince[i] : 0.0f);
+			state.roleSince[i] = now;
 		}
 	}
 	for (int i = 1; i < kMaxClients; ++i)
@@ -713,9 +729,9 @@ void CBotEmpires::tickTeamDirector()
 	{
 		state.lastSignature = sig;
 		state.nextLog = now + kLogEvery;
-		RCBOT_DIAG("[RCBOT2] team-director team=%d phase=%s push=%s hold=%s alert=%s:%d reason=%s override=%d stabilize=%s roles=%d/%d/%d free=%d bots=%d tickets=%.0f/%.0f known=%d\n",
+		RCBOT_DIAG("[RCBOT2] team-director team=%d phase=%s push=%s hold=%s alert=%s:%d reason=%s override=%d alert-hold=%d stabilize=%s roles=%d/%d/%d free=%d bots=%d tickets=%.0f/%.0f known=%d\n",
 			team, PhaseName(board.phase), pushText, holdText, board.alert.kind, board.alert.entity, board.alertReason,
-			alertOverride,
+			alertOverride, alertHold,
 			board.phase == PHASE_STABILIZE ? state.stabilizeReason : "-", board.split.push, board.split.hold,
 			board.split.defense, count, teamBots, board.tickets, board.ticketsMax, board.ticketsKnown ? 1 : 0);
 	}

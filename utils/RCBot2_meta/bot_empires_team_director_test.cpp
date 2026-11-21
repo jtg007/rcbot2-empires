@@ -74,6 +74,49 @@ int main()
 			counts[ROLE_DEFENSE] == split.defense, "alert counts match split");
 		Check(out[0] == ROLE_PUSH && out[1] == ROLE_HOLD && out[2] == ROLE_DEFENSE, "extra pusher becomes the defender");
 	}
+	{
+		// Alert just ended: a defender locked by the minimum role time stays defender over the split.
+		RoleSplit split; // calm: 2/1/0
+		split.push = 2;
+		split.hold = 1;
+		const int prev[3] = { ROLE_PUSH, ROLE_HOLD, ROLE_DEFENSE };
+		const bool locked[3] = { false, false, true };
+		int out[3];
+		AssignRoles(prev, locked, 3, split, out);
+		Check(out[0] == ROLE_PUSH && out[1] == ROLE_HOLD && out[2] == ROLE_DEFENSE, "locked defender stays");
+		const bool unlocked[3] = { false, false, false };
+		AssignRoles(prev, unlocked, 3, split, out);
+		Check(out[2] == ROLE_PUSH, "unlocked defender returns to push");
+	}
+	{
+		// New alert, everybody locked in push/hold: one bot of the biggest role still answers.
+		const RoleSplit split = SplitRoles(3, 5, PHASE_BASE_ALERT, true); // 1/1/1
+		const int prev[3] = { ROLE_PUSH, ROLE_HOLD, ROLE_PUSH };
+		const bool locked[3] = { true, true, true };
+		int out[3];
+		AssignRoles(prev, locked, 3, split, out);
+		int counts[4] = {};
+		for (int r : out)
+			++counts[r];
+		Check(counts[ROLE_DEFENSE] == 1 && counts[ROLE_PUSH] == 1 && counts[ROLE_HOLD] == 1,
+			"locked team still sends one defender from the pushers");
+		// Only one pusher and one holder locked: the holder goes, the last pusher stays.
+		const int prev2[2] = { ROLE_PUSH, ROLE_HOLD };
+		const bool locked2[2] = { true, true };
+		int out2[2];
+		AssignRoles(prev2, locked2, 2, SplitRoles(2, 5, PHASE_BASE_ALERT, true), out2);
+		Check(out2[0] == ROLE_PUSH && out2[1] == ROLE_DEFENSE, "last pusher kept, holder defends");
+	}
+	{
+		// Unlocked bots without room anywhere keep their role instead of falling to push.
+		RoleSplit split;
+		split.push = 1;
+		const int prev[2] = { ROLE_HOLD, ROLE_HOLD };
+		const bool locked[2] = { true, false };
+		int out[2];
+		AssignRoles(prev, locked, 2, split, out);
+		Check(out[0] == ROLE_HOLD && out[1] == ROLE_PUSH, "free bot fills the push room");
+	}
 
 	// Kill-spawn rules.
 	KillSpawnInput ok;

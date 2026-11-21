@@ -172,7 +172,9 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   vehicle buyer under strict rules (no combat 6 s, spawn 3800 closer, tickets > 20 and 25 %, 90 s per bot).
   Measured with 10 bots at 4x: palmbay kills 13 vs 20 against the cvar off (the first version was passive: 1 vs 41),
   coast flag captured by an ordered bot; open: kill-spawn for defenders never triggered yet, contact rate on coast
-  (kills 15 vs 33), role switching on frequent front-refinery alerts.
+  (kills 15 vs 33). Roles now last at least 40 s and an alert at a hold goal is answered by the holders
+  (palmbay 4x push<->defense swaps 16/15 -> 10/9 per match); open: a team with only one free infantry bot still
+  sends it back and forth when alerts at a forward refinery keep returning (palmbay 1x: 6 swaps of one bot).
 - [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
   20 HP/s once the centre is wet). Fords on emp_cyclopean are not measured yet. palmbay boat flags (deck only by

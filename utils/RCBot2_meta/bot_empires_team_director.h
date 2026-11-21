@@ -120,14 +120,32 @@ inline float ResourcePushScore(float distHome, float distEnemy)
 	return share > 0.55f ? share - 0.55f : 0.55f - share;
 }
 
-// Stable assignment: a bot keeps its previous role while that role still has room; the rest fill the
-// roles in the order defense, hold, push. prev/out hold count entries (ROLE_* values).
-inline void AssignRoles(const int* prev, int count, const RoleSplit& split, int* out)
+// A bot keeps a new role at least this long (palmbay 163951/164001: up to 8 push<->defense swaps per bot,
+// median ~12 s, every front-refinery alert pulled the only pusher back).
+constexpr float kRoleMinSeconds = 40.0f;
+
+// Stable assignment: a locked bot (role younger than kRoleMinSeconds) keeps it even over the split; then
+// a bot keeps its previous role while that role still has room; the rest fill the roles in the order
+// defense, hold, push. If the split wants defenders and all bots are locked elsewhere, one bot of the
+// biggest other role breaks its lock (an alert always gets an answer). prev/out hold count entries
+// (ROLE_* values), locked may be nullptr.
+inline void AssignRoles(const int* prev, const bool* locked, int count, const RoleSplit& split, int* out)
 {
 	int room[4] = { 0, split.push, split.hold, split.defense };
 	for (int i = 0; i < count; ++i)
 	{
 		out[i] = ROLE_NONE;
+		const int role = prev[i];
+		if (locked != nullptr && locked[i] && role >= ROLE_PUSH && role <= ROLE_DEFENSE)
+		{
+			out[i] = role;
+			--room[role];
+		}
+	}
+	for (int i = 0; i < count; ++i)
+	{
+		if (out[i] != ROLE_NONE)
+			continue;
 		const int role = prev[i];
 		if (role >= ROLE_PUSH && role <= ROLE_DEFENSE && room[role] > 0)
 		{
@@ -148,8 +166,27 @@ inline void AssignRoles(const int* prev, int count, const RoleSplit& split, int*
 				break;
 			}
 		if (out[i] == ROLE_NONE)
-			out[i] = ROLE_PUSH;
+			out[i] = prev[i] >= ROLE_PUSH && prev[i] <= ROLE_DEFENSE ? prev[i] : ROLE_PUSH;
 	}
+	if (split.defense <= 0 || count <= 0)
+		return;
+	int have[4] = {};
+	for (int i = 0; i < count; ++i)
+		++have[out[i]];
+	if (have[ROLE_DEFENSE] > 0)
+		return;
+	const int from = have[ROLE_HOLD] >= have[ROLE_PUSH] ? ROLE_HOLD : ROLE_PUSH;
+	for (int i = count - 1; i >= 0; --i)
+		if (out[i] == from)
+		{
+			out[i] = ROLE_DEFENSE;
+			return;
+		}
+}
+
+inline void AssignRoles(const int* prev, int count, const RoleSplit& split, int* out)
+{
+	AssignRoles(prev, nullptr, count, split, out);
 }
 
 // Kill-spawn rules (TODO 5.28).
