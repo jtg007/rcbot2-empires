@@ -1,6 +1,7 @@
 #include "bot_empires.h"
 #include "bot_empires_capture_route_terminal.h"
 #include "bot_empires_telemetry.h"
+#include "bot_empires_team_director.h"
 #include "bot_globals.h"
 #include "bot_buttons.h"
 #include "bot_getprop.h"
@@ -909,10 +910,9 @@ namespace
 	// A spot 400-1200 around the flag that is reachable from it, upper levels
 	// included (as_escort NF spawn ground is higher than flag 5). preferHigh asks
 	// for at least 64 above the flag first.
-	bool pickEmpiresDefendSpot(const Vector& flag, const bool preferHigh, Vector& spot)
+	bool pickEmpiresDefendSpot(const Vector& flag, const bool preferHigh, Vector& spot,
+		const float kMin = 400.0f, const float kMax = 1200.0f)
 	{
-		constexpr float kMin = 400.0f;
-		constexpr float kMax = 1200.0f;
 		const auto ground = RCBotNavMesh::CollectLocalGroundSamples(flag, kMax + 400.0f, 0, 0, 100000);
 		std::vector<Vector> all;
 		std::vector<Vector> high;
@@ -2640,6 +2640,30 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 		}
 	}
 
+	// Team director (TODO 5.8): a defender walks to the threatened own building on a base alert, also
+	// without a bot commander's order.
+	if (const EmpiresTeamDirector::Board* board = EmpiresTeamDirectorBoard(team))
+	{
+		const int client = engine->IndexOfEdict(m_pEdict);
+		if (board->phase == EmpiresTeamDirector::PHASE_BASE_ALERT && board->alert.valid() && client > 0 &&
+			client < EmpiresTeamDirector::kMaxClients && board->role[client] == EmpiresTeamDirector::ROLE_DEFENSE)
+		{
+			const Vector spot(board->alert.pos[0], board->alert.pos[1], board->alert.pos[2]);
+			// The goal tick drops a goal whose entity class differs from the stored one: real class name.
+			edict_t* alertEdict = board->alert.entity > 0 ? INDEXENT(board->alert.entity) : nullptr;
+			const char* alertClass = alertEdict != nullptr && !alertEdict->IsFree() ? alertEdict->GetClassName() : nullptr;
+			if (alertClass != nullptr && empiresNavGoalDistance2D(origin, spot) > 600.0f)
+			{
+				tiers[NAVGOAL_DEFEND].clear();
+				tiers[NAVGOAL_DEFEND].push_back({ board->alert.entity, spot, empiresNavGoalDistance2D(origin, spot),
+					alertClass });
+				RCBOT_DIAG("[RCBOT2] goal-roam base-alert userid=%d team=%d entity=%d kind=%s reason=%s dist=%.0f\n",
+					userId, team, board->alert.entity, board->alert.kind, board->alertReason,
+					empiresNavGoalDistance2D(origin, spot));
+			}
+		}
+	}
+
 	// 2-4. Resource points, enemy buildings, enemy commander from the entity list.
 	const char* enemyCommanderClass = team == EMP_TEAM_NF ? "emp_imp_commander" : "emp_nf_commander";
 	// Engineers look after their team's buildings first: damaged ones and ones still
@@ -2739,6 +2763,43 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 				[&](const EmpiresNavGoalCandidate& candidate)
 				{ return !RCBotNavMesh::CanReachComponent(origin, candidate.origin); }),
 				list.end());
+	}
+
+	// Team director sector (TODO 5.8): a bot on its own bot commander's sector order stays in the sector
+	// once there: goals farther than kSectorRadius from the order spot go, with none left it holds a defend
+	// spot there (no blind push past a hold goal; palmbay 20261121-153845: 75 leash rearms in 15 min).
+	if (m_iEmpiresCommanderOrderType == 2 && m_bEmpiresCommanderMoveRouteIssued && !m_bEmpiresCommanderMoveFailed &&
+		EmpiresCommanderOrderIsOurs(team, engine->IndexOfEdict(m_pEdict)))
+	{
+		// Inside the 500 leash of an attack-location order, else the bot walks off and is pulled back
+		// (palmbay 20261121-160030 with 900: 111 rearms, median 875 away).
+		constexpr float kSectorRadius = 450.0f;
+		const Vector sector = m_vEmpiresCommanderMoveTarget;
+		bool any = false;
+		for (std::vector<EmpiresNavGoalCandidate>& list : tiers)
+		{
+			list.erase(std::remove_if(list.begin(), list.end(),
+				[&](const EmpiresNavGoalCandidate& candidate)
+				{ return empiresNavGoalDistance2D(candidate.origin, sector) > kSectorRadius; }),
+				list.end());
+			any = any || !list.empty();
+		}
+		if (!any)
+		{
+			const EmpiresTeamDirector::Board* board = EmpiresTeamDirectorBoard(team);
+			const EmpiresTeamDirector::Goal* goal = board != nullptr ?
+				EmpiresTeamDirector::RoleGoal(*board, engine->IndexOfEdict(m_pEdict)) : nullptr;
+			edict_t* goalEdict = goal != nullptr && goal->entity > 0 ? INDEXENT(goal->entity) : nullptr;
+			const char* goalClass = goalEdict != nullptr && !goalEdict->IsFree() ? goalEdict->GetClassName() : nullptr;
+			Vector spot;
+			if (goalClass != nullptr && pickEmpiresDefendSpot(sector, (m_iEmpiresNavGoalPicks % 2) == 0, spot, 120.0f, 420.0f))
+			{
+				// Real class name: the goal tick drops goals whose entity class differs (entity-gone loop,
+				// palmbay 20261121-154453: 18249 picks with class sector-hold).
+				tiers[NAVGOAL_DEFEND].push_back({ goal->entity, spot,
+					empiresNavGoalDistance2D(origin, spot), goalClass });
+			}
+		}
 	}
 
 	int tier = 0;

@@ -1,4 +1,5 @@
 #include "bot_empires.h"
+#include "bot_empires_team_director.h"
 #include "bot_empires_binary.h"
 #include "bot_empires_combat_fixture_waypoints.h"
 #include "bot_empires_squad_join.h"
@@ -6462,8 +6463,10 @@ void CBotEmpires::modThink()
 				engine->GetPlayerUserId(m_pEdict), restrict, at.x, at.y, at.z);
 		}
 	}
+	tickTeamDirector();
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();
+	tickEmpiresKillSpawn();
 	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
 	{
 		// EngiBots: ammo calls of vehicles at the base only (human test 15.11.: a tank called for
@@ -13814,8 +13817,51 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 	const SpawnCandidate* chosen = nullptr;
 	const char* reason = (m_iNormalSpawnExcludeId >= 0) ? "fallback" : "forward-rax";
 
+	// Rule 0: the spawn kill-spawn chose just before the kill (TODO 5.28, bot_empires_team_director.cpp).
+	if (!hasConfiguredSpawnId && m_iKillSpawnId >= 0)
+	{
+		if (gpGlobals != nullptr && gpGlobals->curtime <= m_flKillSpawnIdUntil)
+			for (const SpawnCandidate& c : candidates)
+				if (c.id == m_iKillSpawnId && c.enabled && candidateUsable(c))
+				{
+					chosen = &c;
+					reason = "kill-spawn";
+					break;
+				}
+		m_bKillSpawnMissed = chosen == nullptr;
+		m_iKillSpawnId = -1;
+	}
+
+	// Rule 1a: team director base alert (TODO 5.8): defenders and engineers spawn nearest the threatened
+	// own building / refinery / CV.
+	if (chosen == nullptr && !hasConfiguredSpawnId && engine != nullptr)
+	{
+		const EmpiresTeamDirector::Board* board = EmpiresTeamDirectorBoard(team);
+		const int client = engine->IndexOfEdict(m_pEdict);
+		if (board != nullptr && board->phase == EmpiresTeamDirector::PHASE_BASE_ALERT && board->alert.valid() &&
+			client > 0 && client < EmpiresTeamDirector::kMaxClients &&
+			(board->role[client] == EmpiresTeamDirector::ROLE_DEFENSE || m_iDesiredClass == EMP_CLASS_ENGINEER))
+		{
+			const Vector anchor(board->alert.pos[0], board->alert.pos[1], board->alert.pos[2]);
+			float bestDist = 1.0e9f;
+			for (const SpawnCandidate& c : candidates)
+			{
+				if (!candidateUsable(c) || !c.enabled)
+					continue;
+				const float d = dist2D(c.origin, anchor);
+				if (chosen == nullptr || d < bestDist)
+				{
+					chosen = &c;
+					bestDist = d;
+				}
+			}
+			if (chosen != nullptr)
+				reason = "base-alert";
+		}
+	}
+
 	// Rule 1: Base defense (CV or base buildings under attack, Engineer/Grenadier).
-	if (!hasConfiguredSpawnId && baseUnderAttack && isDefenderClass && !ownBaseAnchors.empty())
+	if (chosen == nullptr && !hasConfiguredSpawnId && baseUnderAttack && isDefenderClass && !ownBaseAnchors.empty())
 	{
 		const Vector& anchor = ownCvKnown ? ownCvOrigin : ownBaseAnchors.front();
 		float bestDist = 1.0e9f;
@@ -16175,6 +16221,12 @@ void CBotEmpires::freeMapMemory()
 	// Orders and timers of the old map: entity indices and gpGlobals->curtime
 	// deadlines mean nothing on the next map. Initial values as in the header.
 	m_vehicle = EmpiresVehicleBrain();
+	m_flKillSpawnNextCheck = 0.0f;
+	m_flKillSpawnLast = -1.0e9f;
+	m_flKillSpawnNextBlockLog = 0.0f;
+	m_iKillSpawnId = -1;
+	m_flKillSpawnIdUntil = 0.0f;
+	m_bKillSpawnMissed = false;
 	m_iCommanderEntryStage = 0;
 	m_iCommanderEntryUserId = -1;
 	m_hCommanderEntryVehicle = nullptr;

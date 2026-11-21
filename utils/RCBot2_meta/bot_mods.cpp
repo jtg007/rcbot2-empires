@@ -49,6 +49,7 @@
 #include "bot_perceptron.h"
 #include "bot_empires.h"
 #include "bot_empires_telemetry.h"
+#include "bot_empires_team_director.h"
 
 #include <algorithm>
 #include <cmath>
@@ -408,6 +409,7 @@ void CEmpiresMod::mapInit()
 	EmpiresObjectiveLevelReset();
 	EmpiresEngibotLevelReset();
 	EmpiresCommanderOrdersLevelReset();
+	EmpiresTeamDirectorLevelReset();
 	RCBOT_DIAG("[RCBOT2] empires level-reset\n");
 	m_CapturePoints.clear();
 	m_flNextCapturePointScan = 0.0f;

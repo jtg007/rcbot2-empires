@@ -2477,12 +2477,25 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 	// An engineer with a build order who spawned in an APC seat must still get out (run
 	// 20261121-135318: BE engineer userid=9 sat in APC 572 until its order stalled at 232/250).
+	// The own bot commander's team-director order (push/hold/defense, TODO 5.8) does not block buying or
+	// driving: the order ends here locally and the commander drops it once the bot has no role any more
+	// (crossroads dev_check pad 20261121-153156: the buy waited 200 s for a push to a resource point).
+	const bool directorOrder = isEmpiresCommanderMoveActive() &&
+		EmpiresCommanderOrderIsOurs(getTeam(), engine->IndexOfEdict(m_pEdict));
+	if (directorOrder && v.stage != EmpiresVehicleStage::NONE)
+	{
+		RCBOT_DIAG("[RCBOT2] vehicle director-order-dropped userid=%d stage=%s\n", engine->GetPlayerUserId(m_pEdict),
+			StageName(v.stage));
+		m_bEmpiresCommanderMoveFailed = true;
+		m_bEmpiresCommanderMoveStuck = false;
+	}
+	const bool commanderMoveBlocks = isEmpiresCommanderMoveActive() && !directorOrder;
 	const bool buildAssignPassengerExit = m_iBuildAssignStage > 0 && !commanderVehicleEntryActive() &&
-		!isEmpiresCommanderMoveActive() && !isEmpiresVehicleActionActive() &&
+		!commanderMoveBlocks && !isEmpiresVehicleActionActive() &&
 		((v.stage == EmpiresVehicleStage::NONE && EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0) ||
 		 (v.stage == EmpiresVehicleStage::GIVE_UP_EXIT && v.passengerExit));
 	if (!buildAssignPassengerExit && (commanderVehicleEntryActive() || m_iBuildAssignStage > 0 ||
-		isEmpiresCommanderMoveActive() || isEmpiresVehicleActionActive()))
+		commanderMoveBlocks || isEmpiresVehicleActionActive()))
 	{
 		if (v.stage != EmpiresVehicleStage::NONE &&
 			v.stage != EmpiresVehicleStage::DRIVING)
@@ -2508,6 +2521,11 @@ void CBotEmpires::tickEmpiresVehicle()
 	// asks for a route once the schedule is empty (run 135102: stage-timeout
 	// after 40 s, goal-roam arrived 5000 away).
 	auto takeMovement = [&]() {
+		if (directorOrder)
+		{
+			m_bEmpiresCommanderMoveFailed = true; // the walk to the factory replaces the director order
+			m_bEmpiresCommanderMoveStuck = false;
+		}
 		if (m_bEmpiresNavGoalActive)
 			endEmpiresNavmeshGoal("drop", "vehicle-goto-factory", 0.0f);
 		cancelNavigationAttempt("vehicle-goto-factory");

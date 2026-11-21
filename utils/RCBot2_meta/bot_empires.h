@@ -428,6 +428,7 @@ void EmpiresObjectiveLevelReset();
 void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
 void EmpiresCommanderOrdersLevelReset(); // bot_empires_commander_orders.cpp
+bool EmpiresCommanderOrderIsOurs(int team, int client); // bot_empires_commander_orders.cpp
 
 // 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one slot per vehicle (up to
 // kEmpiresAmmoRequestSlots per team); an engineer walks over and places a supply crate
@@ -738,6 +739,16 @@ public:
 	// Vehicle use (bot_empires_vehicle.cpp).
 	void tickEmpiresVehicle();
 	void tickEmpiresVoidSuicide();
+	// Team director (bot_empires_team_director.cpp, TODO 5.4/5.8/5.28): team blackboard and kill-spawn.
+	void tickTeamDirector();
+	void tickEmpiresKillSpawn();
+	bool findNearestEmpiresSpawn(int team, const Vector& to, int& spawnId, Vector& at) const;
+	float m_flKillSpawnNextCheck = 0.0f;
+	float m_flKillSpawnLast = -1.0e9f;
+	float m_flKillSpawnNextBlockLog = 0.0f;
+	mutable int m_iKillSpawnId = -1;          // spawn chosen before the kill, used by the next spawn choice
+	mutable float m_flKillSpawnIdUntil = 0.0f;
+	mutable bool m_bKillSpawnMissed = false;  // set by the spawn choice when the pre-selected spawn was unusable
 	float m_flVoidNextCheck = 0.0f;
 	float m_flVoidSince = -1.0f;
 	bool m_bVoidKilled = false;

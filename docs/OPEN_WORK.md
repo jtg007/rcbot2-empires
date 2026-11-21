@@ -21,8 +21,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
    scout sabotage).
 3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
    and speed. For tank combat (3.21), use the same hit and damage measures for moving
-   targets, armour facing and later changes. Measure commander orders with a reachable
-   flag (5.4) and check reachable and unreachable off-mesh MOVE targets in one server
+   targets, armour facing and later changes. Measure the team director's contact rate on
+   coast (5.4/5.8) and check reachable and unreachable off-mesh MOVE targets in one server
    (3.18). Check a full refit with production settings (5.10) during the next loadout
    change test.
 4. Extend refitting, vehicle and infantry resupply, fire groups and team behavior.
@@ -162,11 +162,17 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   targets beside the mesh and on a roof. A long-move test ended 61 units from its on-mesh target.
   The route is now extended straight to the spot when the mesh ends up to 600 beside it with ground and a free
   hull (`navmesh-path-extended`); a target beside the mesh is not measured yet.
-- [ ] **Bot commander orders (built, measuring):** the seated bot commander sends its free attackers (no
-  engineers, EngiBots, drivers, defenders by rank, none with another order) an *attack location* order on the
-  nearest open, reachable capture point every 15 s, re-targets after a capture and aborts after 120 s without
-  progress or when a human wants the seat (`rcbot_empires_commander_orders`, `scripts/dev_cmdorders.sh`). Measured
-  on palmbay and DMZ: orders arrive and the bots go; a capture with orders and a comparison with the cvar off are open.
+- [ ] **Team director and bot commander orders (built, measuring, 5.4/5.8/5.28):** per team a small picture every
+  1.5 s (phase push / base alert / stabilize, up to two push and two hold goals, alert target, tickets). Free infantry
+  (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense, at least one
+  defender on a base alert; the seated bot commander gives each group an *attack location* order on its goal
+  (`commander-sector`), bots stay within 450 of it. Without reachable flags push goals are the nearest enemy
+  refinery / forward barracks and the free resource point nearest the middle of the map. Defenders spawn and walk
+  to the threatened building. Tactical kill-spawn (`rcbot_empires_kill_spawn`) re-deploys a defender or a far
+  vehicle buyer under strict rules (no combat 6 s, spawn 3800 closer, tickets > 20 and 25 %, 90 s per bot).
+  Measured with 10 bots at 4x: palmbay kills 13 vs 20 against the cvar off (the first version was passive: 1 vs 41),
+  coast flag captured by an ordered bot; open: kill-spawn for defenders never triggered yet, contact rate on coast
+  (kills 15 vs 33), role switching on frequent front-refinery alerts.
 - [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
   20 HP/s once the centre is wet). Fords on emp_cyclopean are not measured yet. palmbay boat flags (deck only by

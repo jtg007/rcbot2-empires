@@ -1,13 +1,17 @@
-// TODO 5.4: the seated bot commander gives its bots orders the way a human does in the commander
+// TODO 5.4 / 5.8: the seated bot commander gives its bots orders the way a human does in the commander
 // view (emp_unit_order_list + emp_unit_order, reverse-engineering/notes/commander-order-types.md).
-// First step: "attack location" (type 2) on the capture point the team should take next, so the
-// attackers go to one flag together and the order shows on the minimap. Type 3 on enemies is
-// dropped by the game for a bot commander (+0x14ec); engineers already get build jobs directly.
+// The team director (bot_empires_team_director.cpp) splits the free infantry into push / hold / defense
+// and names the goals; here each role group gets "attack location" (type 2) on its goal, so the bots
+// spread over up to two push goals, hold near a front building and defend the base. Type 3 on enemies is
+// dropped by the game for a bot commander (+0x14ec); engineers already get build jobs directly. Bots
+// with an order of someone else (a human) are never touched.
 #include "bot.h"
 #include "bot_cvars.h"
 #include "bot_empires.h"
 #include "bot_empires_native_placement.h"
+#include "bot_empires_team_director.h"
 #include "bot_getprop.h"
+#include "server_class.h"
 #include "bot_globals.h"
 #include "bot_mods.h"
 #include "bot_plugin_meta.h"
@@ -21,31 +25,67 @@ extern IVEngineServer* engine;
 extern IPlayerInfoManager* playerinfomanager;
 extern IServerPluginHelpers* helpers;
 
-bool EmpiresCapturePointOnMesh(const CEmpiresMod::CapturePointObservation& point); // bot_empires_objective.cpp
 
 namespace
 {
 constexpr int kAttackLocation = 2;
-constexpr float kCheckSeconds = 15.0f;
-constexpr float kNoProgressSeconds = 120.0f;
+constexpr float kCheckSeconds = 2.0f;
+constexpr float kSameSpot = 200.0f; // a goal that moved less than this keeps the order
 
 struct TeamOrders
 {
-	int point = -1;            // capture point entity the order is on
-	Vector spot;
-	float issuedAt = 0.0f;     // last time the point changed or units were added
+	int point = -1;            // entity of the last push goal (for the release log)
 	float nextCheck = 0.0f;
 	bool ordered[RCBOT_MAXPLAYERS + 1] = {};
+	Vector spot[RCBOT_MAXPLAYERS + 1];
 };
 TeamOrders s_orders[4];
 
-const CEmpiresMod::CapturePointObservation* FindPoint(const CEmpiresMod* mod, int entity)
+// Send prop of the player's server class (m_iCommandType / m_vCommandLocation of CEmpPlayer). The
+// offset is looked up once per name and class (called every frame from the vehicle gate).
+const char* PlayerProp(edict_t* e, const char* name, const ServerClass*& cachedClass, unsigned& cachedOffset)
 {
-	for (const CEmpiresMod::CapturePointObservation& point : mod->getCapturePoints())
-		if (point.entityIndex == entity)
-			return &point;
-	return nullptr;
+	if (e == nullptr || e->IsFree() || e->GetUnknown() == nullptr || e->GetNetworkable() == nullptr)
+		return nullptr;
+	CBaseEntity* base = e->GetUnknown()->GetBaseEntity();
+	ServerClass* serverClass = e->GetNetworkable()->GetServerClass();
+	if (base == nullptr || serverClass == nullptr)
+		return nullptr;
+	if (serverClass != cachedClass)
+	{
+		cachedOffset = 0;
+		if (!UTIL_FindSendPropInfo(serverClass, name, &cachedOffset))
+			cachedOffset = 0;
+		cachedClass = serverClass;
+	}
+	return cachedOffset != 0 ? reinterpret_cast<const char*>(base) + cachedOffset : nullptr;
 }
+
+// Our order is still the one the unit carries: type 2 at the spot we sent. A human squad leader also
+// gives type 2 (GiveSquadOrder 0x65c1db), and a human commander may take over after our commander
+// died; then the location differs and the order is not ours any more (expert review 21.11.).
+bool StillOurs(const TeamOrders& orders, int client)
+{
+	if (!orders.ordered[client] || engine == nullptr)
+		return false;
+	edict_t* e = engine->PEntityOfEntIndex(client);
+	static const ServerClass* typeClass = nullptr;
+	static const ServerClass* locationClass = nullptr;
+	static unsigned typeOffset = 0, locationOffset = 0;
+	const char* type = PlayerProp(e, "m_iCommandType", typeClass, typeOffset);
+	const char* location = PlayerProp(e, "m_vCommandLocation", locationClass, locationOffset);
+	if (type == nullptr || location == nullptr || *reinterpret_cast<const int*>(type) != kAttackLocation)
+		return false;
+	const float* xyz = reinterpret_cast<const float*>(location);
+	const float dx = xyz[0] - orders.spot[client].x;
+	const float dy = xyz[1] - orders.spot[client].y;
+	return dx * dx + dy * dy < 60.0f * 60.0f;
+}
+}
+
+bool EmpiresCommanderOrderIsOurs(int team, int client)
+{
+	return team >= 0 && team <= 3 && client >= 1 && client <= RCBOT_MAXPLAYERS && StillOurs(s_orders[team], client);
 }
 
 void EmpiresCommanderOrdersLevelReset()
@@ -90,6 +130,7 @@ void CBotEmpires::releaseCommanderOrders(int team, const char* reason)
 
 void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 {
+	(void)home;
 	if (!rcbot_empires_commander_orders.GetBool() || team < 2 || team > 3 || helpers == nullptr ||
 		playerinfomanager == nullptr || m_iCommanderEntryStage != 4)
 		return;
@@ -97,8 +138,8 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 	if (now < orders.nextCheck)
 		return;
 	orders.nextCheck = now + kCheckSeconds;
-	const CEmpiresMod* mod = static_cast<const CEmpiresMod*>(CBotGlobals::getCurrentMod());
-	if (mod == nullptr)
+	const EmpiresTeamDirector::Board* board = EmpiresTeamDirectorBoard(team);
+	if (board == nullptr)
 		return;
 	EmpiresNativePlacement::ContextIdentity context;
 	bool seated = false;
@@ -106,132 +147,91 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 		!EmpiresNativePlacement::ReadCommanderMode(context, seated) || !seated)
 		return;
 
-	// Next point: not owned, takeable by this team, nearest to the CV home (the front line).
-	// Same filter as tier 1 of pickEmpiresNavmeshGoal.
-	int bestPoint = -1;
-	Vector bestSpot;
-	float bestDistance = 0.0f;
-	int owned = 0;
-	int total = 0;
-	for (const CEmpiresMod::CapturePointObservation& point : mod->getCapturePoints())
+	// One order per goal: units whose role goal differs from the spot they were last sent to.
+	struct Group
 	{
-		if (!point.originKnown || point.entityIndex <= 0)
-			continue;
-		if (point.teamOwnerKnown)
-		{
-			++total;
-			if (point.teamOwner == team)
-				++owned;
-		}
-		const bool cappableKnown = team == EMP_TEAM_NF ? point.nfCappableKnown : point.beCappableKnown;
-		const int cappable = team == EMP_TEAM_NF ? point.nfCappable : point.beCappable;
-		if ((cappableKnown && cappable == 0) || (point.teamOwnerKnown && point.teamOwner == team) ||
-			!EmpiresCapturePointOnMesh(point))
-			continue;
-		const Vector spot = point.groundApproachKnown ? point.groundApproachOrigin : point.origin;
-		const float distance = (spot - home).Length2D();
-		if (bestPoint < 0 || distance < bestDistance)
-		{
-			bestPoint = point.entityIndex;
-			bestSpot = spot;
-			bestDistance = distance;
-		}
-	}
-
-	if (orders.point >= 0)
-	{
-		const CEmpiresMod::CapturePointObservation* current = FindPoint(mod, orders.point);
-		const bool taken = current == nullptr || (current->teamOwnerKnown && current->teamOwner == team);
-		if (taken && bestPoint < 0)
-		{
-			releaseCommanderOrders(team, "point-taken");
-			return;
-		}
-		if (!taken && now - orders.issuedAt > kNoProgressSeconds)
-		{
-			releaseCommanderOrders(team, "no-progress");
-			orders.nextCheck = now + kNoProgressSeconds; // let the bots pick their own goals for a while
-			return;
-		}
-		if (taken)
-		{
-			RCBOT_DIAG("[RCBOT2] commander-orders retarget team=%d from=%d to=%d\n", team, orders.point, bestPoint);
-			orders.point = -1;
-		}
-	}
-	if (bestPoint < 0)
-		return;
-
-	// Units: alive bots of the team, no commander, no engineer, no EngiBot, not in a vehicle, without
-	// an order of someone else; bots whose rank falls into the defend share stay with their flags
-	// (same rank rule as pickEmpiresNavmeshGoal).
-	int teamSize = 0;
-	for (int i = 1; i <= gpGlobals->maxClients; ++i)
+		Vector spot;
+		const EmpiresTeamDirector::Goal* goal;
+		int role;
+		std::vector<int> units;
+	};
+	std::vector<Group> groups;
+	std::string abortList = "emp_unit_order_list";
+	int aborts = 0;
+	for (int i = 1; i <= gpGlobals->maxClients && i <= RCBOT_MAXPLAYERS && i < EmpiresTeamDirector::kMaxClients; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
 		IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
-		if (info != nullptr && info->IsConnected() && info->GetTeamIndex() == team)
-			++teamSize;
-	}
-	const float defendShare = total > 0 ? static_cast<float>(owned) / total : 0.0f;
-	const bool newPoint = orders.point != bestPoint;
-	std::string list = "emp_unit_order_list";
-	int units = 0;
-	int added = 0;
-	int rank = 0;
-	for (int i = 1; i <= gpGlobals->maxClients; ++i)
-	{
-		edict_t* e = engine->PEntityOfEntIndex(i);
-		IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
-		if (info == nullptr || !info->IsConnected() || info->GetTeamIndex() != team)
+		if (info == nullptr || !info->IsConnected() || info->GetTeamIndex() != team || e == m_pEdict)
+		{
+			orders.ordered[i] = false;
 			continue;
-		const int myRank = rank++;
-		if (e == m_pEdict || !info->IsFakeClient() || info->IsDead() || EmpiresIsEngibot(e))
-			continue;
-		if (teamSize > 0 && (myRank + 0.5f) / teamSize < defendShare)
-			continue;
-		int classId = -1;
-		bool desired = false, desiredKnown = false;
-		const char* classProperty = nullptr;
-		if (readEmpiresClass(e, classId, desired, desiredKnown, classProperty) && classId == EMP_CLASS_ENGINEER)
-			continue;
-		int vehicle = -1;
-		if (readEmpiresWeaponHandleProperty(e, "m_hVehicle", vehicle) && vehicle > 0 && vehicle < 4095)
-			continue;
+		}
 		int type = -1;
 		if (!readEmpiresIntProperty(e, "m_iCommandType", type))
 			continue;
-		if (orders.ordered[i] && type != kAttackLocation)
-			orders.ordered[i] = false; // someone else ordered it, or the order ended
-		const bool ours = orders.ordered[i];
-		if (type != 0 && !ours)
+		if (orders.ordered[i] && !StillOurs(orders, i))
+			orders.ordered[i] = false; // someone else ordered it (other type or spot), or the order ended
+		const EmpiresTeamDirector::Goal* goal = EmpiresTeamDirector::RoleGoal(*board, i);
+		if (goal == nullptr)
+		{
+			// No role any more (driver, engineer, foreign order): our old order goes.
+			if (orders.ordered[i] && !info->IsDead() && aborts < 32)
+			{
+				abortList += " " + std::to_string(i);
+				++aborts;
+				orders.ordered[i] = false;
+			}
 			continue;
-		if (ours && !newPoint)
+		}
+		if (info->IsDead() || (type != 0 && !orders.ordered[i]))
+			continue;
+		const Vector spot(goal->pos[0], goal->pos[1], goal->pos[2]);
+		if (orders.ordered[i] && (orders.spot[i] - spot).Length2D() < kSameSpot)
 			continue; // already on its way
-		if (units >= 32)
-			break;
-		list += " " + std::to_string(i);
-		++units;
-		if (!ours)
-			++added;
-		orders.ordered[i] = true;
+		Group* group = nullptr;
+		for (Group& g : groups)
+			if ((g.spot - spot).Length2D() < 1.0f)
+				group = &g;
+		if (group == nullptr)
+		{
+			groups.push_back({ spot, goal, board->role[i], {} });
+			group = &groups.back();
+		}
+		if (group->units.size() < 32)
+			group->units.push_back(i);
 	}
-	if (units == 0)
+	if (aborts > 0)
 	{
-		if (newPoint)
-			orders.point = -1;
-		return;
+		abortList += "\n";
+		helpers->ClientCommand(m_pEdict, abortList.c_str());
+		helpers->ClientCommand(m_pEdict, "emp_unit_order 0 0 0 0\n");
+		RCBOT_DIAG("[RCBOT2] commander-orders release team=%d units=%d reason=role-ended\n", team, aborts);
 	}
-	list += "\n";
-	char command[96];
-	snprintf(command, sizeof(command), "emp_unit_order %d %.0f %.0f %.0f\n", kAttackLocation,
-		bestSpot.x, bestSpot.y, bestSpot.z);
-	helpers->ClientCommand(m_pEdict, list.c_str());
-	helpers->ClientCommand(m_pEdict, command);
-	if (newPoint)
-		orders.issuedAt = now;
-	orders.point = bestPoint;
-	orders.spot = bestSpot;
-	RCBOT_DIAG("[RCBOT2] commander-orders issue type=%d team=%d point=%d spot=(%.0f %.0f %.0f) units=%d new=%d\n",
-		kAttackLocation, team, bestPoint, bestSpot.x, bestSpot.y, bestSpot.z, units, added);
+	for (const Group& group : groups)
+	{
+		std::string list = "emp_unit_order_list";
+		for (const int i : group.units)
+			list += " " + std::to_string(i);
+		list += "\n";
+		char command[96];
+		snprintf(command, sizeof(command), "emp_unit_order %d %.0f %.0f %.0f\n", kAttackLocation,
+			group.spot.x, group.spot.y, group.spot.z);
+		helpers->ClientCommand(m_pEdict, list.c_str());
+		helpers->ClientCommand(m_pEdict, command);
+		for (const int i : group.units)
+		{
+			orders.ordered[i] = true;
+			orders.spot[i] = group.spot;
+			RCBOT_DIAG("[RCBOT2] commander-sector team=%d userid=%d role=%s goal=%s:%d spot=(%.0f %.0f %.0f) phase=%s\n",
+				team, engine->GetPlayerUserId(engine->PEntityOfEntIndex(i)), EmpiresTeamDirector::RoleName(group.role),
+				group.goal->kind, group.goal->entity, group.spot.x, group.spot.y, group.spot.z,
+				EmpiresTeamDirector::PhaseName(board->phase));
+		}
+		if (group.role == EmpiresTeamDirector::ROLE_PUSH)
+			orders.point = group.goal->entity;
+		RCBOT_DIAG("[RCBOT2] commander-orders issue type=%d team=%d role=%s goal=%s:%d spot=(%.0f %.0f %.0f) units=%zu\n",
+			kAttackLocation, team, EmpiresTeamDirector::RoleName(group.role), group.goal->kind, group.goal->entity,
+			group.spot.x, group.spot.y, group.spot.z, group.units.size());
+	}
 }
