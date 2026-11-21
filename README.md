@@ -1,30 +1,144 @@
+<div align="center">
+
 # RCBot2 for Empires
 
-**Bots for the Source mod [Empires][empires]**, the mix of first-person shooter and
-real-time strategy. Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86), tested on Linux
-dedicated servers.
+**Autonomous bots for the Source mod [Empires][empires]** — blending FPS combat and RTS base-building with zero hand-made waypoints.
 
-The bots play whole matches: a bot commander builds the base and gives orders, engineers build
-and repair, infantry capture and attack, drivers buy, drive and fight with vehicles. No
-hand-made waypoints are needed, the bots use generated navmeshes.
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86%20%7C%20Windows%20x86-blue)](#quick-start)
+[![Engine](https://img.shields.io/badge/engine-Source%20SDK%202013%20%2F%20Metamod%3ASource-informational)](#quick-start)
+[![Status](https://img.shields.io/badge/status-Work%20in%20Progress-yellow)](#features)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-green)](LICENSE)
+
+[Quick Start](#quick-start) · [Features](#features) · [EngiBots](#engibots-for-human-commanders) · [Settings](#settings) · [Known Issues](#known-issues) · [Build](#build) · [Development](#development)
+
+</div>
+
+---
+
+Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux dedicated servers, these bots play full matches from start to finish: a bot commander builds the base and coordinates the team, engineers construct and repair, infantry push and capture flags, and drivers buy, maneuver, and fight in vehicles — all navigating via generated navmeshes.
 
 > [!WARNING]
-> **Work in progress.** The bots still make mistakes. See [what works](#what-the-bots-can-do),
-> [known issues](#known-issues) and the [open-work list](docs/OPEN_WORK.md).
+> **Work in progress.** The bots play complete matches, but still make mistakes. Check the [feature breakdown](#detailed-status-by-role), [known issues](#known-issues), and [open-work list](docs/OPEN_WORK.md) for current limits.
 
-**Contents:** [Quick start](#quick-start) · [What the bots can do](#what-the-bots-can-do) ·
-[EngiBots](#engibots-for-human-commanders) · [Settings](#settings) · [Known issues](#known-issues) ·
-[Build](#build) · [Development](#development) · [License](#license) · [Credits](#credits)
+---
 
-## Quick start
+## Features
 
-1. Install [Metamod:Source][mms] on the Empires dedicated server.
-2. Download `rcbot2-empires-linux-x86.zip` (or `-windows-x86.zip`) from
-   [Releases](../../releases) (`latest` = newest build of `main`) and unzip it into the server's
-   `empires/` folder. Or [build it yourself](#build).
-3. Check that `empires/addons/metamod/rcbot2.vdf` exists:
+| Role | Highlights |
+|---|---|
+| **Navigation** | Waypoint-free navmesh routing that dynamically detours around match-built structures and recovers from stalls. |
+| **Commander** | Takes the CV when vacant, builds the base & vehicle factory, assigns engineers, researches tech, and directs infantry squads. |
+| **Engineers** | Build and repair structures & damaged vehicle armor, revive teammates, deploy refinery turrets, or serve as buyable **EngiBots**. |
+| **Infantry** | All four classes with loadouts & skills; capture flags, pick tactical spawns, counter turrets, and attack buildings or vehicles. |
+| **Vehicles** | Purchase upgraded chassis/weapons/armor as tech unlocks, drive with three-point turns, retreat to repair/rearm, and field mobile APC spawns. |
 
-   ```
+### Detailed Status by Role
+
+> **Legend:** `✅` works in matches · `🟡` partial / not yet reliable · `⬜` planned
+
+<details>
+<summary><strong>🧭 Movement & Navigation</strong> — <code>3 ✅</code> · <code>3 🟡</code></summary>
+
+<br>
+
+| Status | Feature | Notes |
+|:---:|---|---|
+| ✅ | **Waypoint-free navigation** | Generated navmesh; routes around buildings placed during the match |
+| ✅ | **Stuck recovery** | Detects stalls, backs off, tries another route; avoids blocked links near buildings for 60 s |
+| ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
+| 🟡 | **Doors and gates** | Some doors and buttons work; Crossroads base gates and ramps remain problematic |
+| 🟡 | **Map coverage** | Runs on 7 maps; more installed maps have navmeshes without a recorded run yet |
+| 🟡 | **Water** | Surfaces for air and avoids deep water when a land route exists; flags reachable only via water ladders are skipped |
+
+</details>
+
+<details>
+<summary><strong>🎖️ Commander</strong> — <code>5 ✅</code> · <code>5 🟡</code> · <code>1 ⬜</code></summary>
+
+<br>
+
+| Status | Feature | Notes |
+|:---:|---|---|
+| ✅ | **Auto-command** | Takes the command vehicle when no human commands |
+| ✅ | **Base building** | Places refineries, barracks, vehicle factory, armory, and repair pad; gets out as an engineer to help build |
+| ✅ | **Engineer dispatch** | Sends free engineers to unfinished or damaged buildings; stalled engineers try another side, then release the job |
+| ✅ | **Vehicle factory placement** | Reserves a clear spot near the CV with the exit facing the enemy, or drives to a remote site |
+| ✅ | **CV survival** | Pulls back from nearby enemy vehicles or heavy fire |
+| 🟡 | **Human handover** | Yields the seat when a human enters or uses the CV *(not yet tested with a real player)* |
+| 🟡 | **Driving the CV** | Drives to distant build sites; gives up after 25 s without progress and builds from its current spot |
+| 🟡 | **Research** | Radar, Structural Engineering, and Vehicle Factory first, then turrets, APC spawn, chassis, armor, engines, and heavy tanks |
+| 🟡 | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
+| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders |
+| ⬜ | **Strategic adaptation** | Prioritize resource points by value and react dynamically to lost buildings |
+
+</details>
+
+<details>
+<summary><strong>🔧 Engineers</strong> — <code>3 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
+
+<br>
+
+| Status | Feature | Notes |
+|:---:|---|---|
+| ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
+| ✅ | **Revive** | Downed bots wait briefly for a nearby engineer |
+| ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
+| 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
+| 🟡 | **Refinery turrets** | MG turrets at refineries work; occasional placement failures remain |
+| 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
+| ⬜ | **Walls, cameras, radar** | Not implemented yet |
+
+</details>
+
+<details>
+<summary><strong>🪖 Infantry</strong> — <code>4 ✅</code> · <code>6 🟡</code> · <code>1 ⬜</code></summary>
+
+<br>
+
+| Status | Feature | Notes |
+|:---:|---|---|
+| ✅ | **All four classes** | Scout, Rifleman, Grenadier, and Engineer with multiple loadouts and class skills |
+| ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); cover usage and class spacing are still open |
+| ✅ | **Flag capture** | Captures objectives on maps with capture points |
+| ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
+| 🟡 | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
+| 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
+| 🟡 | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
+| 🟡 | **Anti-vehicle** | Riflemen sticky-grenade vehicles; scouts approach with stun grenades *(not yet confirmed in a full match)* |
+| 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
+| 🟡 | **Squads, mines, binoculars** | Implemented, rarely used |
+| ⬜ | **Seismic grenades** | Engineers clearing enemy turrets |
+
+</details>
+
+<details>
+<summary><strong>🚜 Vehicles</strong> — <code>5 ✅</code> · <code>4 🟡</code></summary>
+
+<br>
+
+| Status | Feature | Notes |
+|:---:|---|---|
+| ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay |
+| ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
+| ✅ | **Driving** | Follows the navmesh, executes three-point turns, and avoids drop-offs or water too deep for the chassis |
+| ✅ | **Retreat & repair** | Returns to the repair pad when damaged, or parks beside the own CV |
+| ✅ | **Roadkills** | Runs over enemy infantry |
+| 🟡 | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
+| 🟡 | **Target priority** | Defend base → hunt spotted tanks → support front → push enemy buildings → enemy CV |
+| 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo |
+| 🟡 | **Bill Nye mode** | Scout jeeps ram enemy vehicles off the road on `emp_rainbowroad` *(occasionally falls off itself)* |
+
+</details>
+
+---
+
+## Quick Start
+
+1. **Install [Metamod:Source][mms]** on your Empires dedicated server.
+2. **Download the plugin**: grab `rcbot2-empires-linux-x86.zip` (or `-windows-x86.zip`) from [Releases](../../releases) (`latest` tracks `main`) and extract it into `empires/`. Or [build from source](#build).
+3. **Verify `empires/addons/metamod/rcbot2.vdf`**:
+
+   ```vdf
    "Metamod Plugin"
    {
    	"alias"		"rcbot2"
@@ -33,227 +147,196 @@ hand-made waypoints are needed, the bots use generated navmeshes.
    }
    ```
 
-4. Every map needs a navmesh (`empires/maps/<map>.nav`). If it is missing, load the map and run
-   `sv_cheats 1; p_nav_generate` once (up to a minute).
-5. Add bots from the server console: `rcbotd addbot <class> <team> <name>`
-   (team 2 = Northern Faction, 3 = Brenodi Empire; class 0 Scout, 1 Rifleman, 2 Grenadier, 3 Engineer).
-   To fill the server automatically and remove bots as humans join, edit
-   `addons/rcbot2/config/bot_quota.ini` (e.g. `Humans "12" => Bots "0"`).
+4. **Generate navmeshes** (`empires/maps/<map>.nav`): if a map lacks one, load it and run:
 
-Notes:
-- The Windows build is untested in game; features that read fixed offsets of the Linux game binary
-  use fallbacks there ([docs/WINDOWS.md](docs/WINDOWS.md)).
-- A plugin built against Metamod 2.0 headers is refused by Metamod 1.12; see [Build](#build).
+   ```console
+   sv_cheats 1; p_nav_generate
+   ```
 
-## What the bots can do
+   *(Takes up to a minute per map.)*
 
-✅ works in matches · 🟡 partly / not reliable yet · ⬜ planned
+5. **Add bots** from the server console:
 
-### Movement
+   ```console
+   rcbotd addbot <class> <team> <name>
+   ```
 
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Navigation without waypoints | Generated navmesh; routes around buildings placed during the match |
-| ✅ | Get unstuck | Notices a stall, backs off, tries another route; a blocked link next to a building is avoided for 60 s |
-| ✅ | Move orders | Ends within the game's 100 units; for targets beside or above the mesh the bot stops at the nearest reachable point on that level |
-| 🟡 | Doors and gates | Some doors and buttons work; Crossroads base gates and ramps remain a problem |
-| 🟡 | Maps | Runs on 7 maps; more installed maps have navmeshes but no recorded run |
-| 🟡 | Water | Surfaces for air, avoids deep water when there is a land route; flags reachable only by ladders from the water are skipped |
+   - **Teams:** `2` = Northern Faction, `3` = Brenodi Empire
+   - **Classes:** `0` = Scout, `1` = Rifleman, `2` = Grenadier, `3` = Engineer
+   - **Auto-fill / Bot quota:** edit `addons/rcbot2/config/bot_quota.ini` (e.g. `Humans "12" => Bots "0"`) to automatically adjust bot count as players join.
 
-### Commander
+> [!NOTE]
+> - **Windows:** Untested in game; features that read fixed offsets in the Linux server binary fall back automatically ([docs/WINDOWS.md](docs/WINDOWS.md)).
+> - **Metamod version:** A plugin built against Metamod 2.0 headers is rejected by Metamod 1.12 — see [Build](#build).
 
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Take the command vehicle | When no human commands |
-| 🟡 | Hand over to a human | A human who gets in or uses the CV gets the seat (not yet tested with a real player) |
-| ✅ | Build the base | Refineries, barracks, vehicle factory, armory, repair pad; the commander is an engineer and gets out to build |
-| ✅ | Assign engineers | Sends free engineers to unfinished or damaged buildings; a stalled engineer tries another side, then gives the job back |
-| ✅ | Place the vehicle factory | Reserves a free spot near the CV with the exit facing the enemy; otherwise drives to a remote site |
-| ✅ | Keep the CV alive | Pulls back from nearby enemy vehicles or heavy fire |
-| 🟡 | Drive the CV | Drives to distant building sites; gives up after 25 s without progress and builds from where it stands |
-| 🟡 | Research | Radar, Structural Engineering and Vehicle Factory first, then turrets, APC spawn, chassis, armour, engines and heavy tanks |
-| 🟡 | Expand and defend | Forward barracks near a remote factory and at the front (own half only), then up to two MG and two ML base turrets |
-| 🟡 | Give orders to bots | A *team director* per team splits free infantry into push / hold / defense groups (~50/30/20) and sends them by *attack location* order to open flags, enemy refineries or threatened own buildings. Human orders are never touched |
-| ⬜ | Adapt to the game | Choose resource points by value, react to lost buildings |
+---
 
-### Engineers
+## EngiBots for Human Commanders
 
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Build and repair | Buildings and vehicles (the damaged armour side) |
-| ✅ | Revive | Dead bots wait a moment for a nearby engineer |
-| ✅ | Skills | Repair and revive are split across the team's engineers |
-| 🟡 | Turret upgrades | Rank 30+ engineers upgrade their own turrets up to the level the map allows (works in a test, not yet seen in a full match) |
-| 🟡 | Turrets at refineries | MG turrets work; rare placement failures remain |
-| 🟡 | EngiBots | Engineer bots a human commander can buy, see [below](#engibots-for-human-commanders) |
-| ⬜ | Walls, cameras, radar | |
+Human commanders can buy dedicated base-building engineer bots in chat with `/buildengibot` or `!buildengibot` (or `buildengibot` in console).
 
-### Infantry
+- **Cost & limit:** `rcbot_empires_engibot_cost` team resources (default `100`), up to `rcbot_empires_engibot_limit` per team (default `2`). Status feedback appears on screen (e.g. `EngiBot ready (1/2)`, or why a purchase failed).
+- **Base duty:** Builds and repairs unfinished/damaged buildings and friendly vehicles within 2500 units of the CV (including human-placed structures).
+- **Idle behavior:** Waits ~900 units from the CV so building spots stay clear.
+- **Orders:** *Attack location* builds an MG turret at the target; *Guard* on a building builds or repairs it.
+- **Strict scope:** Never captures flags, roams, enters vehicles, takes command, or chases enemies. Automatically leaves on map change and is ignored by bot quota.
 
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Classes | All four classes with several loadouts and class skills |
-| ✅ | Fight | Picks targets, uses each weapon at its range (pistols ~1000 up to snipers 4500); cover and class-typical distance are open |
-| ✅ | Capture flags | On maps with capture points |
-| ✅ | Turrets | Retreat out of an enemy turret's range |
-| 🟡 | Pick a spawn | By situation: near a threatened building on a base alert, at the factory for vehicle buyers, at a friendly APC or forward barracks near the front; gets out of a spawned-in APC, also when the exit is blocked |
-| 🟡 | Tactical respawn | A defender far from an alarm or a buyer far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
-| 🟡 | Attack buildings | Grenadiers use RPG and mortar, riflemen sticky grenades (confirmed on an enemy refinery), scouts sabotage (confirmed) |
-| 🟡 | Fight vehicles | Riflemen stick grenades on vehicles, scouts walk up to enemy vehicles with the stun grenade (both not yet confirmed in a match) |
-| 🟡 | Guard and attack-target orders | Infantry follow the guarded unit; engineers build or repair a guarded building (not yet tested with a human) |
-| 🟡 | Squads, mines, binoculars | Implemented, rarely used |
-| ⬜ | Seismic grenades | Engineers against turrets |
+> [!NOTE]
+> EngiBots have so far only been tested with the bot commander (`scripts/dev_engibot.sh`), not yet with a human commander.
 
-### Vehicles
-
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Buy | At the vehicle factory, also on map-built factories; empty vehicles blocking the bay are driven out |
-| ✅ | Better parts after research | Chassis, weapons, armour and engine by research and budget; with APC Spawn researched each team keeps one APC at the front as a mobile spawn |
-| ✅ | Drive | Follows the navmesh, three-point turns, avoids edges and water too deep for the vehicle |
-| ✅ | Retreat and repair | Back to the repair pad when damaged, otherwise next to the own CV |
-| ✅ | Run over infantry | |
-| 🟡 | Fight | Cannon leads moving targets, the MG aims straight at infantry (it is hitscan, up to 1200); stands and fires at buildings from 550–1500; with a weakened side it turns its strongest side towards armed targets |
-| 🟡 | Pick goals | Defend own base → hunt spotted tanks → support the front → push enemy buildings → enemy CV |
-| 🟡 | Rearm | Drives to an ammo crate or the repair pad, or calls an engineer for a crate |
-| 🟡 | Bill Nye mode | A scout jeep rams enemy vehicles off the road on `emp_rainbowroad`; sometimes falls off itself |
-
-## EngiBots for human commanders
-
-As commander, type `/buildengibot` or `!buildengibot` in chat (or `buildengibot` in the console) to buy
-an engineer bot for `rcbot_empires_engibot_cost` team resources (default 100, limit 2 per team). The
-screen shows the result (`EngiBot ready (1/2)`, or why not: not commander, limit, resources, server full).
-
-- It builds and repairs the team's damaged or unfinished buildings within 2500 units of the CV,
-  including the ones you place, and repairs own vehicles standing there.
-- With nothing to do it waits about 900 units from the CV, out of the way of building spots.
-- An *attack location* order makes it build an MG turret there; a *guard* order on a building makes it
-  build or repair that building.
-- It never captures, roams, enters vehicles, takes the commander seat or chases enemies.
-- All EngiBots leave on map change; the bot quota does not count or kick them.
-
-Not yet tested with a human commander (only with the bot commander, `scripts/dev_engibot.sh`).
+---
 
 ## Settings
 
-| Cvar | Default | Meaning |
-|---|---|---|
-| `rcbot_empires_auto_commander` | 1 | A bot takes the command vehicle if no human does |
-| `rcbot_empires_commander_engineer` | 1 | The bot commander is an engineer and builds near the CV |
-| `rcbot_empires_commander_orders` | 1 | The bot commander gives its free infantry team-director orders |
-| `rcbot_empires_commander_drive_from` | 1000 | The commander drives the CV to buildings farther away than this |
-| `rcbot_empires_commander_boomtank` | 1 | Commander runs over enemies in the base: 0 off, 1 on except on rainbowroad maps, 2 everywhere |
-| `rcbot_empires_kill_spawn` | 1 | Tactical respawn closer to the goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 and > 25 %, at most every 90 s per bot) |
-| `rcbot_empires_engineer_turrets` | 1 | Engineers build MG turrets at the team's refineries |
-| `rcbot_empires_engineer_help_human` | 2 | With a human commander, this many engineer bots per team build and repair near the CV on their own |
-| `rcbot_empires_engibot` | 1 | Commanders can buy EngiBots |
-| `rcbot_empires_engibot_cost` | 100 | Team resources per EngiBot |
-| `rcbot_empires_engibot_limit` | 2 | EngiBots per team (0–8) |
-| `rcbot_empires_engibot_leash` | 2500 | EngiBots work within this distance of the team CV |
-| `rcbot_empires_vehicles` | 1 | Bots buy, drive and fight with vehicles |
-| `rcbot_empires_vehicle_drivers` | -1 | Max bots per team in vehicles (-1 = 40 % of team bots, at least 2) |
-| `rcbot_empires_billnye` | -1 | Bill Nye mode: -1 = NF on rainbowroad maps, 0 off, 2 NF, 3 BE |
-| `rcbot_empires_debug_log` | 0 | 1 = detailed bot diagnostics in the server log |
-| `rcbot_empires_force_offsets` | 0 | On an unknown `server_srv.so` build, fixed-offset reads are disabled; 1 = use them anyway (never on Windows) |
+> [!TIP]
+> Bots will hand over their wages to any teammate who types `wages` in chat.
 
-Bots hand their wages to a teammate who writes "wages" in chat.
+### Commander
 
-## Known issues
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_auto_commander` | `1` | Bot takes the command vehicle when no human commands |
+| `rcbot_empires_commander_engineer` | `1` | Bot commander spawns as an engineer and builds near the CV |
+| `rcbot_empires_commander_orders` | `1` | Bot commander issues team-director orders to free infantry |
+| `rcbot_empires_commander_drive_from` | `1000` | Distance beyond which the commander drives the CV to build sites |
+| `rcbot_empires_commander_boomtank` | `1` | Commander runs over base intruders (`0` off, `1` on except rainbowroad, `2` everywhere) |
 
-- Infantry can get stuck inside barracks or vehicles; some Rainbowroad routes fail.
-- Vehicles can get stuck near the repair pad, in the BE base, at Crossroads gates and
-  ramps and at a wall near (3800 5000) on Crossroads; on `emp_palmbay` NF tanks sometimes get stuck in
-  the palm cluster.
-- `emp_palmbay`: both flags sit on boats without navmesh, so bots play it like a map without flags.
-  NF finds no factory spot near its CV and builds a remote one; NF commander entry can stall at spawn.
-- `emp_coast`: engineers find no stand point at the refineries, so they stay unfinished.
-- Refinery turret placement on `emp_rainbowroad` is still intermittent.
-- The Bill Nye jeep sometimes drives off edges on `emp_rainbowroad`.
-- A bot whose vehicle exit is blocked on all sides stays seated and retries every ~15 s.
-- Only Linux servers are tested.
+### Engineers & EngiBots
+
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_engineer_turrets` | `1` | Engineers build MG turrets at friendly refineries |
+| `rcbot_empires_engineer_help_human` | `2` | Engineer bots per team that autonomously build/repair near a human commander's CV |
+| `rcbot_empires_engibot` | `1` | Allow commanders to purchase EngiBots |
+| `rcbot_empires_engibot_cost` | `100` | Team resources per EngiBot |
+| `rcbot_empires_engibot_limit` | `2` | Maximum EngiBots per team (`0`–`8`) |
+| `rcbot_empires_engibot_leash` | `2500` | Operating radius around the team CV |
+
+### Vehicles & Tactics
+
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_vehicles` | `1` | Bots buy, drive, and fight with vehicles |
+| `rcbot_empires_vehicle_drivers` | `-1` | Max vehicle drivers per team (`-1` = 40% of team bots, minimum 2) |
+| `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
+| `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
+
+### Diagnostics & Offsets
+
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_debug_log` | `0` | `1` = verbose bot diagnostics in the server log |
+| `rcbot_empires_force_offsets` | `0` | Force fixed-offset reads on unknown `server_srv.so` builds (`1` = enable; ignored on Windows) |
+
+---
+
+## Known Issues
+
+- **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
+- **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
+- **`emp_palmbay`:** Both flags sit on boats without navmesh (played like a no-flag map); NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn.
+- **`emp_coast`:** Engineers find no valid stand point at refineries, leaving them unfinished.
+- **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
+- **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.
+- **Platform coverage:** Only Linux dedicated servers have been tested.
+
+---
 
 ## Build
 
-Needs Git, Python 3 with [AMBuild][], GCC with 32-bit support, and SDK 2013, Metamod:Source,
-SourceMod and the HL2SDK manifests (e.g. in a sibling `../rcbot2-clean` checkout):
+**Requirements:** Git, Python 3 with [AMBuild][], GCC with 32-bit support, plus Source SDK 2013, Metamod:Source, SourceMod, and the HL2SDK manifests (e.g. in a sibling `../rcbot2-clean` checkout).
 
 ```sh
 SDK_ROOT="../rcbot2-clean/alliedmodders" \
-MANIFEST_DIR="../rcbot2-clean/hl2sdk-manifests" scripts/build_empires.sh
+MANIFEST_DIR="../rcbot2-clean/hl2sdk-manifests" \
+scripts/build_empires.sh
 ```
 
-The script prints the resulting `.so` path. The `metamod-source` checkout decides which Metamod the
-plugin needs: for a Metamod 1.12 server, build from its `1.12-dev` branch
-(otherwise: `Plugin requires newer Metamod version (17 > 16)`).
-GitHub Actions builds Linux and Windows on every push ([Actions](../../actions/workflows/build.yml)).
+The script prints the resulting `.so` path.
+
+- **Metamod compatibility:** Your `metamod-source` checkout determines the target Metamod version. For a Metamod 1.12 server, use its `1.12-dev` branch (otherwise loading fails with `Plugin requires newer Metamod version (17 > 16)`).
+- **CI:** GitHub Actions builds Linux and Windows on every push ([Actions](../../actions/workflows/build.yml)).
+
+---
 
 ## Development
 
-Setup: copy `scripts/dev.local.example` to `scripts/dev.local` and set `EMPIRES_TEST_SERVER` to an
-isolated test server with the addon installed. Working with Claude Code or Codex: see
-[AGENTS.md](AGENTS.md) and the [open-work priorities](docs/OPEN_WORK.md).
+Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_SERVER` at an isolated test server with the addon installed. For contributor and agent workflows, see [AGENTS.md](AGENTS.md) and [docs/OPEN_WORK.md](docs/OPEN_WORK.md).
 
-| Script | What it does |
+> [!IMPORTANT]
+> Tank shells and mortars only work at `DEV_TIMESCALE=1` — with fast-forward enabled they detonate at the muzzle.
+
+<details>
+<summary><strong>Test & benchmark scripts</strong> (<code>scripts/</code>)</summary>
+
+<br>
+
+| Script | Purpose |
 |---|---|
-| `scripts/dev_build.sh` | Incremental build (cached) |
-| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run a match, summarize; `DEV_UNTIL` / `DEV_EXPECT` / `DEV_FAIL` end on log lines, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT` |
-| `scripts/dev_check.sh` | Regression: commander chain, long move, repair pad, turret, revive (parallel, ~1 min) |
-| `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*` variables, `QUICK_FAIR=1`) |
-| `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with the team-director numbers |
-| `scripts/dev_econ.sh`, `dev_buy.sh` | Economy until the first driven vehicle / purchase only |
-| `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit and driving, steering and braking, obstacles on the route |
-| `scripts/dev_orders.sh`, `dev_cmdorders.sh` | Orders as from the game UI / the bot commander's own orders |
+| `scripts/dev_build.sh` | Incremental cached build |
+| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
+| `scripts/dev_check.sh` | Parallel regression suite (~1 min): commander chain, long move, repair pad, turret, revive |
+| `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
+| `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics |
+| `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
+| `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
+| `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server |
-| `scripts/run_*_tests.sh` | Unit tests of single headers |
+| `scripts/run_*_tests.sh` | Unit tests for individual headers |
 
-Tank shells and mortars only work at timescale 1 (with fast-forward they explode at the muzzle).
+</details>
 
-Navmesh tools in `tools/` (Python 3 with Pillow, read only `.nav`/`.bsp` files):
+<details>
+<summary><strong>Navmesh tools, diagnostic commands & test cvars</strong></summary>
 
-- `tools/nav_overview.py <map>.nav --bsp <map>.bsp --output out.png` draws the navmesh from above;
-  `--crop x0,y0,x1,y1`, `--terrain` (slopes), `--props` (static props), `--vehicle-width 284`
-  (too narrow for vehicles), `--log server.log [--userid N]` (stuck marks and driven track).
-- `tools/check_nav.py` checks that spawns, buildings and resource points are on the main mesh component.
+<br>
 
-Test and diagnostic console commands (`rcbotd …`), useful for diagnosis:
+**Navmesh tools (`tools/`, Python 3 + Pillow, reads `.nav`/`.bsp` only):**
+- `tools/nav_overview.py <map>.nav --bsp <map>.bsp --output out.png` — top-down navmesh render; supports `--crop x0,y0,x1,y1`, `--terrain` (slopes), `--props` (static props), `--vehicle-width 284` (narrow bottlenecks), and `--log server.log [--userid N]` (stuck marks & driven track).
+- `tools/check_nav.py` — verifies that spawns, buildings, and resource points sit on the main mesh component.
 
-- `empires_nav_scan x y z x2 y2 z2`: route and hull checks between two points (needs at least one bot
-  on the server, otherwise `navmesh-not-loaded`).
-- `empires_test_commander_move bot <userid> x y z`: a move order to one bot.
-- `empires_test_exit_block <userid> [passenger]`: boxes in a vehicle to test the blocked exit.
-- `empires_vehicle_obstacle [ahead] [lateral] [speed] [model]`: puts a prop on a driver's route.
+**Diagnostic console commands (`rcbotd …`):**
+- `empires_nav_scan x y z x2 y2 z2` — route and hull checks between two points *(requires at least one bot on the server, otherwise `navmesh-not-loaded`)*.
+- `empires_test_commander_move bot <userid> x y z` — send a move order to a single bot.
+- `empires_test_exit_block <userid> [passenger]` — box in a vehicle to test blocked exits.
+- `empires_vehicle_obstacle [ahead] [lateral] [speed] [model]` — place a prop on a driver's route.
 
-Test-only cvars: `rcbot_empires_vehicle_debug_team 2|3` (only that team buys vehicles),
-`rcbot_empires_vehicle_maneuvers`, `rcbot_empires_vehicle_curve_speed`, `rcbot_empires_vehicle_turn_test`
-(experimental driving, default 0; measurements in [open work](docs/OPEN_WORK.md)).
-`rcbot_analysis_start` records what the bots do ([EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md));
-game-server internals: [reverse-engineering/](reverse-engineering/).
+**Test-only cvars & internals:**
+- `rcbot_empires_vehicle_debug_team 2|3` (restrict vehicle purchases to one team).
+- `rcbot_empires_vehicle_maneuvers`, `rcbot_empires_vehicle_curve_speed`, `rcbot_empires_vehicle_turn_test` (experimental driving, default `0`; measurements in [docs/OPEN_WORK.md](docs/OPEN_WORK.md)).
+- `rcbot_analysis_start` records bot telemetry ([EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md)).
+- Game-server internals: [reverse-engineering/](reverse-engineering/).
 
-## License
+</details>
 
-[AGPL-3.0](LICENSE), like RCBot2: if you run a modified version on a server, its source
-code must be available to the players. `rcbot/logging.{h,cpp}` is released separately
-under the [BSD Zero Clause License](https://spdx.org/licenses/0BSD.html).
+---
 
-## Credits
+## License & Credits
 
-Based on [RCBot2][rcbot2] by Cheeseh and its [fork by APGRoboCop][rcbot2-fork]:
+Licensed under [AGPL-3.0](LICENSE), like RCBot2: if you run a modified version on a server, its source code must be available to players. `rcbot/logging.{h,cpp}` is released separately under the [BSD Zero Clause License](https://spdx.org/licenses/0BSD.html).
 
-- Founder - Cheeseh
-- Bot base code - Botman's HPB Template
-- Linux Conversion and Waypointing - [APG]RoboCop[CL]
-- TF2 support and enhancements - Ducky1231/Pongo
-- SourceMod and AMBuild support - nosoop
-- Synergy, TF2, MvM, CSS and AMBuild support - Anonymous Player/caxanga334
-- TF2 Classified support - Technochips
-- TF2 additional gamemodes support - RussiaTails
-- Linux Black Mesa and SDK2013 mathlib fix - Sappho
-- Dystopia support - Soft As Hell
-- DoDS and main config support fixes - DNA.styx
-- Major waypointer for TF2 - LK777, RussiaTails, Witch, Francis, RevilleAJ, Waffle033
-- Major waypointer for DoDS - INsane, Gamelarg05, genmac
-- Miniz compression - Rich Geldreich and Tenacious Software LLC
+Based on [RCBot2][rcbot2] by **Cheeseh** and its [fork by APGRoboCop][rcbot2-fork].
+
+<details>
+<summary>RCBot2 upstream contributors</summary>
+
+- Founder — Cheeseh
+- Bot base code — Botman's HPB Template
+- Linux Conversion and Waypointing — [APG]RoboCop[CL]
+- TF2 support and enhancements — Ducky1231/Pongo
+- SourceMod and AMBuild support — nosoop
+- Synergy, TF2, MvM, CSS and AMBuild support — Anonymous Player/caxanga334
+- TF2 Classified support — Technochips
+- TF2 additional gamemodes support — RussiaTails
+- Linux Black Mesa and SDK2013 mathlib fix — Sappho
+- Dystopia support — Soft As Hell
+- DoDS and main config support fixes — DNA.styx
+- Major waypointer for TF2 — LK777, RussiaTails, Witch, Francis, RevilleAJ, Waffle033
+- Major waypointer for DoDS — INsane, Gamelarg05, genmac
+- Miniz compression — Rich Geldreich and Tenacious Software LLC
+
+</details>
 
 [empires]: https://empiresmod.com/
 [rcbot2]: http://rcbot.bots-united.com/
