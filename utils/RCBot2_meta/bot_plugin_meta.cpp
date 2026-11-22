@@ -63,6 +63,7 @@
 #include "bot_sigscan.h"
 #include "bot_mods.h"
 #include "bot_empires_telemetry.h"
+#include "bot_empires_lawliet.h"
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -82,6 +83,7 @@
 #include <build_info.h>
 #include <sourcehook.h>
 
+void EmpiresRecordInfantryAmmoCall(edict_t* player);
 void EmpiresEngibotFrame(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
 void EmpiresHandleEngibotChat(edict_t* speaker, const char* text); // bot_empires_engibot.cpp
@@ -1007,6 +1009,11 @@ void RCBotPluginMeta::Hook_ClientCommand(edict_t *pEntity)
 		return;
 	}
 
+	if (pcmd && std::strcmp(pcmd, "emp_menu_command") == 0 && args.ArgC() >= 2 &&
+		std::strcmp(args.Arg(1), "29") == 0 && CBotGlobals::getCurrentMod() &&
+		CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES)
+		EmpiresRecordInfantryAmmoCall(pEntity);
+
 	CClient *pClient = CClients::get(pEntity);
 
 	// EngiBot purchase from the client console ("buildengibot", also for a key bind): works even
@@ -1132,6 +1139,7 @@ void RCBotPluginMeta::Hook_ClientDisconnect(edict_t *pEntity)
 	}
 #endif
 
+	EmpiresLawlietOnClientDisconnect(IndexOfEdict(pEntity));
 	CClients::clientDisconnected(pEntity);
 
 	META_LOG(g_PLAPI, "Hook_ClientDisconnect(%d)", IndexOfEdict(pEntity));

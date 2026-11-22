@@ -8,7 +8,9 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 
 ## Rules
 
-- One problem per step: baseline run, smallest fix, the same run again, compare.
+- Before a diagnostic run, state which observation would change the next step. Reuse a saved baseline when the build, map, speed and trigger fit the question. Compare the same outcome under the same conditions after the smallest fix.
+- Trigger rare mechanics in a short scenario that ends at the observable outcome (for example, grenade reserves increase). Assess natural activation during a regular match.
+- Give each 10-bot match at 1× one primary question. Use the same run for other checks when their triggers occur. Leave unobserved cases open. Treat a single match comparison as an indication and repeat it when the result determines whether to keep or revert the change.
 - Never kill processes by name or pattern (`pkill`, `killall srcds`, …); only stop PIDs you started. Parallel test runs, a real server and the game client may be running alongside.
 - A change counts as working only with numbers from a real test run (log lines,
   counts, times). Write "built, not measured" when that is the state.
@@ -18,6 +20,7 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
   No central framework.
 - No speculative refactors. Read the existing logs, code and game binary before
   starting a new run.
+- Documentation, static review and analysis of saved logs can be completed offline. For bot or test-script changes run `scripts/dev_check.sh`. Record which revision a gameplay observation covers.
 - Follow the priority order in [`docs/OPEN_WORK.md`](docs/OPEN_WORK.md). Reuse
   measured runs for related checks. Close each item when its remaining case
   has measured results, and record the numbers and run reference.
@@ -64,7 +67,8 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 scripts/dev_build.sh                       # incremental build (~5 s), prints the .so path
 scripts/dev.sh <map> <bots> <minutes>      # build, deploy, run, summary
 scripts/dev_check.sh                       # regression checks in parallel, ~1 min, PASS/FAIL per test
-scripts/run_*_tests.sh                     # unit tests of single headers
+scripts/dev_run.py --summarize RUN_DIR SESSION_DIR  # evaluate an existing recording
+# Select one scripts/run_*_tests.sh for a single header
 ```
 
 GitHub Actions builds Linux and Windows (MSVC, x86) on every push; a push to `main` refreshes the
@@ -73,10 +77,10 @@ macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain 
 APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
-Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [map] [minutes]`; run two in
-parallel with different `DEV_PORT` values, success ends the run at `lawliet end team=2 reason=cv-destroyed`.
+Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [map] [minutes]`; success ends the run at `lawliet end team=2 reason=cv-destroyed`.
 Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
-`scripts/dev_team_match.sh [map] [minutes]`.
+`scripts/dev_team_match.sh [map] [minutes]`. To read the same metrics from a saved match, use
+`scripts/dev_team_match.sh --summarize RUN_DIR`. It reads the log and any saved recorder table.
 Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with
 `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL`, `QUICK_SHOW`; `QUICK_FAIR=1` = both teams start together): `scripts/dev_quick.sh [map] [minutes]`.
 `rcbot_empires_vehicle_shell_trace 1` logs shell flight and impact (`vehicle shell-end`) and turret aim.
@@ -220,7 +224,6 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 - After two substantive failed attempts, ask an expert model once (symptom, measurements,
   runs, both attempts, the concrete question). Without a viable approach, park the problem.
 - Keep `HANDOFF.md` to the current state (about 80 lines); history lives in git.
-- Bundle proven fixes into one run; one diagnostic run, repeat only to confirm.
 - Sandboxes: test runs need write access to the test server and `~/.cache/rcbot2-dev-build`,
   a PTY, a netlink socket and a local UDP port. Without that, only edit and build.
 

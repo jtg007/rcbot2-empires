@@ -955,6 +955,19 @@ bool EmpiresBotWantsVfSpawn(const CBotEmpires* bot, int team)
 	return true;
 }
 
+bool EmpiresVehicleExceedsSpeed(edict_t* vehicle, float limit)
+{
+	if (vehicle == nullptr || vehicle->IsFree() || vehicle->GetUnknown() == nullptr)
+		return false;
+	CBaseEntity* entity = vehicle->GetUnknown()->GetBaseEntity();
+	const datamap_t* map = entity != nullptr ? CBaseEntity_GetDataDescMap(entity) : nullptr;
+	const unsigned offset = UTIL_FindInDataMap(map, "m_vecVelocity");
+	if (offset == 0)
+		return false;
+	const Vector& velocity = *reinterpret_cast<const Vector*>(reinterpret_cast<const char*>(entity) + offset);
+	return velocity.Length2D() > limit;
+}
+
 bool EmpiresVehicleAlive(const CBotEmpires* bot, const edict_t* vehicle)
 {
 	if (vehicle == nullptr || vehicle->IsFree())
@@ -1866,9 +1879,10 @@ bool HasNearbyHumanPlayer(const int team, const Vector& pos, const float radius)
 			continue;
 		if (CClassInterface::getTeam(player) != team)
 			continue;
-		if (CBots::getBotPointer(player) != nullptr)
+		if (CBots::getBotPointer(player) != nullptr || Dist2D(CBotGlobals::entityOrigin(player), pos) >= radius)
 			continue;
-		if (Dist2D(CBotGlobals::entityOrigin(player), pos) < radius)
+		IPlayerInfo* info = playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(player) : nullptr;
+		if (info == nullptr || !info->IsFakeClient())
 			return true;
 	}
 	return false;
@@ -1877,7 +1891,7 @@ bool HasNearbyHumanPlayer(const int team, const Vector& pos, const float radius)
 // Per-vehicle empty duration and bot-abandon history (3.26 3b / 3.17).
 struct VehicleEmptyTrack
 {
-	float emptySince = 0.0f;
+	float emptySince = -1.0f;
 	Vector emptyAt = Vector(0.0f, 0.0f, 0.0f);
 	int serial = -1;
 };
@@ -1901,14 +1915,19 @@ float UpdateVehicleEmptyTime(edict_t* e, const int idx, const int driver, const 
 	VehicleEmptyTrack& tr = g_vehicleEmpty[idx];
 	const int serial = e->m_NetworkSerialNumber;
 	const Vector at = CBotGlobals::entityOrigin(e);
-	if (driver >= 0 || tr.serial != serial || (tr.emptyAt - at).Length() > 100.0f ||
-		tr.emptySince > now || tr.emptySince <= 0.0f)
+	if (driver >= 0)
+	{
+		tr.emptySince = -1.0f;
+		return 0.0f;
+	}
+	if (tr.serial != serial || (tr.emptyAt - at).Length() > 100.0f ||
+		tr.emptySince > now || tr.emptySince < 0.0f)
 	{
 		tr.serial = serial;
 		tr.emptySince = now;
+		tr.emptyAt = at;
 	}
-	tr.emptyAt = at;
-	return driver >= 0 ? 0.0f : (now - tr.emptySince);
+	return now - tr.emptySince;
 }
 
 void RecordBotVehicleAbandon(edict_t* e, const int idx, const int userId, const Vector& pos, const float now)
@@ -2383,8 +2402,7 @@ bool VehicleNeedsBaseRepair(const CBotEmpires* bot, edict_t* e, float maxSpeed, 
 	armorDamaged = false;
 	if (bot == nullptr || e == nullptr || e->IsFree() || !IsClass(e, "emp_vehicle") || !EmpiresVehicleAlive(bot, e))
 		return false;
-	Vector vel(0.0f, 0.0f, 0.0f);
-	if (CClassInterface::getVelocity(e, &vel) && vel.Length2D() > maxSpeed)
+	if (EmpiresVehicleExceedsSpeed(e, maxSpeed))
 		return false;
 	float hp = -1.0f, maxHp = -1.0f;
 	const bool hullDamaged = ReadVehicleHealth(e, hp) && ReadVehicleMaxHealth(e, maxHp) &&
@@ -2813,7 +2831,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			const bool wedged = rec.serial == e->m_NetworkSerialNumber && rec.abandonCount >= 2;
 			const bool bayEligible = inOwnBay && emptyFor >= kBayEmptyFor &&
 				!HasNearbyHumanPlayer(team, at, 250.0f);
-			const bool baseEligible = !wedged && baseDistance < kBaseRadius && emptyFor >= kEmptyFor;
+			// The factory is itself a base point. A bay vehicle must still pass the nearby-human check.
+			const bool baseEligible = !inOwnBay && !wedged && baseDistance < kBaseRadius && emptyFor >= kEmptyFor;
 			const bool abandonedEligible = botAbandoned && rec.lastDriverUserId != userId &&
 				emptyFor >= kAbandonedEmptyFor && !HasNearbyHumanPlayer(team, at, 400.0f);
 			if (driver >= 0 || (!bayEligible && !baseEligible && !abandonedEligible))
@@ -3921,6 +3940,35 @@ void CBotEmpires::tickEmpiresVehicle()
 	// "brake" reverse throttle then drove off the rear edge, run 201712).
 	const float forwardSpeed = DotProduct(v.velocity, YawDir(heading));
 	const int chassis = EmpiresVehicleReadInt(this, vehicle, "m_iChassis", -1);
+	if (v.width <= 0.0f)
+	{
+		v.width = (chassis == 0 || chassis == 8) ? 110.0f : 150.0f;
+		if (vehicle->GetCollideable() != nullptr)
+		{
+			const Vector size = vehicle->GetCollideable()->OBBMaxs() - vehicle->GetCollideable()->OBBMins();
+			if (size.x > 40.0f && size.x < 400.0f)
+				v.width = size.x;
+		}
+		// Water: the game damages a vehicle (20 HP/s) and stops its engine only when its body centre
+		// (WorldSpaceCenter) is in water; wet wheels do nothing (CEmpTank::CheckWater 0x692040,
+		// reverse-engineering/notes/vehicles.md). Fords up to centre height over ground - 16.
+		v.waterDepth = 32.0f;
+		if (vehicle->GetCollideable() != nullptr && enginetrace != nullptr)
+		{
+			ICollideable* box = vehicle->GetCollideable();
+			const Vector centre = box->GetCollisionOrigin() +
+				Vector(0, 0, 0.5f * (box->OBBMins().z + box->OBBMaxs().z));
+			Ray_t down;
+			down.Init(centre, centre - Vector(0, 0, 400.0f));
+			CTraceFilterWorldOnly worldOnly;
+			trace_t ground;
+			enginetrace->TraceRay(down, MASK_SOLID, &worldOnly, &ground);
+			if (ground.fraction < 1.0f && !ground.startsolid)
+				v.waterDepth = (std::max)(0.0f, (std::min)(160.0f, centre.z - ground.endpos.z - 16.0f));
+		}
+		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f water_depth=%.0f\n", userId,
+			v.vehicleIndex, chassis, v.width, v.waterDepth);
+	}
 	const bool armed = chassis != 0 && chassis != 8 && !v.commanderCV;
 	if (g_obstacleTest.armed || g_obstacleTest.active)
 		ObstacleTestTick(v, userId, vehicle, chassis, origin, speed, forwardSpeed, now);
@@ -4224,33 +4272,38 @@ void CBotEmpires::tickEmpiresVehicle()
 				for (const Vector& asset : ownAssets)
 					minAssetDist = (std::min)(minAssetDist, Dist2D(asset, at));
 				const bool nearAsset = minAssetDist < (isApc ? 3500.0f : 3000.0f);
-				const float defendScore = d - (isApc ? 3000.0f : 0.0f);
-				if (nearAsset && defendScore < bestDefend)
+				const float score = d - (isApc ? 3000.0f : 0.0f);
+				const bool canDefend = nearAsset && score < bestDefend;
+				const bool canHunt = d < (isApc ? 7000.0f : 6000.0f) && score < bestHunt;
+				if (!canDefend && !canHunt)
+					continue;
+				bool spotted = false;
+				if (canHunt || isApc)
 				{
-					bestDefend = defendScore;
+					const Vector centre = EntityCenter(e);
+					spotted = d < 4000.0f && worldClear(origin + Vector(0, 0, 90), centre);
+					for (int p = 1; p <= gpGlobals->maxClients && !spotted; ++p)
+					{
+						edict_t* mate = engine->PEntityOfEntIndex(p);
+						if (mate == nullptr || mate->IsFree() || mate == m_pEdict || CClassInterface::getTeam(mate) != team ||
+							!CBotGlobals::entityIsAlive(mate))
+							continue;
+						const Vector eye = CBotGlobals::entityOrigin(mate) + Vector(0, 0, 64);
+						spotted = (eye - centre).Length() < 3500.0f && worldClear(eye, centre);
+					}
+				}
+				if (canDefend && (!isApc || spotted))
+				{
+					bestDefend = score;
 					defendAt = at;
 					defendApcEnt = isApc ? i : -1;
 					defendApcChassis = eChassis;
 					defendApcDist = d;
 					defendApcAssetDist = minAssetDist;
 				}
-				const float huntScore = d - (isApc ? 3000.0f : 0.0f);
-				if (d >= (isApc ? 7000.0f : 6000.0f) || huntScore >= bestHunt)
-					continue;
-				const Vector centre = EntityCenter(e);
-				bool spotted = d < 4000.0f && worldClear(origin + Vector(0, 0, 90), centre);
-				for (int p = 1; p <= gpGlobals->maxClients && !spotted; ++p)
+				if (canHunt && spotted)
 				{
-					edict_t* mate = engine->PEntityOfEntIndex(p);
-					if (mate == nullptr || mate->IsFree() || mate == m_pEdict || CClassInterface::getTeam(mate) != team ||
-						!CBotGlobals::entityIsAlive(mate))
-						continue;
-					const Vector eye = CBotGlobals::entityOrigin(mate) + Vector(0, 0, 64);
-					spotted = (eye - centre).Length() < 3500.0f && worldClear(eye, centre);
-				}
-				if (spotted)
-				{
-					bestHunt = huntScore;
+					bestHunt = score;
 					huntAt = at;
 					huntApcEnt = isApc ? i : -1;
 					huntApcChassis = eChassis;
@@ -4258,7 +4311,8 @@ void CBotEmpires::tickEmpiresVehicle()
 					huntApcAssetDist = minAssetDist;
 				}
 			}
-			if (bestDefend < 1.0e9f)
+			const bool spawnApc = IsApcChassis(chassis) && !EmpiresLawlietIsCrew(team, client);
+			if (!spawnApc && bestDefend < 1.0e9f)
 			{
 				v.goal = defendAt;
 				v.goalValid = true;
@@ -4267,7 +4321,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					RCBOT_DIAG("[RCBOT2] anti-apc-priority who=vehicle-goal userid=%d apc=%d chassis=%d dist=%.0f asset_dist=%.0f\n",
 						userId, defendApcEnt, defendApcChassis, defendApcDist, defendApcAssetDist);
 			}
-			else if (bestHunt < 1.0e9f)
+			else if (!spawnApc && bestHunt < 1.0e9f)
 			{
 				v.goal = huntAt;
 				v.goalValid = true;
@@ -4297,6 +4351,8 @@ void CBotEmpires::tickEmpiresVehicle()
 					const bool cappable = !ownPoint && (team == 2 ?
 						(!pt.nfCappableKnown || pt.nfCappable != 0) :
 						(!pt.beCappableKnown || pt.beCappable != 0));
+					if (spawnApc && now < v.skipFrontUntil && Dist2D(pt.origin, v.skippedFront) < 50)
+						continue;
 					if (!attacked && !cappable)
 						continue;
 					// The front nearest to the own side first (own CV, else this tank).
@@ -4310,7 +4366,25 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				if (found)
 				{
-					if (Dist2D(front, v.supportFlag) > 50.0f || !v.supportKnown)
+					const bool changed = Dist2D(front, v.supportFlag) > 50.0f;
+					if (spawnApc && v.supportKnown && !changed)
+					{
+						const float left = Dist2D(origin, v.supportSpot);
+						if (left < 250.0f || left + 100.0f < v.parkBestDistance || v.retreating)
+						{
+							v.parkBestDistance = left;
+							v.parkProgressAt = now;
+						}
+						const bool exposed = best != nullptr && !v.retreating && worldClear(EntityCenter(best), v.supportSpot + Vector(0, 0, 64));
+						if (exposed || now - v.parkProgressAt > 20.0f)
+						{
+							v.rejectedPark = v.supportSpot;
+							v.rejectedParkUntil = now + 45.0f;
+							v.supportKnown = false;
+							RCBOT_DIAG("[RCBOT2] stall-escalate who=apc-park stage=1 reason=%s\n", exposed ? "exposed" : "no-progress");
+						}
+					}
+					if (changed || (!v.supportKnown && (!spawnApc || now >= v.nextParkSearch)))
 					{
 						v.supportFlag = front;
 						v.supportKnown = false;
@@ -4318,11 +4392,13 @@ void CBotEmpires::tickEmpiresVehicle()
 						home.z = 0.0f;
 						const float homeYaw = home.Length() > 1.0f ? RAD2DEG(std::atan2(home.y, home.x)) : 0.0f;
 						static const float kOffsets[] = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f, 90.0f, -90.0f};
+						static const float kFlanks[] = {60, -60, 90, -90, 30, -30, 0};
+						v.nextParkSearch = now + 5.0f;
 						Vector fallback(0, 0, 0);
 						bool fallbackKnown = false;
 						for (float radius : {1200.0f, 1600.0f})
 						{
-							for (float offset : kOffsets)
+							for (float offset : (spawnApc ? kFlanks : kOffsets))
 							{
 								Vector mesh;
 								const Vector probe = front + YawDir(homeYaw + offset) * radius;
@@ -4331,6 +4407,29 @@ void CBotEmpires::tickEmpiresVehicle()
 								if (!RCBotNavMesh::ClosestPointOnMesh(probe, 400.0f, mesh) || Dist2D(mesh, front) < 900.0f ||
 									!VehicleSpotFree(mesh))
 									continue;
+								// Boat flags on Palmbay can project the support spot onto the seabed.
+								// Check the actual parking point before accepting either candidate.
+								const Vector waterProbe = mesh + Vector(0, 0, (std::max)(1.0f, v.waterDepth));
+								if (enginetrace != nullptr && (enginetrace->GetPointContents(waterProbe) & MASK_WATER) != 0)
+									continue;
+								if (spawnApc)
+								{
+									const float walk = Dist2D(mesh, front);
+									if (walk < 1000 || walk > 1800 ||
+										(now < v.rejectedParkUntil && Dist2D(mesh, v.rejectedPark) < 400) ||
+										(best != nullptr && worldClear(EntityCenter(best), mesh + Vector(0, 0, 64))))
+										continue;
+									RCBotNavMesh::Path foot, drive;
+									if (RCBotNavMesh::BuildPath(mesh, front, foot) != RCBotNavMesh::PathResult::SUCCESS ||
+										foot.length > 2400 || foot.points.empty() || (foot.points.back() - front).Length() > 250 ||
+										RCBotNavMesh::BuildVehiclePath(origin, mesh, drive, v.width, false, v.waterDepth) != RCBotNavMesh::PathResult::SUCCESS)
+										continue;
+									v.supportSpot = mesh;
+									v.supportKnown = true;
+									v.parkBestDistance = Dist2D(origin, mesh);
+									v.parkProgressAt = now;
+									break;
+								}
 								if (!fallbackKnown)
 								{
 									fallback = mesh;
@@ -4354,13 +4453,24 @@ void CBotEmpires::tickEmpiresVehicle()
 						RCBOT_DIAG("[RCBOT2] vehicle front userid=%d flag=(%.0f %.0f %.0f) support=(%.0f %.0f %.0f) known=%d\n", userId,
 							front.x, front.y, front.z, v.supportSpot.x, v.supportSpot.y, v.supportSpot.z, v.supportKnown ? 1 : 0);
 					}
-					if (v.supportKnown)
+					if (spawnApc && !v.supportKnown)
 					{
-						v.goal = v.supportSpot;
+						v.skippedFront = front;
+						v.skipFrontUntil = now + 20.0f;
+					}
+					if (spawnApc || v.supportKnown)
+					{
+						v.goal = v.supportKnown ? v.supportSpot : origin;
 						v.goalValid = true;
 						goalKind = 2;
 					}
 				}
+			}
+			if (spawnApc && !v.goalValid && now < v.skipFrontUntil)
+			{
+				v.goal = origin;
+				v.goalValid = true;
+				goalKind = 2;
 			}
 			// 4. Push: when the front holds, closer enemy economy/spawn buildings (refinery/barracks/VF/radar).
 			if (!v.goalValid)
@@ -4510,7 +4620,11 @@ void CBotEmpires::tickEmpiresVehicle()
 	bool ram = false;
 	// The front support spot is a chosen stand: arrive close to it, then hold there.
 	float arrive = v.goalKind == 2 ? 250.0f : 600.0f;
-	if (v.billNye && targetIsVehicle)
+	if (IsApcChassis(chassis) && v.goalValid && v.goalKind == 2 && !EmpiresLawlietIsCrew(team, client))
+	{
+		driveTo = v.goal; // Hold the spawn route even while the gun tracks a target.
+	}
+	else if (v.billNye && targetIsVehicle)
 	{
 		// Push toward the nearest drop from the target.
 		float bestDrop = 1.0e9f;
@@ -5210,14 +5324,10 @@ void CBotEmpires::tickEmpiresVehicle()
 				Vector away = origin - home;
 				away.z = 0.0f;
 				away = away.Length() > 1.0f ? away.Normalized() : Vector(1, 0, 0);
-				Vector spot = home + away * 700.0f;
-				Vector onMesh;
-				if (RCBotNavMesh::ClosestPointOnMesh(spot, 300.0f, onMesh))
-					spot = onMesh;
+				v.homeParkValid = false;
 				// The side towards the vehicle is chosen far from base; there a building may stand
 				// (Coast BE, run 20261120-152144: spot behind the barracks, 2-point route through it,
 				// give-up). Turn around the CV in 45° steps to the first free, reachable spot.
-				int turn = 0;
 				for (int k = 0; k < 8; ++k)
 				{
 					const float a = static_cast<float>((k + 1) / 2) * (k % 2 ? 0.785398f : -0.785398f);
@@ -5226,20 +5336,30 @@ void CBotEmpires::tickEmpiresVehicle()
 					Vector candidate = home + dir * 700.0f;
 					if (!RCBotNavMesh::ClosestPointOnMesh(candidate, 300.0f, candidate))
 						continue;
+					RCBotNavMesh::Path path;
 					if (RCBotNavMesh::PointNearBuilding(candidate, 200.0f) ||
-						!RCBotNavMesh::CanReachComponent(origin, candidate))
+						RCBotNavMesh::BuildVehiclePath(origin, candidate, path, v.width, false, v.waterDepth) !=
+							RCBotNavMesh::PathResult::SUCCESS ||
+						path.points.empty() || (path.points.back() - candidate).Length() > 250.0f)
 						continue;
-					spot = candidate;
-					turn = k;
+					v.homePark = candidate;
+					v.homeParkFor = home;
+					v.homeParkValid = true;
+					RCBOT_DIAG("[RCBOT2] vehicle home-park userid=%d veh=%d spot=(%.0f %.0f %.0f) cv=(%.0f %.0f) turn=%d\n",
+						userId, v.vehicleIndex, candidate.x, candidate.y, candidate.z, home.x, home.y, k);
 					break;
 				}
-				RCBOT_DIAG("[RCBOT2] vehicle home-park userid=%d veh=%d spot=(%.0f %.0f %.0f) cv=(%.0f %.0f) turn=%d\n",
-					userId, v.vehicleIndex, spot.x, spot.y, spot.z, home.x, home.y, turn);
-				v.homePark = spot;
-				v.homeParkFor = home;
-				v.homeParkValid = true;
+				if (!v.homeParkValid)
+				{
+					v.parkValid = true;
+					v.park = origin;
+					v.parkSince = now;
+					++v.parkCount;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=1 reason=no-home-park userid=%d veh=%d parks=%d\n",
+						userId, v.vehicleIndex, v.parkCount);
+				}
 			}
-			driveTo = v.homePark;
+			driveTo = v.homeParkValid ? v.homePark : origin;
 			arrive = 250.0f;
 		}
 		ram = false;
@@ -5286,35 +5406,6 @@ void CBotEmpires::tickEmpiresVehicle()
 	if (v.commanderCV && target == nullptr)
 		arrive = v.cvArrive;
 	// -------- follow a navmesh route unless the goal is close and in sight
-	if (v.width <= 0.0f)
-	{
-		v.width = (chassis == 0 || chassis == 8) ? 110.0f : 150.0f;
-		if (vehicle->GetCollideable() != nullptr)
-		{
-			const Vector size = vehicle->GetCollideable()->OBBMaxs() - vehicle->GetCollideable()->OBBMins();
-			if (size.x > 40.0f && size.x < 400.0f)
-				v.width = size.x;
-		}
-		// Water: the game damages a vehicle (20 HP/s) and stops its engine only when its body centre
-		// (WorldSpaceCenter) is in water; wet wheels do nothing (CEmpTank::CheckWater 0x692040,
-		// reverse-engineering/notes/vehicles.md). Fords up to centre height over ground - 16.
-		v.waterDepth = 32.0f;
-		if (vehicle->GetCollideable() != nullptr && enginetrace != nullptr)
-		{
-			ICollideable* box = vehicle->GetCollideable();
-			const Vector centre = box->GetCollisionOrigin() +
-				Vector(0, 0, 0.5f * (box->OBBMins().z + box->OBBMaxs().z));
-			Ray_t down;
-			down.Init(centre, centre - Vector(0, 0, 400.0f));
-			CTraceFilterWorldOnly worldOnly;
-			trace_t ground;
-			enginetrace->TraceRay(down, MASK_SOLID, &worldOnly, &ground);
-			if (ground.fraction < 1.0f && !ground.startsolid)
-				v.waterDepth = (std::max)(0.0f, (std::min)(160.0f, centre.z - ground.endpos.z - 16.0f));
-		}
-		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f water_depth=%.0f\n", userId,
-			v.vehicleIndex, chassis, v.width, v.waterDepth);
-	}
 	// A new vehicle stands in the factory bay, inside the factory's box. Planned from there, the
 	// building detour ran along the factory side into a gap between crates and a tower instead of
 	// out of the bay (human test 15.11., run 20261115-125702, stuck at (1708 9688)). First drive

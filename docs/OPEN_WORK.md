@@ -1,7 +1,6 @@
 # Open work
 
-Follow the priority order below. One item per step: baseline run, smallest fix,
-same run again, compare. Reuse runs for related checks and close each item when its
+Use a matching saved run for the baseline. Choose a short scenario for a specific mechanic or a 10-bot match at 1x for its interaction with the team. Reuse runs for related checks and close each item when its
 remaining case has measured results and a run reference.
 Check free space before long recordings and remove only recordings you created.
 Prioritize by match impact and timebox each topic; see
@@ -14,43 +13,16 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 0. Priority order
 
-1. Repeat the 10-bot match on Palmbay with the new tank goals (3.24, confirmed on Coast).
-   Fix the engineer stand spot at the Coast refineries (5.8e). Remaining tank issues: another
-   tank's turret blocking the fire line, refineries destroyed while still under construction.
-2. Infantry attacks on buildings and the CV (3.23) are done; remaining: scout stun grenades
-   on slow vehicles (3.22).
-3. Verify passage at the `as_escort` bottleneck with the same start, goal, chassis
-   and speed. Measure the team director's contact rate on
-   coast (5.4/5.8). Off-mesh MOVE targets (3.18) are checked: a bot stops at the nearest
-   reachable mesh point on the target's level (about 60 units tolerance) and reports COMPLETE
-   with the remaining distance; no stalls.
-4. Extend refitting, vehicle and infantry resupply, fire groups and team behavior.
-   Reuse the engineer crate and request paths for infantry resupply. Agree on the
-   research order before selecting improved vehicle parts (5.2). Use the resulting
-   late-game match to measure the commander reserve and research pauses (5.5a/5.1).
-   APCs: after APC Spawn Point research each team keeps one APC in the field
-   (`20261121-115623`: NF and BE APC bought and driven to the front); spawning in it is
-   confirmed (passengers get out when it is slow, driverless or after 10 s; a blocked exit
-   escalates nudge -> other seat -> driver seat -> retry after 15 s, measured with
-   `rcbotd empires_test_exit_block` in a boxed-in heavy tank and APC). Squad transport
-   still needs its own acceptance check.
-   Lawliet mode (5.14b, `rcbot_empires_lawliet`): a crewed APC rush on the enemy CV when a team
-   falls behind. Crew members far from the rally point respawn at base, the Scout re-stuns the CV
-   about every 10 s, Riflemen throw sticky grenades. Forced mode (`scripts/dev_lawliet.sh`, 1x,
-   Crossroads) reached and destroyed the CV on the first rush in 6 of 6 runs (45–63 s of assault).
-   Vehicle routes now treat solid `prop_dynamic` entities (trees, roadblocks; 84 on Crossroads)
-   like buildings; the APC no longer wedges at the tree cluster near `(2694 6684)`.
-   Open: the automatic trigger in a real match, the Engineer's ammo crate beside the CV, the Scout
-   continuing after a respawn at the APC. Next: APC flank parking (5.14a).
-5. When a human session is available, verify the EngiBot crash fix with SourceMod
-   first, then check commander orders, seat handover and other player interactions.
-   Investigate intermittent issues as they recur. Combine short map and mode checks
-   where possible, then run a long match with a map change. Leave cleanup until after
-   the affected test dependencies have been checked.
+1. **Palmbay vehicles (3.27, 5.14a).** Run `212957` lost six BE APCs on approaches to two support positions. Four targeted ground 207 units below the surface and two targeted ground 134 units below it. All six logged a fording depth of 160 units. Flag support now checks the parking spot for water. Spawn APCs look for flank positions with vehicle access and an infantry route. Compare arrivals, losses and usable spawns in the next 10-bot match at 1x.
+2. **Front support (3.10c, 5.26, 3.25, 5.30).** Engineers can answer a human infantry ammo request, infantry can seek navmesh cover under fire, and a seated commander can assign one attacking grenadier to an APC seen by a teammate. Observe actual refills, target engagement and resumption of the original objective. These changes have a Linux x86 build; gameplay verification is pending.
+3. **Team roles (5.4, 5.8, 5.28).** Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
+4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault). Run `021732` also recorded a crate 388 units from the CV. Open cases are the automatic trigger, a crew member actually replenishing grenades and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
+5. **Target knowledge (3.20).** Tank hunting, tank defense against APCs and the commander's target call require a sightline from the driver or a teammate. Grenadier mortar targeting can still use an unseen APC position. Check in a match that a hidden APC near a friendly building becomes a defense target only once a teammate sees it.
+6. **Next human session.** Verify the EngiBot purchase with SourceMod, commander orders and vehicle handover. Keep the Coast refinery stand spot (5.8e) parked until evidence identifies the obstruction.
 
 ## 1. Being measured
 
-- [ ] **Progress instead of fixed timers (`stall-escalate`):** each action checks locally whether it gets
+- [x] **Progress instead of fixed timers (`stall-escalate`):** each action checks locally whether it gets
   anywhere and escalates in steps (try differently, other goal, give up) with a `stall-escalate who=... reason=...`
   log line. Built: commander CV drive (25 s without net progress), vehicle buyers (skip unreachable route
   corners), engineers (20 s without health gain or movement: other stand spot, third stall gives the job back),
@@ -136,10 +108,10 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   0 bail-outs. MG lead fixed 21.11.: the vehicle MG is hitscan (`Speed` in `vehicle_weapons.txt`
   applies to projectile types 1-4 only), so the old range/1000 lead missed moving infantry.
   Without lead (log line `vehicle mg-engage`), moving infantry at 500-900 HU took 1.5 -> 23.2 HP/s
-  in two Crossroads 10-bot 1x matches. Open: Palmbay match.
+  in two Crossroads 10-bot 1x matches. Palmbay `160030` recorded hunt, front and CV goals. Priority when an APC and an immediate CV threat coexist is still open.
 - [ ] **Coast refineries without an engineer stand spot (5.8e):** the ground trace next to both
   Coast refineries starts solid (64/64); starting it higher finds ground, but then no kit aim
-  reaches the building (64/64). Both refineries stay at 50/150.
+  reaches the building (64/64). Both stayed at 50/150 in those runs. Engineer ground and hull probes now ignore vehicle-only building proxies. The effect is unmeasured.
 - [x] **Infantry against buildings and the CV (3.23):** grenadiers use RPG and mortar
   from a stand point outside the building box; in `20261120-122757` a grenadier
   destroyed an NF MG turret by mortar (100 → 61 → 22 → destroyed). Rifleman sticky
@@ -167,12 +139,7 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   five regression checks passed with diagnostics on. Vehicle logging was not exercised.
   The user chose to keep diagnostics off by default for readable normal server logs;
   the test harness enables them, and manual runs can set the cvar to 1.
-- [ ] **MOVE completion distance:** the bot reports `COMPLETE` at the end of its route,
-  which can be up to 600 units off the order location; the game ends a MOVE only within
-  100. The end distance is now logged (`commander-move result=… dist=`); measure with
-  targets beside the mesh and on a roof. A long-move test ended 61 units from its on-mesh target.
-  The route is now extended straight to the spot when the mesh ends up to 600 beside it with ground and a free
-  hull (`navmesh-path-extended`); a target beside the mesh is not measured yet.
+- [x] **MOVE completion distance (3.18).** Streetsoffire off-mesh orders ended 63 HU from a nearby edge target, 308 HU from a blocked ground target and 196 HU from its roof counterpart on the upper level. The bot reported completion without stalling.
 - [ ] **Team director and bot commander orders (built, measuring, 5.4/5.8/5.28):** per team a small picture every
   1.5 s (phase push / base alert / stabilize, up to two push and two hold goals, alert target, tickets). Free infantry
   (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense, at least one
@@ -185,9 +152,9 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   coast flag captured by an ordered bot; open: kill-spawn for defenders never triggered yet, contact rate on coast
   (kills 15 vs 33). Roles now last at least 40 s and an alert at a hold goal is answered by the holders
   (palmbay 4x push<->defense swaps 16/15 -> 10/9 per match); open: a team with only one free infantry bot still
-  sent it back and forth when alerts at a forward refinery kept returning (palmbay 1x: 6 swaps of one bot); now an
+  sent it back and forth when alerts at a forward refinery kept returning (Palmbay 1x run `171039`: nine push/defense switches for BE userid 11); now an
   alert lasts 40 s after its last trigger and moves to another building only for a clearly stronger threat, and a
-  bot stalled at a building forbids that mesh link for 60 s (palmbay 1x: swaps 11 -> 8, max per bot 6 -> 3, a 4 min
+  bot stalled at a building forbids that mesh link for 60 s (palmbay 1x: swaps 11 -> 8, max per bot 9 -> 3, a 4 min
   stall at the own barracks -> 68 s). How the roles feel needs a human test.
 - [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
@@ -385,8 +352,7 @@ When the following cases recur, compare the relevant trace and route.
 - Repair-pad entry blocked when the CV stands in it.
 - A bot hangs at a map wall on `emp_rainbowroad` (-7461 -911); a parked vehicle is not
   blocked for infantry routes; an abandoned vehicle blocks the NF base for minutes.
-- Navmesh islands: some callers of `ClosestPointOnMesh`/`GetNearestAreaId` can snap to an
-  unreachable island.
+- Navmesh islands (3.4d): refinery turret jobs check the route endpoint before claiming a stand. Rainbowroad run `122756` recorded five path failures for the same stand; follow-up `150857` recorded none. Revive and door-button claims now check the route endpoint against their interaction range. Vehicles require a full route for parking beside the CV and wait locally if all parking spots fail. These three changes await gameplay verification. `GetNearestAreaId` supplies telemetry keys and helps select an edge on an existing route.
 
 ## 4. Missing features
 
@@ -417,7 +383,7 @@ When the following cases recur, compare the relevant trace and route.
   `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
   (including rifleman stickies and scout sniper/shotgun) are active for all four classes,
   and spawn selection breaks ties among non-flag spawns by 2D distance to the front/VF.
-  Open: class positioning/cover, scout hide, grenadier road mines.
+  Navmesh cover is implemented. Recovery of the previous objective, class spacing, Scout hide and Grenadier road mines remain open.
 - Shared team economy: commander and bots should share one view of team resources, income
   and planned spending so money is used for a natural game flow. Static findings: vehicle
   purchases pay from the buyer's own wages first and only the remainder from the team pool,
@@ -466,7 +432,7 @@ When the following cases recur, compare the relevant trace and route.
 - Infantry against vehicles (user 15.11.): only Grenadiers target vehicle crews now (rifles did nothing).
   Rifleman sticky grenades at vehicles never left the hand (the throw step read the wrong health field) - fixed.
   Scouts walk up to a visible enemy vehicle (<= 1200) with the sticky stun grenade and throw from 250; in short 1x
-  runs a driving tank outran the scout. Open: approach only slow or firing vehicles, then measure the stun effect.
+  runs a driving tank outran the scout. Outside throw range, Scouts now drop chases above 150 HU/s. Verify stun and sticky hits at 1x.
 - Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
   modes, groups, magazine and reserve every 0.25 s; MG only against infantry (up to 1200, the MG
@@ -492,7 +458,7 @@ When the following cases recur, compare the relevant trace and route.
   The diagnostic build passed all five regression checks.
 - Taking empty vehicles (measured): an empty own vehicle is eligible within 1500 of the
   team's CV or a building after 30 s without a driver or movement. The passenger-handle
-  reader now recognizes the game's DataTable array. A human handover and taking the vehicle
+  reader recognizes the game's DataTable array. The empty timer starts on observation and restarts after movement over 100 units. In the factory bay, a human teammate within 250 units has priority even after 30 s. Other fake clients do not reserve the vehicle. A human handover and taking the vehicle
   again after leaving the passenger seat still need a player check.
 - Vehicle ammunition: step 1 done for light tank/AFV (empty cannon/missiles -> own pad, the refit refills every
    weapon; `scripts/dev_ammo.sh`, test command `rcbotd empires_vehicle_setammo <magazine> <reserve>`).
@@ -505,15 +471,14 @@ When the following cases recur, compare the relevant trace and route.
    `scripts/dev_ammocall.sh`; measured: crate on the first try, tank full again after 22 s). Each vehicle has its own call (up to four per team); an engineer takes
    the nearest call no other engineer holds (measured with two empty tanks: one engineer each; `DEV_AMMO_TANKS=2`). A call holds only while its
    driver sits alive in the vehicle. Engineers often get stuck on the way (`walk-stuck`). Next:
-   other chassis, then infantry resupply for every class.
+   other chassis and reliable simultaneous calls.
 - Two simultaneous vehicle ammo calls can still fail. In Crossroads run
   `20261119-182605`, one engineer got stuck on the way and the other failed to
   place a crate after four attempts. One tank refilled at the pad. With an
   earlier call (`20261119-183356`), an engineer again failed to place a crate
   and one driver gave up after four reverses. The single-crate and pad checks passed.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
-  resupply for every class; the current normal resupply path covers engineers only and
-  searches team map crates, not engineer-built crates.
+  resupply for every class; an engineer can now respond to a human infantry caller. Actual ammunition gain and autonomous requests from ordinary infantry bots remain open.
 - Test-server inventory excluding generated fixtures: 25 BSP maps, 12 with
   navmeshes. Ten have a successful navmesh load in existing logs. Check
   `con_district402` and `con_glycencity` for both loading and Conquest behavior in

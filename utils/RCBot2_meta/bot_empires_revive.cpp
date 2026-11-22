@@ -15,6 +15,7 @@
 #include "bot_navmesh_api.h"
 #include "bot_schedule.h"
 #include "iplayerinfo.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include "bot_cvars.h"
@@ -23,6 +24,8 @@ namespace
 {
 constexpr float kReviveSearchRange = 3000.0f;
 constexpr float kReviveSendRange = 120.0f;
+constexpr float kReviveProgressWindow = 6.0f;
+constexpr float kReviveProgressDistance = 64.0f;
 constexpr int kReviveClip = 50;
 
 struct ReviveClaim
@@ -85,19 +88,49 @@ bool CBotEmpires::handleEmpiresRevive()
 	// Keep the current target while it stays revivable.
 	edict_t* target = m_iReviveTarget > 0 ? engine->PEntityOfEntIndex(m_iReviveTarget) : nullptr;
 	edict_t* ragdoll = nullptr;
-	if (target != nullptr)
+	if (m_iReviveTarget > 0)
 	{
-		IPlayerInfo* info = playerinfomanager->GetPlayerInfo(target);
+		const bool sameTeammate = target != nullptr && !target->IsFree() &&
+			engine->GetPlayerUserId(target) == m_iReviveTargetUserId && CClassInterface::getTeam(target) == team;
+		IPlayerInfo* info = sameTeammate ? playerinfomanager->GetPlayerInfo(target) : nullptr;
 		ragdoll = info != nullptr && info->IsConnected() && !CBotGlobals::entityIsAlive(target) ? PlayerRagdoll(target) : nullptr;
-		if (ragdoll == nullptr || now > m_flReviveUntil)
+		const ReviveClaim& activeClaim = s_reviveClaim[m_iReviveTarget];
+		const bool taken = activeClaim.engineerUserId != userId && activeClaim.until > now;
+		if (ragdoll != nullptr && !taken)
+		{
+			const float distance = (RagdollOrigin(ragdoll, target) - getOrigin()).Length();
+			if (distance <= m_flReviveBestDistance - kReviveProgressDistance ||
+				(distance <= kReviveSendRange && m_flReviveBestDistance > kReviveSendRange))
+			{
+				m_flReviveBestDistance = distance;
+				m_flReviveUntil = now + kReviveProgressWindow;
+				m_bReviveReplanned = false;
+			}
+			else if (now >= m_flReviveUntil && distance > kReviveSendRange && !m_bReviveReplanned)
+			{
+				m_bReviveReplanned = true;
+				m_flReviveNextNav = now;
+				m_flReviveUntil = now + kReviveProgressWindow;
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=reviver stage=1 reason=no-approach userid=%d target=%d dist=%.0f\n",
+					userId, m_iReviveTarget, distance);
+			}
+		}
+		const bool stalled = ragdoll != nullptr && !taken && now >= m_flReviveUntil;
+		if (ragdoll == nullptr || taken || stalled)
 		{
 			const bool alive = info != nullptr && info->IsConnected() && CBotGlobals::entityIsAlive(target);
 			RCBOT_DIAG("[RCBOT2] revive end userid=%d target=%d reason=%s sent=%d\n", userId, m_iReviveTarget,
-				alive ? (m_flReviveSent > 0.0f ? "revived" : "alive") : (ragdoll == nullptr ? "no-ragdoll" : "timeout"),
+				taken ? "claimed" : !sameTeammate ? "target-gone" : alive ? (m_flReviveSent > 0.0f ? "revived" : "alive") : (ragdoll == nullptr ? "no-ragdoll" : "timeout"),
 				m_flReviveSent > 0.0f ? 1 : 0);
-			s_reviveClaim[m_iReviveTarget].until = 0.0f;
-			if (now > m_flReviveUntil && ragdoll != nullptr)
-				s_reviveClaim[m_iReviveTarget] = {userId, now + 60.0f}; // skip this one for a while
+			ReviveClaim& claim = s_reviveClaim[m_iReviveTarget];
+			if (claim.engineerUserId == userId)
+				claim.until = 0.0f;
+			if (stalled)
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=reviver stage=2 reason=no-revive-progress userid=%d target=%d\n",
+					userId, m_iReviveTarget);
+				m_reviveRetries.push_back({m_iReviveTargetUserId, now + 15.0f});
+			}
 			m_iReviveTarget = 0;
 			m_flReviveSent = 0.0f;
 			cancelNavigationAttempt("revive-end");
@@ -109,6 +142,8 @@ bool CBotEmpires::handleEmpiresRevive()
 		if (now < m_flReviveNextSearch)
 			return false;
 		m_flReviveNextSearch = now + 0.5f;
+		m_reviveRetries.erase(std::remove_if(m_reviveRetries.begin(), m_reviveRetries.end(),
+			[now](const ReviveRetry& retry) { return now >= retry.until; }), m_reviveRetries.end());
 		float best = kReviveSearchRange;
 		for (int i = 1; i <= gpGlobals->maxClients; ++i)
 		{
@@ -118,11 +153,12 @@ bool CBotEmpires::handleEmpiresRevive()
 			IPlayerInfo* info = playerinfomanager->GetPlayerInfo(player);
 			if (info == nullptr || !info->IsConnected() || CBotGlobals::entityIsAlive(player))
 				continue;
-			const ReviveClaim& c = s_reviveClaim[i];
-			if (c.engineerUserId != userId && now < c.until)
+			if (now < s_reviveClaim[i].until)
 				continue;
-			if (c.engineerUserId == userId && now < c.until)
-				continue; // gave up on it
+			const int targetUserId = engine->GetPlayerUserId(player);
+			if (std::any_of(m_reviveRetries.begin(), m_reviveRetries.end(),
+				[targetUserId](const ReviveRetry& retry) { return retry.targetUserId == targetUserId; }))
+				continue;
 			edict_t* r = PlayerRagdoll(player);
 			if (r == nullptr)
 			{
@@ -136,9 +172,20 @@ bool CBotEmpires::handleEmpiresRevive()
 				}
 				continue;
 			}
-			const float d = (RagdollOrigin(r, player) - getOrigin()).Length();
+			const Vector body = RagdollOrigin(r, player);
+			const float d = (body - getOrigin()).Length();
 			if (d < best)
 			{
+				if (d > kReviveSendRange)
+				{
+					RCBotNavMesh::Path path;
+					if (RCBotNavMesh::BuildPath(getOrigin(), body, path, this) != RCBotNavMesh::PathResult::SUCCESS ||
+						path.points.empty() || (path.points.back() - body).Length() > kReviveSendRange)
+					{
+						m_reviveRetries.push_back({targetUserId, now + 3.0f});
+						continue;
+					}
+				}
 				best = d;
 				target = player;
 				ragdoll = r;
@@ -154,7 +201,10 @@ bool CBotEmpires::handleEmpiresRevive()
 			return false;
 		}
 		m_iReviveTarget = engine->IndexOfEdict(target);
-		m_flReviveUntil = now + 40.0f;
+		m_iReviveTargetUserId = engine->GetPlayerUserId(target);
+		m_flReviveUntil = now + kReviveProgressWindow;
+		m_flReviveBestDistance = best;
+		m_bReviveReplanned = false;
 		m_flReviveNextNav = 0.0f;
 		m_flReviveSent = 0.0f;
 		const Vector at = RagdollOrigin(ragdoll, target);
@@ -168,20 +218,23 @@ bool CBotEmpires::handleEmpiresRevive()
 	if (dist > kReviveSendRange)
 	{
 		const bool idle = m_pSchedules == nullptr || m_pSchedules->isEmpty();
-		if (now >= m_flReviveNextNav && (idle || now >= m_flReviveNextNav + 10.0f))
+		if (now >= m_flReviveNextNav && (idle || m_bReviveReplanned || now >= m_flReviveNextNav + 10.0f))
 		{
 			m_flReviveNextNav = now + 3.0f;
-			Vector goal = at;
-			Vector onMesh;
-			if (RCBotNavMesh::ClosestPointOnMesh(at, 200.0f, onMesh))
-				goal = onMesh;
 			if (m_bEmpiresNavGoalActive)
 				endEmpiresNavmeshGoal("drop", "revive", 0.0f);
 			cancelNavigationAttempt("revive");
 			if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
 				m_pSchedules->freeMemory();
-			if (!requestNavigation(goal, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
-				setMoveTo(goal);
+			if (!requestNavigation(at, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=reviver stage=2 reason=no-route userid=%d target=%d\n",
+					userId, m_iReviveTarget);
+				s_reviveClaim[m_iReviveTarget].until = 0.0f;
+				m_reviveRetries.push_back({m_iReviveTargetUserId, now + 3.0f});
+				m_iReviveTarget = 0;
+				return false;
+			}
 			RCBOT_DIAG("[RCBOT2] revive walk userid=%d target=%d dist=%.0f\n", userId, m_iReviveTarget, dist);
 		}
 		return true;
@@ -219,14 +272,14 @@ bool CBotEmpires::handleEmpiresRevive()
 }
 
 // Dead bot: wait with the respawn while an Engineer with Revive targets us
-// (up to 25 s), and 3 s after death so a nearby one can pick us.
+// (up to 10 s), and 3 s after death so a nearby one can pick us.
 bool CBotEmpires::holdRespawnForRevive()
 {
 	if (gpGlobals == nullptr || engine == nullptr || m_pEdict == nullptr)
 		return false;
 	const float now = gpGlobals->curtime;
 	const float dead = now - m_flReviveDeathTime;
-	if (dead > 25.0f)
+	if (dead >= 10.0f)
 		return false;
 	const int me = engine->IndexOfEdict(m_pEdict);
 	const int team = CClassInterface::getTeam(m_pEdict);
@@ -241,9 +294,11 @@ bool CBotEmpires::holdRespawnForRevive()
 		const CBaseEntity* base = BaseOf(bot->getEdict());
 		if (base == nullptr || !EmpiresBinaryOffsetsTrusted() || reinterpret_cast<const char*>(base)[0x121f] == 0)
 			continue;
-		if (eng->m_iReviveTarget == me)
+		if (eng->m_iReviveTarget == me && eng->m_iReviveTargetUserId == engine->GetPlayerUserId(m_pEdict) &&
+			s_reviveClaim[me].until > now && s_reviveClaim[me].engineerUserId == engine->GetPlayerUserId(bot->getEdict()))
 			targeted = true;
-		else if (eng->m_iReviveTarget == 0)
+		else if (eng->m_iReviveTarget == 0 && dead < 3.0f &&
+			(eng->getOrigin() - getOrigin()).Length() < kReviveSearchRange)
 			candidate = true;
 	}
 	const bool hold = targeted || (candidate && dead < 3.0f);

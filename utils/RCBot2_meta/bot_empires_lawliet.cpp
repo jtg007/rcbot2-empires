@@ -410,19 +410,10 @@ bool FindCarriedWeapon(const CBotEmpires* bot, edict_t* player, const char* need
 		// Stale handles: after the last grenade is thrown the weapon slot's edict can be
 		// reused by the projectile (emp_nf_sticky_grenade_projectile), whose fields are not
 		// weapon fields (garbage ammo type/count in 230906). Check serial + weapon_ prefix.
-		if (!weapons[slot].IsValid())
-			continue;
-		const int idx = weapons[slot].GetEntryIndex();
-		edict_t* w = idx > 0 ? INDEXENT(idx) : nullptr;
-		if (w == nullptr || w->IsFree())
-			continue;
-		const int serialMask = (1 << NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS) - 1;
-		if ((w->m_NetworkSerialNumber & serialMask) != (weapons[slot].GetSerialNumber() & serialMask))
+		edict_t* w = EmpiresCarriedWeapon(weapons[slot]);
+		if (w == nullptr)
 			continue;
 		const char* wc = w->GetClassName();
-		if (wc == nullptr || std::strncmp(wc, "weapon_", 7) != 0 ||
-			CClassInterface::getWeaponState(w) == WEAPON_NOT_CARRIED)
-			continue;
 		if (!ContainsCaseInsensitive(wc, needle))
 			continue;
 		if (exclude != nullptr && ContainsCaseInsensitive(wc, exclude))
@@ -540,7 +531,8 @@ bool LawlietCrewRecall(const CBotEmpires* reader, int team, const TeamLawlietSta
 	if (pe == nullptr || pe->IsFree() || playerinfomanager == nullptr)
 		return false;
 	IPlayerInfo* pi = playerinfomanager->GetPlayerInfo(pe);
-	if (pi == nullptr || !pi->IsConnected() || pi->IsDead() || pi->GetHealth() <= 0)
+	if (pi == nullptr || !pi->IsConnected() || !pi->IsFakeClient() || pi->GetTeamIndex() != team ||
+		pi->IsDead() || pi->GetHealth() <= 0)
 		return false;
 	const int inVeh = EmpiresVehiclePlayerVehicle(reader, pe);
 	if (inVeh >= 0 && inVeh == st.apcEntity)
@@ -568,8 +560,38 @@ struct EmpiresLawlietImpl
 		for (int s = 0; s < seats; ++s)
 		{
 			int occupant = -1;
-			if (!reader->readEmpiresEntityHandleProperty(apc, "m_hPassengers", s, occupant) || occupant <= 0)
+			if (reader->readEmpiresEntityHandleProperty(apc, "m_hPassengers", s, occupant) && occupant <= 0)
 				return true;
+		}
+		return false;
+	}
+
+	static bool ConfirmOrRequestDriver(const CBotEmpires* reader, edict_t* apc, TeamLawlietState& st, int team)
+	{
+		int seat = -1;
+		if (!reader->readEmpiresEntityHandleProperty(apc, "m_hPassengers", 0, seat))
+			return false;
+		for (int i = 0; i < st.crewCount; ++i)
+		{
+			const int client = st.crewClients[i];
+			if (seat > 0 && seat != client)
+				continue;
+			edict_t* player = engine->PEntityOfEntIndex(client);
+			IPlayerInfo* info = player != nullptr && !player->IsFree() && playerinfomanager != nullptr ?
+				playerinfomanager->GetPlayerInfo(player) : nullptr;
+			if (info == nullptr || !info->IsConnected() || !info->IsFakeClient() ||
+				info->IsDead() || info->GetTeamIndex() != team)
+				continue;
+			if (seat == client)
+			{
+				st.driverClient = client;
+				return true;
+			}
+			if (helpers != nullptr && EmpiresVehiclePlayerVehicle(reader, player) == st.apcEntity)
+			{
+				helpers->ClientCommand(player, "emp_change_seat 0\n");
+				break;
+			}
 		}
 		return false;
 	}
@@ -1061,25 +1083,7 @@ struct EmpiresLawlietImpl
 			st.rallyPoint = CBotGlobals::entityOrigin(apc);
 			st.rallyValid = true;
 
-			int seat0 = -1;
-			reader->readEmpiresEntityHandleProperty(apc, "m_hPassengers", 0, seat0);
-			bool driverSeated = seat0 == st.driverClient && seat0 > 0;
-			if (!driverSeated && seat0 <= 0)
-			{
-				for (int i = 0; i < st.crewCount; ++i)
-				{
-					const int c = st.crewClients[i];
-					edict_t* pe = engine->PEntityOfEntIndex(c);
-					if (pe != nullptr && EmpiresVehiclePlayerVehicle(reader, pe) == st.apcEntity)
-					{
-						st.driverClient = c;
-						if (helpers != nullptr)
-							helpers->ClientCommand(pe, "emp_change_seat 0\n");
-						driverSeated = true;
-						break;
-					}
-				}
-			}
+			const bool driverSeated = ConfirmOrRequestDriver(reader, apc, st, team);
 
 			int scoutsBoarded = 0;
 			int totalBoarded = 0;
@@ -1150,6 +1154,7 @@ struct EmpiresLawlietImpl
 					{
 						st.crewClients[st.crewCount] = i;
 						st.crewRoles[st.crewCount] = ROLE_SCOUT;
+						st.crewBestDist[st.crewCount] = 1.0e9f;
 						++st.crewCount;
 						ResetBotAction(i);
 						ApplyPreferredLoadoutCmds(pe, team, EMP_CLASS_SCOUT);
@@ -1200,24 +1205,7 @@ struct EmpiresLawlietImpl
 				return;
 			}
 
-			int seat0 = -1;
-			reader->readEmpiresEntityHandleProperty(apc, "m_hPassengers", 0, seat0);
-			if (seat0 <= 0)
-			{
-				for (int i = 0; i < st.crewCount; ++i)
-				{
-					const int c = st.crewClients[i];
-					edict_t* pe = engine->PEntityOfEntIndex(c);
-					if (pe != nullptr && CBotGlobals::entityIsAlive(pe) &&
-						EmpiresVehiclePlayerVehicle(reader, pe) == st.apcEntity)
-					{
-						st.driverClient = c;
-						if (helpers != nullptr)
-							helpers->ClientCommand(pe, "emp_change_seat 0\n");
-						break;
-					}
-				}
-			}
+			ConfirmOrRequestDriver(reader, apc, st, team);
 
 			const Vector apcPos = CBotGlobals::entityOrigin(apc);
 			st.rallyPoint = apcPos;
@@ -1307,6 +1295,28 @@ void EmpiresLawlietOnBotReset(int client)
 	s_bot[client] = BotLawlietAction();
 }
 
+void EmpiresLawlietOnClientDisconnect(int client)
+{
+	EmpiresLawlietOnBotReset(client);
+	for (int team : {EMP_TEAM_NF, EMP_TEAM_BE})
+	{
+		TeamLawlietState& st = s_team[team];
+		const int slot = FindCrewSlot(st, client);
+		if (slot < 0)
+			continue;
+		if (st.driverClient == client)
+			st.driverClient = -1;
+		for (int i = slot + 1; i < st.crewCount; ++i)
+		{
+			st.crewClients[i - 1] = st.crewClients[i];
+			st.crewRoles[i - 1] = st.crewRoles[i];
+			st.crewBestDist[i - 1] = st.crewBestDist[i];
+		}
+		if (--st.crewCount == 0)
+			ResetTeamToIdle(team, st, gpGlobals != nullptr ? gpGlobals->curtime : 0.0f);
+	}
+}
+
 bool EmpiresLawlietActive(int team)
 {
 	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) && s_team[team].phase != PHASE_IDLE;
@@ -1325,7 +1335,7 @@ bool EmpiresLawlietIsCrew(int team, int client)
 bool EmpiresLawlietIsDriver(int team, int client)
 {
 	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) && s_team[team].phase != PHASE_IDLE &&
-		s_team[team].driverClient == client;
+		client > 0 && s_team[team].driverClient == client;
 }
 
 bool EmpiresLawlietWantsApcBuy(int team, int client)
@@ -1333,7 +1343,7 @@ bool EmpiresLawlietWantsApcBuy(int team, int client)
 	if (team != EMP_TEAM_NF && team != EMP_TEAM_BE)
 		return false;
 	const TeamLawlietState& st = s_team[team];
-	return st.phase == PHASE_ACQUIRE_APC && st.driverClient == client;
+	return client > 0 && st.phase == PHASE_ACQUIRE_APC && st.driverClient == client;
 }
 
 bool EmpiresLawlietBlocksVehicleEntry(int team, int client)
@@ -2006,20 +2016,34 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 		return false;
 	}
 
+	// After the final grenade the weapon entity can disappear (run 230906).
+	// Keep using the ammo pool learned from this crew member's grenade.
+	auto beginResupply = [&](int ammoType, int ammo) {
+		if (!crateExists || now < act.cooldownUntil)
+			return false;
+		if (ammoType < 0 && act.weaponName[0] != '\0' &&
+			((role == ROLE_SCOUT && act.isStunThrow) || (role == ROLE_RIFLEMAN && !act.isStunThrow)))
+		{
+			ammoType = act.ammoType;
+			ammo = LawlietAmmo(this, m_pEdict, ammoType);
+		}
+		if (ammoType < 0 || ammoType >= 32 || ammo != 0)
+			return false;
+		act.mode = ACT_RESUPPLY_CRATE;
+		act.subStage = 0;
+		act.stageAt = now;
+		act.ammoType = ammoType;
+		act.ammoBefore = ammo;
+		return true;
+	};
+
 	if (role == ROLE_SCOUT)
 	{
 		const char* stunName = nullptr;
 		int stunAmmoType = -1, stunAmmo = 0;
 		const bool hasStun = FindCarriedWeapon(this, m_pEdict, "sticky_stun", nullptr, stunName, stunAmmoType, stunAmmo);
-		if (hasStun && stunAmmo <= 0 && crateExists && now >= act.cooldownUntil)
-		{
-			act.mode = ACT_RESUPPLY_CRATE;
-			act.subStage = 0;
-			act.stageAt = now;
-			act.ammoType = stunAmmoType;
-			act.ammoBefore = stunAmmo;
+		if (beginResupply(stunAmmoType, stunAmmo))
 			return true;
-		}
 		if (hasStun && stunAmmo > 0 && now >= act.cooldownUntil &&
 			ShouldThrowStun(st.cvStunned, st.cvStunUntil - now, now - st.lastStunThrowAt))
 		{
@@ -2068,15 +2092,8 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 		int stickyAmmoType = -1, stickyAmmo = 0;
 		const bool hasSticky = FindCarriedWeapon(this, m_pEdict, "sticky_grenade", "stun",
 			stickyName, stickyAmmoType, stickyAmmo);
-		if (hasSticky && stickyAmmo <= 0 && crateExists && now >= act.cooldownUntil)
-		{
-			act.mode = ACT_RESUPPLY_CRATE;
-			act.subStage = 0;
-			act.stageAt = now;
-			act.ammoType = stickyAmmoType;
-			act.ammoBefore = stickyAmmo;
+		if (beginResupply(stickyAmmoType, stickyAmmo))
 			return true;
-		}
 		if (hasSticky && stickyAmmo > 0 && now >= act.cooldownUntil)
 		{
 			if (cvDist > 320.0f && cvHullDist > 200.0f)
@@ -2115,16 +2132,9 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 
 	const char* rpgName = nullptr;
 	int rpgAmmoType = -1, rpgAmmo = 0;
-	const bool hasRpg = FindCarriedWeapon(this, m_pEdict, "_rpg", nullptr, rpgName, rpgAmmoType, rpgAmmo);
-	if (hasRpg && rpgAmmo <= 0 && crateExists && now >= act.cooldownUntil)
-	{
-		act.mode = ACT_RESUPPLY_CRATE;
-		act.subStage = 0;
-		act.stageAt = now;
-		act.ammoType = rpgAmmoType;
-		act.ammoBefore = rpgAmmo;
+	FindCarriedWeapon(this, m_pEdict, "_rpg", nullptr, rpgName, rpgAmmoType, rpgAmmo);
+	if (beginResupply(rpgAmmoType, rpgAmmo))
 		return true;
-	}
 	if (cvDist > 700.0f)
 	{
 		EmpiresLawlietImpl::IssueFootNav(this, act, cvOrigin, now);

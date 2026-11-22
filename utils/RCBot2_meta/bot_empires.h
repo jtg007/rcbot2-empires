@@ -287,8 +287,12 @@ bool EmpiresCommanderOrderIsOurs(int team, int client); // bot_empires_commander
 // 3.10b step 3: a vehicle's "I need ammo" call (emp_menu_command 29), one slot per vehicle (up to
 // kEmpiresAmmoRequestSlots per team); an engineer walks over and places a supply crate
 // (bot_empires_ammo_crate.cpp).
+void EmpiresRecordInfantryAmmoCall(edict_t* player);
 struct EmpiresAmmoRequest
 {
+	bool infantry = false;
+	int ammoType = -1;
+	int reserveBefore = -1;
 	int vehicle = -1;
 	int driverUserId = -1;
 	float until = 0.0f;
@@ -463,6 +467,13 @@ struct EmpiresVehicleBrain
 	int mgEngHp0 = 0;
 	int mgEngHpLast = 0;
 	int goalKind = -1; // strategic goal: 0 defend, 1 hunt, 2 front support, 3 push (building), 4 CV
+	Vector skippedFront = Vector(0, 0, 0);
+	float skipFrontUntil = 0;
+	float nextParkSearch = 0.0f;
+	float parkProgressAt = 0.0f;
+	float parkBestDistance = 0.0f;
+	Vector rejectedPark = Vector(0, 0, 0);
+	float rejectedParkUntil = 0.0f;
 	Vector supportFlag = Vector(0, 0, 0); // front flag the support spot belongs to
 	Vector supportSpot = Vector(0, 0, 0);
 	bool supportKnown = false;
@@ -809,7 +820,12 @@ private:
 	// Engineer with the Revive skill revives dead teammates (bot_empires_revive.cpp).
 	bool handleEmpiresRevive();
 	int m_iReviveTarget = 0;
+	int m_iReviveTargetUserId = -1;
+	struct ReviveRetry { int targetUserId; float until; };
+	std::vector<ReviveRetry> m_reviveRetries;
 	float m_flReviveUntil = 0.0f;
+	float m_flReviveBestDistance = 0.0f;
+	bool m_bReviveReplanned = false;
 	float m_flReviveNextNav = 0.0f;
 	float m_flReviveSent = 0.0f;
 	float m_flReviveNextSearch = 0.0f;
@@ -1148,6 +1164,7 @@ private:
 	bool m_bEmpiresLastEnemySearchActive = false;
 	bool m_bEmpiresLastEnemySearchTaskLogged = false;
 	bool m_bEmpiresCombatEngaged = false;
+	float m_flMeshCoverUntil = 0;
 	bool m_bEmpiresCoverScheduleActive = false;
 	bool m_bEmpiresCaptureApproachIssued = false;
 	bool m_bEmpiresCaptureHoldIssued = false;
@@ -1534,6 +1551,7 @@ private:
 	// Pressing a map button that opens a closed door (as_escort base gate control1).
 	int m_iEmpiresDoorButton = -1;
 	int m_iEmpiresDoorButtonDoor = -1;
+	Vector m_vEmpiresDoorButtonStand = Vector(0, 0, 0);
 	Vector m_vEmpiresDoorButtonOrigin = Vector(0, 0, 0);
 	float m_flEmpiresDoorButtonUntil = 0.0f;
 	float m_flEmpiresDoorButtonNext = 0.0f;
@@ -1598,6 +1616,8 @@ private:
 	int m_iSpawnConfirmationStableSamples = 0;
 };
 
+edict_t* EmpiresCarriedWeapon(const CBaseHandle& handle);
+bool EmpiresVehicleExceedsSpeed(edict_t* vehicle, float limit);
 bool EmpiresReadTeamResearch(int team, bool done[EmpiresCommanderEconomy::kResearchItemCount]);
 
 #endif // _BOT_EMPIRES_H_

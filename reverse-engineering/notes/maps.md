@@ -35,6 +35,17 @@ Consequence: cp_boat cannot be captured by navmesh bots until deck areas plus a 
 exist, or a swim-to-ladder/climb behaviour is added. Until then a goal whose nearest nav
 area is far below it (no area within ~120 units) should be skipped.
 
+### BE APC approaches to the southern boat
+
+In Palmbay run `20261121-212957` (checkout `8171745`, dirty, plugin hash prefix `a03bdce6b57c84ae`), six BE APCs logged a fording depth of 160 HU. Each retreated at 58/150 hull HP with full armour before its driver died to world damage.
+
+| Support point (approximate XY) | Ground Z | Depth below surface | Vehicles | Distance from support point at retreat (2D) |
+|---|---:|---:|---|---:|
+| (-1766, -157) | -3231 | 207 HU | 235, 236, 216, 224 | 318–340 HU |
+| (-1160, -294) | -3158 | 134 HU | 239, 222 | 807–814 HU |
+
+The first logged vehicle origin below the surface was 229–989 HU in horizontal distance from the assigned spot across the six approaches. Positions are sampled. They bound the entry interval between consecutive samples and cannot identify the first engine-cutoff frame. At the shallower goal the two APCs retreated with their origins at Z -3240 and -3242. Checking the destination depth alone cannot establish a safe driven approach or stopping position. This run predates the parking changes.
+
 ## emp_dmz_b1: no-path to almost every goal
 
 Measured 2026-11-15 offline (`emp_dmz_b1.nav` and `emp_dmz_b1.closed-gates.nav`: same 18101 areas

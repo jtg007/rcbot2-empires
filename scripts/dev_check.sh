@@ -7,7 +7,7 @@
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 source scripts/dev_cpu.sh
 MAP="${1:-emp_streetsoffire}"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || exit 1
 fail=0
 row() { printf '%-22s %-5s %s\n' "$1" "$2" "$3"; [[ "$2" == PASS ]] || fail=1; }
 

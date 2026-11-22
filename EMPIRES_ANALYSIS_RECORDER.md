@@ -45,3 +45,15 @@ position, goal/task, waypoint/enemy context when available, and event data.
 Snapshots are written at most every 1.5 seconds per bot; there is no per-frame
 JSON and no A* expansion logging. Writes are buffered until the buffer reaches
 32 KiB or the session stops.
+
+## Evaluate an existing session
+
+For team-director metrics and the saved recorder table, use
+`scripts/dev_team_match.sh --summarize RUN_DIR`. This reads existing files.
+
+To rebuild the summary from raw recorder data, run `python3 scripts/dev_run.py --summarize RUN_DIR SESSION_DIR`
+with the matching run and recorder directories. It rewrites `RUN_DIR/summary.txt`.
+Preserve the original summary first if you need its live crash assessment.
+Consult the original run output and server log for failure diagnostics. The offline summary can recover bot
+activity from the recording. A run made with `DEV_NO_RECORDER=1` has only the
+server-side evidence. Check `build-info.txt` when comparing runs.

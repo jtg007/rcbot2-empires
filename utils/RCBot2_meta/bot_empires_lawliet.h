@@ -420,6 +420,7 @@ inline bool ShouldThrowStun(bool cvStunned, float cvStunRemaining, float sinceLa
 // Runtime bridge (bot_empires_lawliet.cpp).
 void EmpiresLawlietLevelReset();
 void EmpiresLawlietOnBotReset(int client);
+void EmpiresLawlietOnClientDisconnect(int client);
 bool EmpiresLawlietActive(int team);
 int EmpiresLawlietPhase(int team);
 bool EmpiresLawlietIsCrew(int team, int client);

@@ -76,6 +76,23 @@ namespace
 		const IHandleEntity* m_passEntity;
 	};
 
+	// A building's vehicle-only collision proxy may surround a valid infantry work spot.
+	class CBuildStandTraceFilter : public CCommanderEntryTraceFilter
+	{
+	public:
+		using CCommanderEntryTraceFilter::CCommanderEntryTraceFilter;
+		bool ShouldHitEntity(IHandleEntity* entity, int mask) override
+		{
+			if (!CCommanderEntryTraceFilter::ShouldHitEntity(entity, mask))
+				return false;
+			IServerUnknown* unknown = static_cast<IServerUnknown*>(entity);
+			IServerNetworkable* net = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
+			edict_t* edict = net != nullptr ? net->GetEdict() : nullptr;
+			const char* name = edict != nullptr && !edict->IsFree() ? edict->GetClassName() : nullptr;
+			return name == nullptr || std::strcmp(name, "emp_building_vehicle_physbox") != 0;
+		}
+	};
+
 	// The Use press only works when the eye ray actually reaches the vehicle;
 	// distance to its center says nothing about that.
 	bool TraceCommanderEntryUse(edict_t* actor, edict_t* vehicle,
@@ -1112,6 +1129,7 @@ void CBotEmpires::setup()
 	m_iEmpiresRecoverySquadWaypoint = -1;
 	resetEmpiresSquadGoalState();
 	m_bEmpiresCombatEngaged = false;
+	m_flMeshCoverUntil = 0;
 	m_bEmpiresCoverScheduleActive = false;
 	m_bEmpiresCaptureApproachIssued = false;
 	m_bEmpiresCaptureHoldIssued = false;
@@ -1760,15 +1778,60 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 		return hideScheduled;
 	}
 
-	// The generic RCBot2 hurt path already chooses a hide spot and routes to it.
-	// Empires only extends that existing schedule with one bounded wait task;
-	// this is deliberately not a second cover or navigation implementation.
+	// Replace only the damage interruption. The objective underneath can resume after the wait.
+	m_flMeshCoverUntil = 0;
+	bool meshCover = false;
+	if (pAttacker && CClassInterface::getTeam(pAttacker) != getTeam())
+	{
+		const Vector origin = getOrigin();
+		const Vector threat = CBotGlobals::entityOrigin(pAttacker) + Vector(0, 0, 48);
+		Vector away = origin - threat;
+		away.z = 0;
+		if (away.Length2D() > 1)
+		{
+			away.NormalizeInPlace();
+			const Vector side(-away.y, away.x, 0);
+			const CBotWeapon* weapon = getCurrentWeapon();
+			float score = 1.0e9f;
+			Vector cover;
+			for (float retreat : {96.0f, 240.0f})
+			{
+				for (float lateral : {-160.0f, 0.0f, 160.0f})
+				{
+					Vector spot;
+					if (!RCBotNavMesh::ClosestPointOnMesh(origin + away * retreat + side * lateral, 96, spot) ||
+						CBotGlobals::isVisible(pAttacker, threat, spot + Vector(0, 0, 48)))
+						continue;
+					RCBotNavMesh::Path path;
+					if (RCBotNavMesh::BuildPath(origin, spot, path) != RCBotNavMesh::PathResult::SUCCESS ||
+						path.length > 500)
+						continue;
+					const float cost = path.length + (weapon && weapon->getWeaponInfo() && !weapon->primaryInRange((threat - spot).Length()) ? 250 : 0);
+					if (cost < score)
+					{
+						score = cost;
+						cover = spot;
+						meshCover = true;
+					}
+				}
+			}
+			if (meshCover)
+			{
+				m_pSchedules->removeSchedule(SCHED_GOOD_HIDE_SPOT);
+				m_flMeshCoverUntil = gpGlobals->curtime + 12;
+				auto* task = new CFindPathTask(cover);
+				pHideSchedule = new CBotSchedule(task);
+				task->setNavigationPolicy(RCBotNavigation::NavigationPolicy::NAVMESH_ONLY);
+				m_pSchedules->addFront(pHideSchedule);
+				pHideSchedule->setID(SCHED_GOOD_HIDE_SPOT);
+			}
+		}
+	}
 	const float waitSeconds = randomFloat(4.0f, 7.0f);
 	pHideSchedule->addTask(new CBotWaitTask(waitSeconds));
 	m_bEmpiresCoverScheduleActive = true;
-	logger->Log(LogLevel::INFO,
-		"Empires gameplay cover=started wait=%.1f reason=damage-threshold route=existing-CGotoHideSpotSched",
-		waitSeconds);
+	logger->Log(LogLevel::INFO, "Empires gameplay cover=started wait=%.1f route=%s",
+		waitSeconds, meshCover ? "navmesh" : "existing-CGotoHideSpotSched");
 	return hideScheduled;
 }
 
@@ -2567,6 +2630,7 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	m_bEmpiresLastEnemySearchActive = false;
 	m_bEmpiresLastEnemySearchTaskLogged = false;
 	m_bEmpiresCombatEngaged = false;
+	m_flMeshCoverUntil = 0;
 	m_bEmpiresCoverScheduleActive = false;
 	m_bEmpiresCaptureApproachIssued = false;
 	m_bEmpiresCaptureHoldIssued = false;
@@ -2701,6 +2765,7 @@ void CBotEmpires::prepareEmpiresEnemyLosFixture()
 	m_NormalPathRoute.clear();
 	m_pEmpiresApproachTarget = nullptr;
 	m_bEmpiresApproachTaskIssued = false;
+	m_flMeshCoverUntil = 0;
 	m_bEmpiresCoverScheduleActive = false;
 	m_bEmpiresCaptureApproachIssued = false;
 	m_bEmpiresCaptureHoldIssued = false;
@@ -5322,6 +5387,12 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		m_pEdict == g_empireScoutPriorityFixture.scoutEdict)
 		return;
 
+	if (m_flMeshCoverUntil > 0 && gpGlobals->curtime >= m_flMeshCoverUntil && m_pSchedules &&
+		m_pSchedules->isCurrentSchedule(SCHED_GOOD_HIDE_SPOT))
+	{
+		m_pSchedules->removeSchedule(SCHED_GOOD_HIDE_SPOT);
+		cancelNavigationAttempt("cover-ended");
+	}
 	const bool coverScheduleActive =
 		m_pSchedules != nullptr &&
 		m_pSchedules->isCurrentSchedule(SCHED_GOOD_HIDE_SPOT);
@@ -5340,6 +5411,7 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 
 	if (m_bEmpiresCoverScheduleActive)
 	{
+		m_flMeshCoverUntil = 0;
 		m_bEmpiresCoverScheduleActive = false;
 		m_pEmpiresApproachTarget = nullptr;
 		m_bEmpiresApproachTaskIssued = false;
@@ -7020,6 +7092,19 @@ int CheckedHandleIndex(const CBaseHandle* handle)
 }
 }
 
+edict_t* EmpiresCarriedWeapon(const CBaseHandle& handle)
+{
+	const int index = CheckedHandleIndex(&handle);
+	if (index <= 0)
+		return nullptr;
+	edict_t* weapon = engine->PEntityOfEntIndex(index);
+	const char* name = weapon->GetClassName();
+	if (name == nullptr || std::strncmp(name, "weapon_", 7) != 0 ||
+		CClassInterface::getWeaponState(weapon) == WEAPON_NOT_CARRIED)
+		return nullptr;
+	return weapon;
+}
+
 bool CBotEmpires::readEmpiresWeaponHandleProperty(const edict_t* pEdict,
 	const char* propertyName, int& entityIndex) const
 {
@@ -7521,7 +7606,7 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	const float outer = (collide != nullptr ?
 		(std::max)(collide->OBBMins().Length2D(), collide->OBBMaxs().Length2D()) : 1000.0f) + 200.0f;
 	CBaseEntity* const buildingEntity = building->GetUnknown()->GetBaseEntity();
-	CCommanderEntryTraceFilter filter(m_pEdict->GetUnknown());
+	CBuildStandTraceFilter filter(m_pEdict->GetUnknown());
 	float spotCost = (std::numeric_limits<float>::max)();
 	int noSurface = 0, noGround = 0, blocked = 0, noAim = 0;
 	for (int i = 0; i < 32; ++i)
@@ -15896,6 +15981,7 @@ void CBotEmpires::freeMapMemory()
 	m_flEmpiresNextEngineerSupportTime = 0.0f;
 	m_flEmpiresEngineerSupportRejectedUntil = 0.0f;
 	m_flEmpiresNextEngineerResupplyTime = 0.0f;
+	m_flMeshCoverUntil = 0;
 	m_bEmpiresCoverScheduleActive = false;
 	m_bEmpiresCaptureApproachIssued = false;
 	m_bEmpiresCaptureHoldIssued = false;
@@ -16088,6 +16174,7 @@ void CBotEmpires::freeMapMemory()
 	m_fBuildAssignNextLog = 0.0f;
 	m_vEmpiresKitAim = Vector(0.0f, 0.0f, 0.0f);
 	m_iReviveTarget = 0;
+	m_reviveRetries.clear();
 	m_flReviveUntil = 0.0f;
 	m_flReviveNextNav = 0.0f;
 	m_flReviveSent = 0.0f;

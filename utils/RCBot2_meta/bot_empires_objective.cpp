@@ -1144,11 +1144,8 @@ bool CBotEmpires::handleEmpiresTurretRocketFallback(edict_t* turret, const float
 	edict_t* launcher = nullptr;
 	for (int slot = 0; slot < MAX_WEAPONS; ++slot)
 	{
-		const int index = weapons[slot].GetEntryIndex();
-		edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
-		if (weapon != nullptr && !weapon->IsFree() && weapon->GetClassName() != nullptr &&
-			std::strcmp(weapon->GetClassName(), weaponName) == 0 &&
-			CClassInterface::getWeaponState(weapon) != WEAPON_NOT_CARRIED)
+		edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+		if (weapon != nullptr && std::strcmp(weapon->GetClassName(), weaponName) == 0)
 		{
 			launcher = weapon;
 			break;
@@ -1244,12 +1241,12 @@ void CBotEmpires::tickEmpiresTurretRocket()
 	const bool threatMode = m_bEmpiresTurretRocketIsThreat;
 	const char* targetClass = target != nullptr && !target->IsFree() && target->GetClassName() != nullptr ?
 		target->GetClassName() : "";
-	const bool isCv = std::strcmp(targetClass, "emp_nf_commander") == 0 ||
-		std::strcmp(targetClass, "emp_imp_commander") == 0;
+	const bool isVehicle = std::strcmp(targetClass, "emp_vehicle") == 0 ||
+		std::strcmp(targetClass, "emp_nf_commander") == 0 || std::strcmp(targetClass, "emp_imp_commander") == 0;
 	int health = 0;
-	const bool hasHealth = target != nullptr && !target->IsFree() &&
+	const bool hasHealth = !isVehicle && target != nullptr && !target->IsFree() &&
 		readEmpiresEntityIntProperty(target, "m_iHealth", health);
-	const bool targetAlive = isCv ? EmpiresVehicleAlive(this, target) : (hasHealth && health > 0);
+	const bool targetAlive = isVehicle ? EmpiresVehicleAlive(this, target) : (hasHealth && health > 0);
 	const bool hit = m_bEmpiresTurretRocketFired && hasHealth && m_iEmpiresTurretRocketHealth > 0 &&
 		health < m_iEmpiresTurretRocketHealth;
 	const bool enemyInterrupt = !threatMode && hasSomeConditions(CONDITION_SEE_CUR_ENEMY) &&
@@ -1758,6 +1755,12 @@ namespace
 constexpr float kScoutStunApproach = 1200.0f; // a visible enemy vehicle this close: walk up to it
 constexpr float kScoutStunThrow = 250.0f;    // throw the sticky stun from here
 constexpr float kScoutStunGiveUp = 1500.0f;  // vehicle drove off
+constexpr float kScoutStunMaxChaseSpeed = 150.0f;
+
+bool ScoutStunTargetTooFast(edict_t* vehicle, float distance)
+{
+	return distance > kScoutStunThrow && EmpiresVehicleExceedsSpeed(vehicle, kScoutStunMaxChaseSpeed);
+}
 }
 
 bool CBotEmpires::handleEmpiresBuildingAttack()
@@ -1810,7 +1813,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		{
 			// Scout closing in on an enemy vehicle with the stun grenade out; a sticky arc from 420
 			// rarely touched a moving vehicle (user 21.11.).
-			if (dist > kScoutStunGiveUp)
+			if (dist > kScoutStunGiveUp || ScoutStunTargetTooFast(target, dist))
 			{
 				RCBOT_DIAG("[RCBOT2] scout-stun lost userid=%d target=%d dist=%.0f\n", userId,
 					engine->IndexOfEdict(target), dist);
@@ -1897,11 +1900,10 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 						{
 							for (int slot = 0; slot < MAX_WEAPONS; ++slot)
 							{
-								const int index = weapons[slot].GetEntryIndex();
-								edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
-								const char* wc = weapon != nullptr && !weapon->IsFree() ? weapon->GetClassName() : nullptr;
-								if (wc == nullptr || CClassInterface::getWeaponState(weapon) == WEAPON_NOT_CARRIED)
+								edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+								if (weapon == nullptr)
 									continue;
+								const char* wc = weapon->GetClassName();
 								if (containsCi(wc, "sticky") && (scout == containsCi(wc, "stun")))
 								{
 									wanted = wc;
@@ -2017,11 +2019,8 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		{
 			for (int slot = 0; slot < MAX_WEAPONS; ++slot)
 			{
-				const int index = weapons[slot].GetEntryIndex();
-				edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
-				if (weapon != nullptr && !weapon->IsFree() && weapon->GetClassName() != nullptr &&
-					std::strcmp(weapon->GetClassName(), stickyName) == 0 &&
-					CClassInterface::getWeaponState(weapon) != WEAPON_NOT_CARRIED)
+				edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+				if (weapon != nullptr && std::strcmp(weapon->GetClassName(), stickyName) == 0)
 				{
 					stickyWeapon = weapon;
 					int secondary = -1;
@@ -2139,11 +2138,10 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		{
 			for (int slot = 0; slot < MAX_WEAPONS && stunWeapon == nullptr; ++slot)
 			{
-				const int index = weapons[slot].GetEntryIndex();
-				edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
-				const char* wc = weapon != nullptr && !weapon->IsFree() ? weapon->GetClassName() : nullptr;
-				if (wc == nullptr || CClassInterface::getWeaponState(weapon) == WEAPON_NOT_CARRIED)
+				edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+				if (weapon == nullptr)
 					continue;
+				const char* wc = weapon->GetClassName();
 				bool same = std::strlen(wc) == std::strlen(stunName);
 				for (size_t c = 0; same && wc[c] != '\0'; ++c)
 					same = std::tolower(static_cast<unsigned char>(wc[c])) == stunName[c];
@@ -2175,9 +2173,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) ||
 					(vTeam != EMP_TEAM_NF && vTeam != EMP_TEAM_BE))
 					vTeam = isNfCv ? EMP_TEAM_NF : (isImpCv ? EMP_TEAM_BE : -1);
-				int vHp = 1;
-				if (vTeam != enemyTeam || !EmpiresVehicleAlive(this, e) ||
-					(readEmpiresEntityIntProperty(e, "m_iHealth", vHp) && vHp <= 0))
+				if (vTeam != enemyTeam || !EmpiresVehicleAlive(this, e))
 					continue;
 				const float dist = empiresNavGoalDistance2D(origin, CBotGlobals::entityOrigin(e));
 				nearestAny = (std::min)(nearestAny, dist);
@@ -2185,7 +2181,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				if (dist >= 1500.0f || !empiresTurretRocketAim(eye, m_pEdict, e, aim, true))
 					continue;
 				nearestSeen = (std::min)(nearestSeen, dist);
-				if (dist >= bestVehicleDist)
+				if (dist >= bestVehicleDist || ScoutStunTargetTooFast(e, dist))
 					continue;
 				bestVehicle = e;
 				bestVehicleDist = dist;
@@ -2196,7 +2192,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				m_flKillSpawnNextBlockLog = now + 10.0f;
 				RCBOT_DIAG("[RCBOT2] scout-stun skip userid=%d reason=%s nearest=%.0f seen=%.0f\n", userId,
 					stunWeapon == nullptr ? "no-weapon" : (!stunReady ? "no-ammo" :
-					(nearestSeen < 1.0e9f ? "far" : "no-sight")), nearestAny, nearestSeen < 1.0e9f ? nearestSeen : -1.0f);
+					(nearestSeen < kScoutStunApproach ? "moving" : (nearestSeen < 1.0e9f ? "far" : "no-sight"))), nearestAny, nearestSeen < 1.0e9f ? nearestSeen : -1.0f);
 			}
 			if (bestVehicle != nullptr && stunReady)
 			{
@@ -2294,11 +2290,8 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	{
 		for (int slot = 0; slot < MAX_WEAPONS; ++slot)
 		{
-			const int index = weapons[slot].GetEntryIndex();
-			edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
-			if (weapon != nullptr && !weapon->IsFree() && weapon->GetClassName() != nullptr &&
-				std::strcmp(weapon->GetClassName(), rpgName) == 0 &&
-				CClassInterface::getWeaponState(weapon) != WEAPON_NOT_CARRIED)
+			edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+			if (weapon != nullptr && std::strcmp(weapon->GetClassName(), rpgName) == 0)
 			{
 				launcher = weapon;
 				int secondary = -1;
@@ -2360,7 +2353,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			isBuilding = true;
 		}
 		int health = 0;
-		const bool hasHealth = readEmpiresEntityIntProperty(e, "m_iHealth", health);
+		const bool hasHealth = !isCv && !isApc && readEmpiresEntityIntProperty(e, "m_iHealth", health);
 		if ((isCv || isApc) ? !EmpiresVehicleAlive(this, e) : (!hasHealth || health <= 0))
 			continue;
 		const Vector at = CBotGlobals::entityOrigin(e);
@@ -3181,6 +3174,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
 		m_pEdict == nullptr || m_pEdict->IsFree())
 		return false;
+	constexpr float useRange = 72.0f;
 	auto& s_claims = s_doorButtonClaims;
 	const float now = gpGlobals->curtime;
 	const int team = getTeam();
@@ -3220,11 +3214,13 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		Vector stand;
 		RCBotNavMesh::Path path;
 		if (!RCBotNavMesh::ClosestPointOnMesh(entry.origin, 128.0f, stand) ||
-			RCBotNavMesh::BuildPath(origin, stand, path, this) != RCBotNavMesh::PathResult::SUCCESS)
+			RCBotNavMesh::BuildPath(origin, stand, path, this) != RCBotNavMesh::PathResult::SUCCESS ||
+			path.points.empty() || (path.points.back() - entry.origin).Length2D() > useRange)
 		{
 			m_flEmpiresDoorButtonNext = now + 10.0f;
 			return false;
 		}
+		m_vEmpiresDoorButtonStand = path.points.back();
 		*claim = std::make_pair(userId, now + 95.0f);
 		m_iEmpiresDoorButton = entry.button;
 		m_iEmpiresDoorButtonDoor = entry.door;
@@ -3235,7 +3231,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		m_bEmpiresDoorButtonMoving = false;
 		RCBOT_DIAG("[RCBOT2] door-button start userid=%d team=%d button=%d door=%d at=(%.0f %.0f %.0f) stand=(%.0f %.0f %.0f) dist=%.0f\n",
 			userId, team, entry.button, entry.door, entry.origin.x, entry.origin.y, entry.origin.z,
-			stand.x, stand.y, stand.z, (entry.origin - origin).Length2D());
+			m_vEmpiresDoorButtonStand.x, m_vEmpiresDoorButtonStand.y, m_vEmpiresDoorButtonStand.z, (entry.origin - origin).Length2D());
 	}
 	entry.button = m_iEmpiresDoorButton;
 	entry.door = m_iEmpiresDoorButtonDoor;
@@ -3253,7 +3249,7 @@ bool CBotEmpires::handleEmpiresDoorButton()
 	}
 
 	const Vector button = m_vEmpiresDoorButtonOrigin;
-	if ((button - origin).Length2D() > 72.0f)
+	if ((button - origin).Length2D() > useRange)
 	{
 		if (m_bEmpiresDoorButtonMoving && m_pSchedules->isEmpty())
 		{
@@ -3262,12 +3258,10 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		}
 		if (!m_bEmpiresDoorButtonMoving)
 		{
-			Vector stand = button;
-			RCBotNavMesh::ClosestPointOnMesh(button, 128.0f, stand);
 			if (m_bEmpiresNavGoalActive)
 				endEmpiresNavmeshGoal("drop", "door-button", 0.0f);
 			m_pSchedules->freeMemory();
-			if (!requestNavigation(stand, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+			if (!requestNavigation(m_vEmpiresDoorButtonStand, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
 			{
 				finish("no-navigation", 30.0f);
 				return false;

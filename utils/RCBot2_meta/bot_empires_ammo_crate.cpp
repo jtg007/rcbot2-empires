@@ -59,10 +59,18 @@ int CratesNear(const Vector& at, float radius)
 
 // A live call whose driver still sits alive in that vehicle (a call outlives an exit or death by up
 // to 40 s, and a freed index may belong to another vehicle by then: expert 15.11.).
-edict_t* RequestVehicle(const CBotEmpires* bot, const EmpiresAmmoRequest* r)
+edict_t* RequestTarget(const CBotEmpires* bot, const EmpiresAmmoRequest* r)
 {
 	if (r == nullptr || r->vehicle <= 0 || gpGlobals->curtime > r->until)
 		return nullptr;
+	if (r->infantry)
+	{
+		edict_t* caller = CBotGlobals::playerByUserId(r->driverUserId);
+		if (!caller || engine->IndexOfEdict(caller) != r->vehicle || !CBotGlobals::entityIsAlive(caller) ||
+			EmpiresVehiclePlayerVehicle(bot, caller) >= 0 || CClassInterface::getTeam(caller) != CClassInterface::getTeam(bot->getEdict()))
+			return nullptr;
+		return caller;
+	}
 	edict_t* e = engine->PEntityOfEntIndex(r->vehicle);
 	if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
 		return nullptr;
@@ -81,7 +89,7 @@ EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, co
 	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
 	{
 		EmpiresAmmoRequest& r = slots[i];
-		edict_t* e = RequestVehicle(bot, &r);
+		edict_t* e = RequestTarget(bot, &r);
 		if (e == nullptr || (r.engineerUserId >= 0 && r.engineerUserId != userId && gpGlobals->curtime <= r.claimUntil))
 			continue;
 		const float d = Dist2D(from, CBotGlobals::entityOrigin(e));
@@ -94,6 +102,32 @@ EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, co
 	return best;
 }
 } // namespace
+
+void EmpiresRecordInfantryAmmoCall(edict_t* player)
+{
+	IPlayerInfo* info = playerinfomanager ? playerinfomanager->GetPlayerInfo(player) : nullptr;
+	if (!info || info->IsFakeClient() || info->IsDead() || info->IsInAVehicle() ||
+		(info->GetTeamIndex() != 2 && info->GetTeamIndex() != 3))
+		return;
+	EmpiresAmmoRequest* call = EmpiresAmmoRequestForVehicle(info->GetTeamIndex(), engine->IndexOfEdict(player), true);
+	if (!call)
+		return;
+	const int uid = engine->GetPlayerUserId(player);
+	if (!call->infantry || call->driverUserId != uid)
+	{
+		call->engineerUserId = -1;
+		call->infantry = true;
+		call->driverUserId = uid;
+		edict_t* weapon = CClassInterface::getCurrentWeapon(player);
+		int secondary = -1;
+		call->ammoType = -1;
+		if (weapon && !weapon->IsFree())
+			CClassInterface::getAmmoTypes(weapon, &call->ammoType, &secondary);
+		const int* ammo = CClassInterface::getAmmoList(player);
+		call->reserveBefore = ammo && call->ammoType >= 0 && call->ammoType < MAX_AMMO_TYPES ? ammo[call->ammoType] : -1;
+	}
+	call->until = gpGlobals->curtime + 40.0f;
+}
 
 bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
 
@@ -146,14 +180,14 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		req = OpenRequest(this, team, userId, getOrigin(), dist);
 		if (req == nullptr)
 			return false;
-		if (commanderOrderHoldsFrom(RequestVehicle(this, req)))
+		if (commanderOrderHoldsFrom(RequestTarget(this, req)))
 		{
 			m_flAmmoCrateNextSearch = now + 5.0f;
 			return false; // the commander's order goes first
 		}
 		if (EmpiresIsEngibot(m_pEdict))
 		{
-			edict_t* calling = RequestVehicle(this, req);
+			edict_t* calling = RequestTarget(this, req);
 			if (calling == nullptr || !EmpiresEngibotWithinLeash(m_pEdict, CBotGlobals::entityOrigin(calling)))
 			{
 				m_flAmmoCrateNextSearch = now + 5.0f;
@@ -187,6 +221,12 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	if (m_iAmmoCrateStage == 4 && CratesNear(getOrigin(), 300.0f) > m_iAmmoCrateBaseline)
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d tries=%d\n", userId, m_iAmmoCrateVehicle, m_iAmmoCrateTries);
+		if (req && req->infantry && req->engineerUserId == userId)
+		{
+			m_iAmmoCrateStage = 5;
+			m_flAmmoCrateStageAt = now;
+			return true;
+		}
 		if (req != nullptr && req->engineerUserId == userId)
 			req->engineerUserId = -1;
 		m_iAmmoCrateStage = 0;
@@ -194,12 +234,47 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		m_flAmmoCrateNextSearch = now + 5.0f;
 		return false;
 	}
-	edict_t* vehicle = RequestVehicle(this, req);
+	edict_t* vehicle = RequestTarget(this, req);
 	if (vehicle == nullptr)
 		return stop("call-gone", 3.0f);
 	if (commanderOrderHoldsFrom(vehicle))
 		return stop("order", 5.0f);
 	EmpiresAmmoRequest& r = *req;
+	if (r.infantry && (r.engineerUserId == userId || r.engineerUserId < 0))
+	{
+		const int* ammo = CClassInterface::getAmmoList(vehicle);
+		if (ammo && r.reserveBefore >= 0 && ammo[r.ammoType] > r.reserveBefore)
+		{
+			r.until = now - 1;
+			return stop("reserve-increased", 3.0f);
+		}
+		if (m_iAmmoCrateStage == 5)
+		{
+			if (now - m_flAmmoCrateStageAt > 6.0f)
+			{
+				r.until = now - 1;
+				return stop("refill-unconfirmed", 3.0f);
+			}
+			r.claimUntil = now + 3;
+			return true;
+		}
+		if (m_iAmmoCrateStage == 1 && Dist2D(getOrigin(), CBotGlobals::entityOrigin(vehicle)) < 400)
+		{
+			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+			{
+				edict_t* crate = engine->PEntityOfEntIndex(i);
+				if (IsCrate(crate) && CClassInterface::getTeam(crate) == team &&
+					(CBotGlobals::entityOrigin(crate) - CBotGlobals::entityOrigin(vehicle)).Length() < 100)
+				{
+					r.engineerUserId = userId;
+					r.claimUntil = now + 3;
+					m_iAmmoCrateStage = 5;
+					m_flAmmoCrateStageAt = now;
+					return true;
+				}
+			}
+		}
+	}
 	if (now - m_flAmmoCrateStageAt > (m_iAmmoCrateStage == 1 ? 120.0f : 6.0f))
 		return stop(m_iAmmoCrateStage == 1 ? "walk-timeout" : "place-timeout", 20.0f);
 	// Back after death, a repair job or a seat: another engineer may hold the call by now (expert).
@@ -210,7 +285,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 
 	const Vector origin = getOrigin();
 	const Vector at = CBotGlobals::entityOrigin(vehicle);
-	const float dist = Dist2D(origin, at);
+	const float dist = r.infantry ? (origin - at).Length() : Dist2D(origin, at);
 
 	// After a miss: walk to a new spot right beside the vehicle (human test 15.11.: three tries from
 	// the same spot on a factory platform all failed, the engineer only turned).
@@ -245,7 +320,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	}
 	else if (m_iAmmoCrateStage == 1)
 	{
-		if (dist > kPlaceRange)
+		if (dist > (r.infantry ? 90.0f : kPlaceRange))
 		{
 			// No 200 units gained for 20 s (run 002901: navmesh-stuck at 1757 for 100 s while the
 			// tank waited): give the call up; another engineer or the pad takes over.
@@ -254,18 +329,21 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 				m_flAmmoCrateBestDist = dist;
 				m_flAmmoCrateProgressAt = now;
 			}
-			else if (now - m_flAmmoCrateProgressAt > 20.0f && dist >= 900.0f)
+			else if (now - m_flAmmoCrateProgressAt > 20.0f && (r.infantry || dist >= 900.0f))
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=ammo-crate stage=2 reason=walk-stuck\n");
 				return stop("walk-stuck", 30.0f);
+			}
 			// Stuck close by (run 20261115-0035: 688, the tank in the way): place here, the crate
 			// reaches 1000 and the tank drives up to it (850).
-			const bool placeHere = now - m_flAmmoCrateProgressAt > 6.0f && dist < 900.0f;
+			const bool placeHere = !r.infantry && now - m_flAmmoCrateProgressAt > 6.0f && dist < 900.0f;
 			const bool idle = m_pSchedules == nullptr || m_pSchedules->isEmpty();
 			if (now >= m_flAmmoCrateNextNav && (idle || now >= m_flAmmoCrateNextNav + 10.0f))
 			{
 				m_flAmmoCrateNextNav = now + 3.0f;
 				Vector away = origin - at;
 				away.z = 0.0f;
-				Vector spot = at + (away.Length() > 1.0f ? away.Normalized() : Vector(1, 0, 0)) * 250.0f;
+				Vector spot = at + (away.Length() > 1.0f ? away.Normalized() : Vector(1, 0, 0)) * (r.infantry ? 50.0f : 250.0f);
 				Vector onMesh;
 				if (RCBotNavMesh::ClosestPointOnMesh(spot, 250.0f, onMesh))
 					spot = onMesh;
@@ -349,6 +427,12 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	if (CratesNear(origin, 300.0f) > m_iAmmoCrateBaseline)
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d dist=%.0f\n", userId, m_iAmmoCrateVehicle, dist);
+		if (r.infantry)
+		{
+			m_iAmmoCrateStage = 5;
+			m_flAmmoCrateStageAt = now;
+			return true;
+		}
 		r = EmpiresAmmoRequest(); // this vehicle's call is answered; the driver now sees the crate
 		m_iAmmoCrateStage = 0;
 		m_iAmmoCrateVehicle = -1;

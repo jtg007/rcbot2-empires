@@ -11,6 +11,7 @@
 #include "bot_empires_native_placement.h"
 #include "bot_empires_team_director.h"
 #include "bot_getprop.h"
+#include "bot_navmesh_api.h"
 #include "server_class.h"
 #include "bot_globals.h"
 #include "bot_mods.h"
@@ -35,6 +36,10 @@ constexpr float kSameSpot = 200.0f; // a goal that moved less than this keeps th
 struct TeamOrders
 {
 	int point = -1;            // entity of the last push goal (for the release log)
+	int focusUser = -1;
+	int focusEntity = -1;
+	float focusUntil = 0;
+	float nextFocus = 0;
 	float nextCheck = 0.0f;
 	bool ordered[RCBOT_MAXPLAYERS + 1] = {};
 	Vector spot[RCBOT_MAXPLAYERS + 1];
@@ -107,12 +112,10 @@ void CBotEmpires::releaseCommanderOrders(int team, const char* reason)
 	{
 		if (!orders.ordered[i])
 			continue;
+		const bool ours = StillOurs(orders, i);
 		orders.ordered[i] = false;
-		edict_t* unit = engine->PEntityOfEntIndex(i);
-		int type = -1;
-		if (unit == nullptr || unit->IsFree() || !readEmpiresIntProperty(unit, "m_iCommandType", type) ||
-			type != kAttackLocation)
-			continue; // someone else gave it a new order meanwhile
+		if (!ours)
+			continue;
 		list += " " + std::to_string(i);
 		++count;
 	}
@@ -155,6 +158,73 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 		int role;
 		std::vector<int> units;
 	};
+	EmpiresTeamDirector::Goal focus;
+	int assignee = -1;
+	float nearest = 3500;
+	// A type-2 order moves one push grenadier to the last observed APC location.
+	if (now >= orders.nextFocus)
+	{
+		for (int n = gpGlobals->maxClients + 1; n < gpGlobals->maxEntities; ++n)
+		{
+			edict_t* apc = engine->PEntityOfEntIndex(n);
+			if (!apc || apc->IsFree() || !apc->GetClassName() || std::strcmp(apc->GetClassName(), "emp_vehicle") ||
+				EmpiresVehicleReadInt(this, apc, "m_iTeamNum", 0) != 5 - team)
+				continue;
+			const int chassis = EmpiresVehicleReadInt(this, apc, "m_iChassis", -1);
+			if ((chassis != 1 && chassis != 9) || !EmpiresVehicleAlive(this, apc))
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(apc);
+			bool spotted = false;
+			for (int observer = 1; observer <= gpGlobals->maxClients && !spotted; ++observer)
+			{
+				edict_t* mate = engine->PEntityOfEntIndex(observer);
+				if (!mate || mate->IsFree() || CClassInterface::getTeam(mate) != team || !CBotGlobals::entityIsAlive(mate))
+					continue;
+				const Vector eye = CBotGlobals::entityOrigin(mate) + Vector(0, 0, 64);
+				spotted = (eye - at).Length() < 3500 && CBotGlobals::isVisible(mate, eye, apc);
+			}
+			if (!spotted)
+				continue;
+			for (int i = 1; i <= gpGlobals->maxClients && i < EmpiresTeamDirector::kMaxClients && i <= RCBOT_MAXPLAYERS; ++i)
+			{
+				if (board->role[i] != EmpiresTeamDirector::ROLE_PUSH)
+					continue;
+				edict_t* unit = engine->PEntityOfEntIndex(i);
+				IPlayerInfo* info = unit && !unit->IsFree() ? playerinfomanager->GetPlayerInfo(unit) : nullptr;
+				if (!info || !info->IsFakeClient() || info->IsDead() || info->GetTeamIndex() != team || info->IsInAVehicle())
+					continue;
+				const int uid = engine->GetPlayerUserId(unit);
+				if (orders.focusUser >= 0 && (orders.focusUser != uid || orders.focusEntity != n))
+					continue;
+				int type = -1, cls = -1;
+				bool desired, known;
+				const char* name;
+				const Vector from = CBotGlobals::entityOrigin(unit);
+				const float dist = (from - at).Length();
+				if (dist >= nearest || !readEmpiresClass(unit, cls, desired, known, name) || cls != 2 ||
+					!readEmpiresIntProperty(unit, "m_iCommandType", type) || (type && !StillOurs(orders, i)) ||
+					!RCBotNavMesh::CanReachComponent(from, at))
+					continue;
+				nearest = dist;
+				assignee = i;
+				focus.entity = n;
+				focus.kind = "spotted-apc";
+				at.CopyToArray(focus.pos);
+			}
+		}
+	}
+	if (orders.focusUser >= 0 && (assignee < 0 || now >= orders.focusUntil))
+	{
+		orders.focusUser = -1;
+		orders.nextFocus = now + 12;
+		assignee = -1;
+	}
+	if (assignee >= 0 && orders.focusUser < 0)
+	{
+		orders.focusUser = engine->GetPlayerUserId(engine->PEntityOfEntIndex(assignee));
+		orders.focusEntity = focus.entity;
+		orders.focusUntil = now + 12;
+	}
 	std::vector<Group> groups;
 	std::string abortList = "emp_unit_order_list";
 	int aborts = 0;
@@ -172,7 +242,7 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 			continue;
 		if (orders.ordered[i] && !StillOurs(orders, i))
 			orders.ordered[i] = false; // someone else ordered it (other type or spot), or the order ended
-		const EmpiresTeamDirector::Goal* goal = EmpiresTeamDirector::RoleGoal(*board, i);
+		const EmpiresTeamDirector::Goal* goal = i == assignee ? &focus : EmpiresTeamDirector::RoleGoal(*board, i);
 		if (goal == nullptr)
 		{
 			// No role any more (driver, engineer, foreign order): our old order goes.

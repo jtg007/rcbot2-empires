@@ -3,18 +3,34 @@
 # role swaps push<->defense (total, max per bot), early lock breaks, alerts, alert at a hold goal,
 # kill-spawns, building stalls (navmesh-building-blocked) and the recorder table (kills, stuck).
 # Usage: scripts/dev_team_match.sh [map] [minutes]   (default emp_palmbay 12)
+#        scripts/dev_team_match.sh --summarize RUN_DIR  (read-only, no server start)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-MAP="${1:-emp_palmbay}"
-MINUTES="${2:-12}"
-export DEV_TIMESCALE="${DEV_TIMESCALE:-1}"
-OUT="$(mktemp)"
-trap 'rm -f "$OUT"' EXIT
-"$ROOT/scripts/dev.sh" "$MAP" 10 "$MINUTES" 2>&1 | tee "$OUT" | grep -E "^== Run|Health check|Crashes|Run result" || true
-RUN="$(sed -nE 's/^== Run: .*\((.*)\)$/\1/p' "$OUT" | head -n 1)"
+status=0
+if [[ "${1:-}" == --summarize ]]; then
+  if [[ $# != 2 || -z "$2" ]]; then
+    echo "Usage: $0 --summarize RUN_DIR" >&2
+    exit 2
+  fi
+  RUN="$2"
+else
+  MAP="${1:-emp_palmbay}"
+  MINUTES="${2:-12}"
+  export DEV_TIMESCALE="${DEV_TIMESCALE:-1}"
+  OUT="$(mktemp)"
+  trap 'rm -f "$OUT"' EXIT
+  "$ROOT/scripts/dev.sh" "$MAP" 10 "$MINUTES" 2>&1 | tee "$OUT" |
+    awk '/^== Run|Health check|Crashes|Run result/ {print; fflush()}' || status=$?
+  RUN="$(sed -nE 's/^== Run: .*\((.*)\)$/\1/p' "$OUT" | head -n 1)"
+  if [[ $status != 0 && -z "$RUN" ]]; then
+    tail -n 8 "$OUT" >&2
+    exit "$status"
+  fi
+fi
 LOG="$RUN/server.log"
-if [[ -z "$RUN" || ! -f "$LOG" ]]; then
-  echo "no server.log found"
+if [[ -z "$RUN" || ! -f "$LOG" || ! -r "$LOG" ]]; then
+  echo "Cannot read server log: $LOG" >&2
+  if [[ $status != 0 ]]; then exit "$status"; fi
   exit 1
 fi
 count() { grep -cE "$1" "$LOG" || true; }
@@ -31,5 +47,10 @@ echo "building stalls:     $(count 'navmesh-building-blocked')  (goal at buildin
 echo "navmesh-stuck:       $(count 'navmesh-stuck ')  hit building: $(count 'navmesh-stuck-trace lift=2 .*hit=emp_building')"
 echo "detour no-exit:      $(count 'nav-detour-fail reason=no-exit')"
 echo "give-up / escalate:  $(count 'give-up')  / $(count 'stall-escalate')"
-echo "== Recorder"
-sed -nE '/^Bot +Team/,/^TOTAL/p' "$OUT"
+if [[ -f "$RUN/summary.txt" ]]; then
+  echo "== Recorder"
+  sed -nE '/^Bot +Team/,/^TOTAL/p' "$RUN/summary.txt"
+else
+  echo "Recorder table unavailable (no summary.txt)"
+fi
+exit "$status"

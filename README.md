@@ -17,6 +17,8 @@
 
 Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux dedicated servers, these bots play full matches from start to finish: a bot commander builds the base and coordinates the team, engineers construct and repair, infantry push and capture flags, and drivers buy, maneuver, and fight in vehicles — all navigating via generated navmeshes.
 
+Front support (pending match verification): spawn APCs look for dry flank parking with vehicle access and a short infantry route to a contested flag. Engineers can answer a human infantry ammo call. Under fire, infantry can take nearby navmesh cover and resume their objective. A seated bot commander can redirect one attacking grenadier to an enemy APC seen by a teammate.
+
 > [!WARNING]
 > **Work in progress.** The bots play complete matches, but still make mistakes. Check the [feature breakdown](#detailed-status-by-role), [known issues](#known-issues), and [open-work list](docs/OPEN_WORK.md) for current limits.
 
@@ -46,7 +48,7 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 | ✅ | **Waypoint-free navigation** | Generated navmesh; routes around buildings placed during the match |
 | ✅ | **Stuck recovery** | Detects stalls, backs off, tries another route; avoids blocked links near buildings for 60 s |
 | ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
-| 🟡 | **Doors and gates** | Some doors and buttons work; Crossroads base gates and ramps remain problematic |
+| 🟡 | **Doors and gates** | Bots reserve a door button only if the route ends within 72 horizontal units of it; Crossroads base gates and ramps remain problematic |
 | 🟡 | **Map coverage** | Runs on 7 maps; more installed maps have navmeshes without a recorded run yet |
 | 🟡 | **Water** | Surfaces for air and avoids deep water when a land route exists; flags reachable only via water ladders are skipped |
 
@@ -68,7 +70,7 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 | 🟡 | **Driving the CV** | Drives to distant build sites; gives up after 25 s without progress and builds from its current spot |
 | 🟡 | **Research** | Radar, Structural Engineering, and Vehicle Factory first, then turrets, APC spawn, chassis, armor, engines, and heavy tanks |
 | 🟡 | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
-| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders |
+| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A new guard assignment can split an attacking pair en route to a flag |
 | ⬜ | **Strategic adaptation** | Prioritize resource points by value and react dynamically to lost buildings |
 
 </details>
@@ -81,10 +83,10 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 | Status | Feature | Notes |
 |:---:|---|---|
 | ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
-| ✅ | **Revive** | Downed bots wait briefly for a nearby engineer |
+| ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer to claim them. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
-| 🟡 | **Refinery turrets** | MG turrets at refineries work; occasional placement failures remain |
+| 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
 | ⬜ | **Walls, cameras, radar** | Not implemented yet |
 
@@ -98,13 +100,13 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 | Status | Feature | Notes |
 |:---:|---|---|
 | ✅ | **All four classes** | Scout, Rifleman, Grenadier, and Engineer with multiple loadouts and class skills |
-| ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); cover usage and class spacing are still open |
+| ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); navmesh cover under fire awaits match verification, and class spacing remains open |
 | ✅ | **Flag capture** | Captures objectives on maps with capture points |
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
 | 🟡 | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
 | 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
 | 🟡 | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
-| 🟡 | **Anti-vehicle** | Riflemen sticky-grenade vehicles; scouts approach with stun grenades *(not yet confirmed in a full match)* |
+| 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
 | 🟡 | **Squads, mines, binoculars** | Implemented, rarely used |
 | ⬜ | **Seismic grenades** | Engineers clearing enemy turrets |
@@ -118,15 +120,15 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 
 | Status | Feature | Notes |
 |:---:|---|---|
-| ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay |
+| ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay after observing an empty driver seat for five seconds. Movement over 100 units from the start of that interval restarts the timer. A nearby human teammate within 250 units keeps priority in the bay even after 30 seconds. Engine-reported bots from other plugins do not reserve the vehicle. The updated timer and human priority await a handover check |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
 | ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings and solid map props (trees, roadblocks), and avoids drop-offs or water too deep for the chassis |
-| ✅ | **Retreat & repair** | Returns to the repair pad when damaged, or parks beside the own CV |
+| ✅ | **Retreat & repair** | Returns to the repair pad when damaged. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
 | ✅ | **Roadkills** | Runs over enemy infantry |
 | 🟡 | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
 | 🟡 | **Target priority** | Defend base → hunt spotted tanks → support front → push enemy buildings → enemy CV |
 | 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo |
-| 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate *(far crew members respawn at base instead of walking; forced mode at 1×: CV destroyed in about 60 s; auto trigger not yet seen in a match)* |
+| 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) waits for a confirmed crew driver before it rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate (observed in one of four forced Crossroads runs; Scouts and Riflemen can seek resupply after the last grenade disappears from inventory; a refill remains unconfirmed) *(distant crew bots respawn at base; disconnected bots leave the crew before their slot is reused; forced mode at 1×: CV destroyed in about 60 s; auto trigger not yet seen in a match)* |
 | 🟡 | **Bill Nye mode** | Scout jeeps ram enemy vehicles off the road on `emp_rainbowroad` *(occasionally falls off itself)* |
 
 </details>
@@ -235,9 +237,11 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 ## Known Issues
 
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
+- On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
+- Tanks defending a friendly asset require the same driver or teammate sightline to an enemy APC as hunting tanks. Grenadier mortar targeting can use an unseen APC position if it finds a firing arc.
 - **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
-- **`emp_palmbay`:** Both flags sit on boats without navmesh (played like a no-flag map); NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn.
-- **`emp_coast`:** Engineers find no valid stand point at refineries, leaving them unfinished.
+- **`emp_palmbay`:** Both flags sit on boats without navmesh. Vehicles check flag support spots against their fording depth. In a saved match two APCs targeting shallower spots still stopped in deeper water. Arrival and safe parking with the updated checks await match verification; NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn.
+- **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
 - **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.
 - **Platform coverage:** Only Linux dedicated servers have been tested.
@@ -276,10 +280,10 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | Script | Purpose |
 |---|---|
 | `scripts/dev_build.sh` | Incremental cached build |
-| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
-| `scripts/dev_check.sh` | Parallel regression suite (~1 min): commander chain, long move, repair pad, turret, revive |
+| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize. A server exit while the recorder finishes counts as a failed run. Crash checks ignore Linux minidumps from Steam WebHelper or a Source server launched on a different port. Run options (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
+| `scripts/dev_check.sh` | Parallel regression suite (~1 min): commander chain, long move, repair pad, turret, revive. Stops before building or starting servers if its temporary log directory cannot be created. |
 | `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
-| `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics |
+| `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics. A failed match returns a failure status even when its log is available. Use `scripts/dev_team_match.sh --summarize RUN_DIR` to read the same metrics from a saved run and display its recorder table if available. |
 | `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |

@@ -14,6 +14,7 @@ import pty
 import re
 import select
 import signal
+import struct
 import subprocess
 import sys
 import termios
@@ -282,7 +283,40 @@ def stop_demo(server, args, demos):
 
 
 def dump_files():
-    return set(glob.glob(os.path.join(DUMP_DIR, "*")))
+    return set(glob.glob(os.path.join(DUMP_DIR, "*.dmp")))
+
+
+def is_unrelated_dump(path):
+    # Run 211230 picked up a desktop Steam crash from the shared dump directory.
+    # Linux Breakpad stream 0x47670006 contains NUL-separated /proc/self/cmdline.
+    try:
+        with open(path, "rb") as dump:
+            magic, _, count, directory = struct.unpack("<4sIII", dump.read(16))
+            if magic != b"MDMP" or count > 256:
+                return False
+            dump.seek(directory)
+            for _ in range(count):
+                kind, size, offset = struct.unpack("<III", dump.read(12))
+                if kind == 0x47670006:
+                    dump.seek(offset)
+                    data = dump.read(min(size, 65536))
+                    command, end, arguments = data.partition(b"\0")
+                    executable = os.path.basename(command)
+                    if end and executable == b"steamwebhelper":
+                        return True
+                    if executable != b"srcds_linux" or len(data) != size or not data.endswith(b"\0"):
+                        return False
+                    args = arguments.split(b"\0")
+                    if args.count(b"-port") != 1:
+                        return False
+                    port = args[args.index(b"-port") + 1]
+                    own_port = SERVER_PORT.encode()
+                    return (port.isdigit() and own_port.isdigit() and
+                            0 < int(port) <= 65535 and 0 < int(own_port) <= 65535 and
+                            int(port) != int(own_port))
+    except (OSError, ValueError, struct.error):
+        pass
+    return False
 
 
 def run_scenario(server, args, session_dir, mark, started):
@@ -418,9 +452,7 @@ def run_match(args):
             failure = str(exc)
         if demos and server.alive():
             stop_demo(server, args, demos)
-        if not server.alive():
-            crash_note = f"Server endete vorzeitig (Exit {server.proc.returncode})"
-        elif session_dir:
+        if session_dir and server.alive():
             server.send("rcbot_analysis_stop")
             summary = os.path.join(session_dir, "summary.json")
             end = time.monotonic() + 60
@@ -430,6 +462,8 @@ def run_match(args):
     finally:
         if server.alive():
             shutdown(server)
+        else:
+            crash_note = f"Server endete vorzeitig (Exit {server.proc.returncode})"
         server.reader_stop.set()
         server.reader.join()
         os.close(server.master)
@@ -442,7 +476,7 @@ def run_match(args):
         for number, line in enumerate(log, 1):
             if CRASH_RE.search(line):
                 crash_lines.append(f"{number}: {line.strip()[:160]}")
-    new_dumps = sorted(dump_files() - dumps_before)
+    new_dumps = sorted(path for path in dump_files() - dumps_before if not is_unrelated_dump(path))
     return session_dir, crash_note, crash_lines, new_dumps, failure
 
 
