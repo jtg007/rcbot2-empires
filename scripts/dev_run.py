@@ -385,6 +385,13 @@ def run_scenario(server, args, session_dir, mark, started):
 
 
 def run_match(args):
+    if ROSTER:
+        roster = [(int(team), int(cls)) for team, cls in (item.split(":") for item in ROSTER)]
+    else:
+        roster = [(TEAMS[i % 2][0], CLASSES[(i // 2) % len(CLASSES)]) for i in range(args.bots)]
+    names = dict(TEAMS)
+    args.bots = len(roster)
+    team_counts = collections.Counter()
     dumps_before = dump_files()
     server = Server(args, os.path.join(args.run_dir, "server.log"))
     crash_note = None
@@ -427,19 +434,15 @@ def run_match(args):
         if TIMESCALE != 1.0:
             server.send("sv_cheats 1")
             server.send(f"host_timescale {TIMESCALE:g}")
-        if ROSTER:
-            roster = [(int(team), int(cls)) for team, cls in (item.split(":") for item in ROSTER)]
-        else:
-            roster = [(TEAMS[i % 2][0], CLASSES[(i // 2) % len(CLASSES)]) for i in range(args.bots)]
-        names = dict(TEAMS)
         # Mark before DEV_PRE/bots: waitfor in DEV_CMDS also sees lines logged
         # while the bots join (e.g. a Commander placing its first building).
         mark = server.mark()
         # DEV_PRE: console commands before the bots join (e.g. "rcbot_empires_auto_commander 0").
         for command in filter(None, (c.strip() for c in os.environ.get("DEV_PRE", "").split(";"))):
             server.send(command)
-        for index, (team, bot_class) in enumerate(roster):
-            server.send(f"rcbotd addbot {bot_class} {team} {names[team]}_{index // 2 + 1:02d}")
+        for team, bot_class in roster:
+            team_counts[team] += 1
+            server.send(f"rcbotd addbot {bot_class} {team} {names[team]}_{team_counts[team]:02d}")
             time.sleep(max(ADD_BOT_GAP_S / TIMESCALE, 2.0))
 
         try:

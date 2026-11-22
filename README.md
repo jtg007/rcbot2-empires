@@ -67,10 +67,10 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Vehicle factory placement** | Reserves a clear spot near the CV with the exit facing the enemy, or drives to a remote site |
 | ✅ | **CV survival** | Pulls back from nearby enemy vehicles or heavy fire |
 | 🟡 | **Human handover** | Yields the seat when a human enters or uses the CV *(not yet tested with a real player)* |
-| 🟡 | **Driving the CV** | Drives to distant build sites; gives up after 25 s without progress and builds from its current spot |
+| 🟡 | **Driving the CV** | Drives to distant build sites and slows to about 250 u/s in the last 800 units, so it no longer overshoots the site onto slopes; gives up after 25 s without progress and builds from its current spot |
 | 🟡 | **Research** | Radar, Structural Engineering, and Vehicle Factory first, then turrets, APC spawn, chassis, armor, engines, and heavy tanks |
 | 🟡 | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
-| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A new guard assignment can split an attacking pair en route to a flag |
+| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner. A new guard assignment can split an attacking pair en route to a flag |
 | ⬜ | **Strategic adaptation** | Prioritize resource points by value and react dynamically to lost buildings |
 
 </details>
@@ -83,7 +83,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | Status | Feature | Notes |
 |:---:|---|---|
 | ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
-| ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer to claim them. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
+| ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer who can search before that window closes. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
 | 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
@@ -240,7 +240,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset require the same driver or teammate sightline to an enemy APC as hunting tanks. Grenadier mortar targeting can use an unseen APC position if it finds a firing arc.
 - **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
-- **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn, and the NF CV once rolled backwards off a cliff.
+- **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
 - **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.
@@ -280,7 +280,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | Script | Purpose |
 |---|---|
 | `scripts/dev_build.sh` | Incremental cached build |
-| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize. A server exit while the recorder finishes counts as a failed run. Crash checks ignore Linux minidumps from Steam WebHelper or a Source server launched on a different port. Run options (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
+| `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize. A nonempty `DEV_ROSTER` sets the bot count for the run and its health check. Names are numbered per team (`NF_01`, `NF_02`, …). A server exit while the recorder finishes counts as a failed run. Crash checks ignore Linux minidumps from Steam WebHelper or a Source server launched on a different port. Run options (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
 | `scripts/dev_check.sh` | Parallel regression suite (~1 min): offline unit tests, commander chain, long move, repair pad, turret, revive (`DEV_SKIP_UNIT_TESTS=1` skips the unit tests). Stops before building or starting servers if its temporary log directory cannot be created. |
 | `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
 | `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics. A failed match returns a failure status even when its log is available. Use `scripts/dev_team_match.sh --summarize RUN_DIR` to read the same metrics from a saved run and display its recorder table if available. |

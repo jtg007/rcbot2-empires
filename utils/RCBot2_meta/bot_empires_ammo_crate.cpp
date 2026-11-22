@@ -12,11 +12,13 @@
 #include "bot_schedule.h"
 #include "bot_cvars.h"
 #include "in_buttons.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
+bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
 
 namespace
 {
@@ -57,6 +59,47 @@ int CratesNear(const Vector& at, float radius)
 	return n;
 }
 
+// Own-team crates on our level near `at`, as index + serial (a freed slot may be reused).
+constexpr float kCrateRadius = 300.0f;
+constexpr float kCrateHeight = 100.0f;
+
+bool IsOwnCrateNear(edict_t* e, int team, const Vector& at)
+{
+	if (!IsCrate(e) || CClassInterface::getTeam(e) != team)
+		return false;
+	const Vector c = CBotGlobals::entityOrigin(e);
+	return Dist2D(c, at) < kCrateRadius && std::fabs(c.z - at.z) < kCrateHeight;
+}
+
+int CrateKey(int index, const edict_t* e)
+{
+	return index + e->m_NetworkSerialNumber * 4096;
+}
+
+void OwnCratesNear(int team, const Vector& at, std::vector<int>& out)
+{
+	out.clear();
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (IsOwnCrateNear(e, team, at))
+			out.push_back(CrateKey(i, e));
+	}
+}
+
+// Success signal: an own-team crate on our level that was not there before the attempt (a crate
+// from another floor or the enemy counted as ours, review 22.11.).
+bool NewOwnCrateNear(int team, const Vector& at, const std::vector<int>& before)
+{
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (IsOwnCrateNear(e, team, at) && std::find(before.begin(), before.end(), CrateKey(i, e)) == before.end())
+			return true;
+	}
+	return false;
+}
+
 // A live call whose driver still sits alive in that vehicle (a call outlives an exit or death by up
 // to 40 s, and a freed index may belong to another vehicle by then: expert 15.11.).
 edict_t* RequestTarget(const CBotEmpires* bot, const EmpiresAmmoRequest* r)
@@ -80,8 +123,11 @@ edict_t* RequestTarget(const CBotEmpires* bot, const EmpiresAmmoRequest* r)
 	return e;
 }
 
-// The nearest live call that no other engineer holds (one engineer per vehicle).
-EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, const Vector& from, float& dist)
+// The nearest live call that no other engineer holds (one engineer per vehicle). With `servable`
+// only calls this engineer may take: no commander order holds him, an EngiBot only inside its
+// leash (else a nearer call outside hid a servable one forever, review 22.11.).
+EmpiresAmmoRequest* OpenRequest(CBotEmpires* bot, int team, int userId, const Vector& from, float& dist,
+	bool servable = false)
 {
 	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
 	EmpiresAmmoRequest* best = nullptr;
@@ -91,6 +137,9 @@ EmpiresAmmoRequest* OpenRequest(const CBotEmpires* bot, int team, int userId, co
 		EmpiresAmmoRequest& r = slots[i];
 		edict_t* e = RequestTarget(bot, &r);
 		if (e == nullptr || (r.engineerUserId >= 0 && r.engineerUserId != userId && gpGlobals->curtime <= r.claimUntil))
+			continue;
+		if (servable && (bot->commanderOrderHoldsFrom(e) ||
+				(EmpiresIsEngibot(bot->getEdict()) && !EmpiresEngibotWithinLeash(bot->getEdict(), CBotGlobals::entityOrigin(e)))))
 			continue;
 		const float d = Dist2D(from, CBotGlobals::entityOrigin(e));
 		if (d < dist)
@@ -128,8 +177,6 @@ void EmpiresRecordInfantryAmmoCall(edict_t* player)
 	}
 	call->until = gpGlobals->curtime + 40.0f;
 }
-
-bool EmpiresEngibotWithinLeash(const edict_t* player, const Vector& at); // bot_empires_engibot.cpp
 
 bool CBotEmpires::handleEmpiresAmmoRequest()
 {
@@ -177,22 +224,11 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		if (now < m_flAmmoCrateNextSearch)
 			return false;
 		float dist = 0.0f;
-		req = OpenRequest(this, team, userId, getOrigin(), dist);
+		req = OpenRequest(this, team, userId, getOrigin(), dist, true);
 		if (req == nullptr)
+		{
+			m_flAmmoCrateNextSearch = now + 1.0f; // only unservable calls may be open: not every think
 			return false;
-		if (commanderOrderHoldsFrom(RequestTarget(this, req)))
-		{
-			m_flAmmoCrateNextSearch = now + 5.0f;
-			return false; // the commander's order goes first
-		}
-		if (EmpiresIsEngibot(m_pEdict))
-		{
-			edict_t* calling = RequestTarget(this, req);
-			if (calling == nullptr || !EmpiresEngibotWithinLeash(m_pEdict, CBotGlobals::entityOrigin(calling)))
-			{
-				m_flAmmoCrateNextSearch = now + 5.0f;
-				return false; // an EngiBot serves the base only
-			}
 		}
 		if (dist > kSearchRange)
 		{
@@ -218,7 +254,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	}
 
 	// The driver clears the call as soon as it sees the crate: check our result first.
-	if (m_iAmmoCrateStage == 4 && CratesNear(getOrigin(), 300.0f) > m_iAmmoCrateBaseline)
+	if (m_iAmmoCrateStage == 4 && NewOwnCrateNear(team, getOrigin(), m_ammoCrateBefore))
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d tries=%d\n", userId, m_iAmmoCrateVehicle, m_iAmmoCrateTries);
 		if (req && req->infantry && req->engineerUserId == userId)
@@ -402,7 +438,8 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		// the engineer's own box (GetBuildLocation 0x3cd800 checks +-25 against players).
 		const Vector eyeAt = getEyePosition();
 		m_vAmmoCrateTarget = Vector(eyeAt.x, eyeAt.y, origin.z) + dir * 80.0f;
-		m_iAmmoCrateBaseline = CratesNear(origin, 300.0f);
+		OwnCratesNear(team, origin, m_ammoCrateBefore);
+		m_iAmmoCrateBaseline = static_cast<int>(m_ammoCrateBefore.size());
 		m_iAmmoCrateStage = 3;
 		m_flAmmoCrateStageAt = now;
 	}
@@ -424,7 +461,7 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 	// m_iAmmoCrateStage == 4: a new crate near us is the success signal.
 	setLookVector(m_vAmmoCrateTarget);
 	setLookAtTask(LOOK_VECTOR);
-	if (CratesNear(origin, 300.0f) > m_iAmmoCrateBaseline)
+	if (NewOwnCrateNear(team, origin, m_ammoCrateBefore))
 	{
 		RCBOT_DIAG("[RCBOT2] ammo-crate placed userid=%d veh=%d dist=%.0f\n", userId, m_iAmmoCrateVehicle, dist);
 		if (r.infantry)
@@ -451,13 +488,15 @@ bool CBotEmpires::handleEmpiresAmmoRequest()
 		const Vector eye = getEyePosition();
 		CTraceFilterSimpleLocal self(m_pEdict != nullptr ? m_pEdict->GetIServerEntity() : nullptr);
 		CBotGlobals::traceLine(eye, eye + forward * 150.0f, MASK_SOLID, &self);
+		std::vector<int> ownNow;
+		OwnCratesNear(team, origin, ownNow);
 		const trace_t* tr = CBotGlobals::getTraceResult();
 		RCBOT_DIAG("[RCBOT2] ammo-crate miss userid=%d item=%d weapon=%s next_supply=%.1f now=%.1f view=(%.0f %.0f) "
 			"target=(%.0f %.0f %.0f) eye=(%.0f %.0f %.0f) trace=%.2f end=(%.0f %.0f %.0f) crates=%d/%d all=%d\n", userId, item,
 			weapon != nullptr && weapon->GetClassName() != nullptr ? weapon->GetClassName() : "-", nextSupply, now,
 			m_vViewAngles.x, m_vViewAngles.y, m_vAmmoCrateTarget.x, m_vAmmoCrateTarget.y, m_vAmmoCrateTarget.z, eye.x,
 			eye.y, eye.z, tr != nullptr ? tr->fraction : -1.0f, tr != nullptr ? tr->endpos.x : 0.0f,
-			tr != nullptr ? tr->endpos.y : 0.0f, tr != nullptr ? tr->endpos.z : 0.0f, CratesNear(origin, 300.0f),
+			tr != nullptr ? tr->endpos.y : 0.0f, tr != nullptr ? tr->endpos.z : 0.0f, static_cast<int>(ownNow.size()),
 			m_iAmmoCrateBaseline, CratesNear(origin, 1.0e9f));
 	}
 	if (++m_iAmmoCrateTries >= kMaxTries)

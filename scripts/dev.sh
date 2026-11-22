@@ -76,6 +76,9 @@ fi
 exec {build_lock}>&-
 echo "${build_hash:0:16}"
 
+if [[ ${DEV_ROSTER:-} =~ [^[:space:]] ]]; then
+  BOTS=$(wc -w <<<"$DEV_ROSTER")
+fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$SERVER_ROOT/dev-runs/$STAMP-$MAP-${BOTS}b-${MINUTES}m${DEV_PORT:+-p$DEV_PORT}"
 mkdir -p "$RUN_DIR"

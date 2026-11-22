@@ -75,3 +75,11 @@ Measurements (emp_streetsoffire, NF CV at (-7548 -14179 -192), probe `empires_co
   Conclusion: the NF base on Palmbay is too cramped for the 1200 x 1200 box; neither the bot search nor a human can build the factory near the CV.
   BE has one valid spot (-7444 -9281). It is lost once a radar is built at (-6694 -9388) (box overlap), so the bot reserves it first
   (100-unit ground grid, radius 3600, `FindNearFactorySite`); confirmed by a human multiplayer match building the BE factory in the base.
+
+## `m_bFullyBuilt` lifecycle (expert 2026-11-22, static)
+
+- Set to true only in `CEmpBuilding::SetHealth` once health reaches max (0x61b2d5).
+- Set to false only by the constructors (0x61f238 / 0x61f908) and by `emp_eng_upgrade` (0x650c73, turrets only).
+- So a damaged finished building stays "fully built"; use the flag, not `hp >= maxHp`, to tell finished from under construction.
+  Unverified: map-placed buildings that reach full health without `SetHealth` might keep the flag false, so the bot also treats full HP as built.
+- `BuildAmmoCrate` passes the owner's team to a virtual (vtable +0x178, likely `ChangeTeam`) at 0x3ce86c-0x3ce878; crate team reads match the placer at runtime (`lawliet ammo-crate placed team=2`, run 20261122-195944).

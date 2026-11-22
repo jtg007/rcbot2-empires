@@ -33,6 +33,18 @@ void CheckSplit(int n, int teamBots, int phase, bool hold, int p, int h, int d, 
 
 int main()
 {
+	FlagPushProgress flag;
+	Check(!flag.stalled(10, 2000, false), "start flag assignment");
+	Check(!flag.stalled(189, 1800, false), "advance renews attack");
+	Check(!flag.stalled(368, 1800, true), "entering capture zone renews attack");
+	Check(flag.stalled(548, 1790, true), "stationary occupation and jitter still time out");
+	Stabilization stabilize;
+	stabilize.extend(70, "lost-barracks");
+	stabilize.extend(14, "cv-health");
+	Check(stabilize.until == 70 && std::strcmp(stabilize.reason, "lost-barracks") == 0, "keep building loss deadline");
+	stabilize.extend(72, "tickets");
+	Check(stabilize.until == 72 && std::strcmp(stabilize.reason, "tickets") == 0, "ongoing threat extends deadline");
+
 	CheckSplit(0, 0, PHASE_PUSH, true, 0, 0, 0, "empty");
 	CheckSplit(1, 5, PHASE_PUSH, true, 1, 0, 0, "single bot pushes");
 	CheckSplit(2, 5, PHASE_PUSH, true, 1, 1, 0, "two bots push+hold");

@@ -842,6 +842,7 @@ private:
 	int m_iAmmoCrateVehicle = -1;
 	int m_iAmmoCrateTries = 0;
 	int m_iAmmoCrateBaseline = 0;   // crates near the engineer before the attempt
+	std::vector<int> m_ammoCrateBefore; // own crates near him then (index + serial * 4096)
 	float m_flAmmoCrateStageAt = 0.0f;
 	float m_flAmmoCrateNextNav = 0.0f;
 	float m_flAmmoCrateNextSearch = 0.0f;

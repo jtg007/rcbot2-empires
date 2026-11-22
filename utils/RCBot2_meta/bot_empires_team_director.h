@@ -255,6 +255,41 @@ inline const char* KillSpawnBlock(const KillSpawnInput& in)
 	return nullptr;
 }
 
+struct FlagPushProgress
+{
+	float bestDistance = -1.0f;
+	float lastProgress = 0.0f;
+	bool occupied = false;
+
+	bool stalled(float now, float distance, bool ownOccupants)
+	{
+		if (bestDistance < 0.0f || distance <= bestDistance - 128.0f)
+		{
+			bestDistance = distance;
+			lastProgress = now;
+		}
+		if (ownOccupants && !occupied)
+			lastProgress = now;
+		occupied = ownOccupants;
+		return now - lastProgress >= 180.0f;
+	}
+};
+
+struct Stabilization
+{
+	float until = -1.0f;
+	const char* reason = "";
+
+	void extend(float deadline, const char* trigger)
+	{
+		if (deadline > until)
+		{
+			until = deadline;
+			reason = trigger;
+		}
+	}
+};
+
 struct Goal
 {
 	int entity = -1;

@@ -5936,8 +5936,10 @@ void CBotEmpires::tickEmpiresVehicle()
 		// forward toward it takes more room than backing up while there is room behind.
 		const float backTurnAngle = v.commanderCV && onRoute && target == nullptr && speed < 60.0f ? 90.0f : 110.0f;
 		const bool wantBack = std::fabs(err) > backTurnAngle || (!headingSafe && forwardSpeed < 60.0f);
+		// Not while still rolling back from the last one: palmbay 20261122-124651 restarted at
+		// -273 u/s, reached ~480 backwards and went over the edge behind (123 such starts in old runs).
 		if (mayBack && v.cvBackUntil == 0.0f && now >= v.cvBackNext && wantBack && forwardSpeed < 200.0f &&
-			rearSafe && found)
+			forwardSpeed > -150.0f && rearSafe && found)
 		{
 			v.cvBackUntil = now + 3.0f;
 			v.cvBackStart = origin;
@@ -5959,7 +5961,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			else
 			{
-				forward = -kMaxMove;
+				// Cap the reverse speed: the rear check looks only 220-360 behind the tail.
+				forward = forwardSpeed < -250.0f ? 0.0f : -kMaxMove;
 				side = err > 0.0f ? kMaxMove : -kMaxMove;
 			}
 		}
@@ -5991,10 +5994,17 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 	}
 	// Commander CV at its goal: slow down on the way in, stop dead, then handbrake.
+	// The slow-down measures to cvGoal itself: arrive stays 0 while a route is followed (route
+	// dropped only inside 300), so it started at 300 and the CV reached its Palmbay site goal at
+	// 520-570 u/s, overshot 250-340 onto the slope behind it and slid to the low ground for good
+	// (runs 20261120-182055, -205131; BE stall 20261121-161716 at 443 u/s).
+	if (v.commanderCV && target == nullptr)
+	{
+		if (Dist2D(origin, v.cvGoal) < v.cvArrive + 500.0f && forwardSpeed > 250.0f)
+			forward = -kMaxMove * 0.6f;
+	}
 	if (v.commanderCV && target == nullptr && arrive > 0.0f)
 	{
-		if (goalDistance < arrive + 500.0f && forwardSpeed > 250.0f)
-			forward = -kMaxMove * 0.6f;
 		if (goalDistance < arrive)
 		{
 			side = 0.0f;

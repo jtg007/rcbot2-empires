@@ -298,6 +298,7 @@ bool CBotEmpires::holdRespawnForRevive()
 			s_reviveClaim[me].until > now && s_reviveClaim[me].engineerUserId == engine->GetPlayerUserId(bot->getEdict()))
 			targeted = true;
 		else if (eng->m_iReviveTarget == 0 && dead < 3.0f &&
+			eng->m_flReviveNextSearch < m_flReviveDeathTime + 3.0f &&
 			(eng->getOrigin() - getOrigin()).Length() < kReviveSearchRange)
 			candidate = true;
 	}

@@ -50,7 +50,6 @@ constexpr float kEnemyInfantryRadius = 1500.0f;
 constexpr float kEnemyVehicleRadius = 2500.0f;
 constexpr float kEnemyBuildingRadius = 2000.0f;
 constexpr float kForwardBarracks = 3000.0f; // barracks this far from its CV counts as forward
-constexpr float kFlagNoProgress = 180.0f;  // a push flag not taken in this time is avoided for a while
 constexpr float kFlagAvoid = 120.0f;
 
 struct HealthSample
@@ -68,11 +67,10 @@ struct TeamState
 	float alertUntil = -1.0f;
 	int alertScore = 0;       // threat score of board.alert's own building, last time it triggered
 	float alertSeen = -1.0f;  // last time board.alert's building triggered itself
-	float stabilizeUntil = -1.0f;
-	const char* stabilizeReason = "";
+	Stabilization stabilization;
 	int coreCounts[4] = { -1, -1, -1, -1 }; // barracks, factory, refinery, radar
 	std::unordered_map<int, HealthSample> health;
-	std::unordered_map<int, float> pushSince;   // flag entity -> first time it was a push goal
+	std::unordered_map<int, FlagPushProgress> flagProgress;
 	std::unordered_map<int, float> pushAvoid;   // flag entity -> avoided until
 	int lastRole[kMaxClients] = {};
 	float roleSince[kMaxClients] = {};          // game time the current role was given
@@ -326,6 +324,13 @@ void CBotEmpires::tickTeamDirector()
 		if (!readEmpiresEntityIntProperty(e, "m_iHealth", hp) || hp <= 0)
 			continue;
 		readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHp);
+		// Finished = m_bFullyBuilt; full HP only as fallback (a damaged finished barracks at 999/1000
+		// counted as lost and masked its real loss later, review 22.11.).
+		bool built = false;
+		if (!readEmpiresEntityBoolProperty(e, "m_bFullyBuilt", built))
+			built = maxHp <= 0 || hp >= maxHp;
+		// Only SetHealth sets the flag (0x61b2d5): a map-placed building at full HP may never pass it.
+		built = built || (maxHp > 0 && hp >= maxHp);
 		const Vector at = CBotGlobals::entityOrigin(e);
 		if (std::strstr(cls, "refinery") != nullptr)
 			refineries.push_back(at);
@@ -343,7 +348,7 @@ void CBotEmpires::tickTeamDirector()
 				sample.health = hp;
 				watched.push_back({ i, at, kind, weight, damaged });
 				const int core = CoreSlot(kind);
-				if (core >= 0 && (maxHp <= 0 || hp >= maxHp))
+				if (core >= 0 && built)
 					++coreCounts[core];
 				if (std::strcmp(kind, "refinery") == 0)
 					ownForward.push_back({ i, at, "own-refinery", 0.0f });
@@ -353,7 +358,7 @@ void CBotEmpires::tickTeamDirector()
 		}
 		else if (bTeam == enemyTeam)
 		{
-			if (maxHp > 0 && hp < maxHp)
+			if (!built)
 				enemyUnfinished.push_back(at);
 			if (std::strcmp(kind, "refinery") == 0)
 				enemyTargets.push_back({ i, at, "enemy-refinery", 0.0f });
@@ -489,15 +494,13 @@ void CBotEmpires::tickTeamDirector()
 		static const char* const names[4] = { "lost-barracks", "lost-factory", "lost-refinery", "lost-radar" };
 		if (state.coreCounts[k] >= 0 && coreCounts[k] < state.coreCounts[k])
 		{
-			state.stabilizeUntil = now + kStabilizeHold;
-			state.stabilizeReason = names[k];
+			state.stabilization.extend(now + kStabilizeHold, names[k]);
 		}
 		state.coreCounts[k] = coreCounts[k];
 	}
 	if (ownCvKnown && cvHealthShare < 0.35f)
 	{
-		state.stabilizeUntil = now + kUpdateSeconds * 2.0f;
-		state.stabilizeReason = "cv-health";
+		state.stabilization.extend(now + kUpdateSeconds * 2.0f, "cv-health");
 	}
 	float tickets = 0.0f;
 	board.ticketsKnown = ReadTeamTickets(this, team, tickets);
@@ -508,11 +511,10 @@ void CBotEmpires::tickTeamDirector()
 			board.ticketsMax = tickets;
 		if (tickets <= kKillSpawnMinTickets || tickets <= board.ticketsMax * kKillSpawnMinTicketShare)
 		{
-			state.stabilizeUntil = now + kUpdateSeconds * 2.0f;
-			state.stabilizeReason = "tickets";
+			state.stabilization.extend(now + kUpdateSeconds * 2.0f, "tickets");
 		}
 	}
-	board.phase = alert ? PHASE_BASE_ALERT : (now <= state.stabilizeUntil ? PHASE_STABILIZE : PHASE_PUSH);
+	board.phase = alert ? PHASE_BASE_ALERT : (now <= state.stabilization.until ? PHASE_STABILIZE : PHASE_PUSH);
 
 	// --- Push goals: open / enemy flags nearest home; without flags enemy refineries, forward barracks
 	// and free resource points; the enemy CV last.
@@ -541,7 +543,6 @@ void CBotEmpires::tickTeamDirector()
 		{
 			if (reachable(spot))
 				hold.push_back({ point.entityIndex, spot, "flag", 0.0f });
-			state.pushSince.erase(point.entityIndex);
 			continue;
 		}
 		const bool cappableKnown = team == EMP_TEAM_NF ? point.nfCappableKnown : point.beCappableKnown;
@@ -604,17 +605,6 @@ void CBotEmpires::tickTeamDirector()
 		if (board.pushCount >= kMaxGoals)
 			break;
 		SetGoal(board.push[board.pushCount++], c.entity, c.spot, c.kind);
-		if (std::strcmp(c.kind, "flag") == 0)
-		{
-			auto since = state.pushSince.emplace(c.entity, now).first;
-			if (now - since->second > kFlagNoProgress)
-			{
-				state.pushAvoid[c.entity] = now + kFlagAvoid;
-				state.pushSince.erase(since);
-				RCBOT_DIAG("[RCBOT2] team-director team=%d push-avoid entity=%d seconds=%.0f reason=no-progress\n",
-					team, c.entity, kFlagAvoid);
-			}
-		}
 	}
 
 	// --- Hold goals: own flags, refineries and forward barracks nearest the front.
@@ -723,6 +713,37 @@ void CBotEmpires::tickTeamDirector()
 			state.roleSince[i] = now;
 		}
 	}
+	// Keep a stall timer only while a living attacker is assigned to this flag.
+	for (const auto& point : mod->getCapturePoints())
+	{
+		float nearest = -1.0f;
+		for (int k = 0; k < count; ++k)
+		{
+			const int client = clients[k];
+			const Goal* goal = RoleGoal(board, client);
+			if (roles[k] != ROLE_PUSH || goal == nullptr || goal->entity != point.entityIndex)
+				continue;
+			edict_t* player = engine->PEntityOfEntIndex(client);
+			if (!CBotGlobals::entityIsAlive(player))
+				continue;
+			const float distance = (CBotGlobals::entityOrigin(player) - GoalVector(*goal)).Length();
+			if (nearest < 0.0f || distance < nearest)
+				nearest = distance;
+		}
+		if (nearest < 0.0f)
+		{
+			state.flagProgress.erase(point.entityIndex);
+			continue;
+		}
+		const bool occupied = team == EMP_TEAM_NF ? !point.nfOccupantUserIds.empty() : !point.beOccupantUserIds.empty();
+		if (state.flagProgress[point.entityIndex].stalled(now, nearest, occupied))
+		{
+			state.pushAvoid[point.entityIndex] = now + kFlagAvoid;
+			state.flagProgress.erase(point.entityIndex);
+			RCBOT_DIAG("[RCBOT2] team-director team=%d push-avoid entity=%d seconds=%.0f reason=no-progress\n",
+				team, point.entityIndex, kFlagAvoid);
+		}
+	}
 	for (int i = 1; i < kMaxClients; ++i)
 		state.lastRole[i] = board.role[i];
 	board.updatedAt = now;
@@ -750,7 +771,7 @@ void CBotEmpires::tickTeamDirector()
 		RCBOT_DIAG("[RCBOT2] team-director team=%d phase=%s push=%s hold=%s alert=%s:%d reason=%s override=%d alert-hold=%d stabilize=%s roles=%d/%d/%d free=%d bots=%d tickets=%.0f/%.0f known=%d\n",
 			team, PhaseName(board.phase), pushText, holdText, board.alert.kind, board.alert.entity, board.alertReason,
 			alertOverride, alertHold,
-			board.phase == PHASE_STABILIZE ? state.stabilizeReason : "-", board.split.push, board.split.hold,
+			board.phase == PHASE_STABILIZE ? state.stabilization.reason : "-", board.split.push, board.split.hold,
 			board.split.defense, count, teamBots, board.tickets, board.ticketsMax, board.ticketsKnown ? 1 : 0);
 	}
 }

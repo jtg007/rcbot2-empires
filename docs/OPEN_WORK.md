@@ -196,6 +196,13 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 3. Driving and intermittent bugs
 
+- [x] **CV arrival and reverse turns (Palmbay):** the CV now slows to about 250 u/s in the last
+  800 units before its goal (it used to arrive at 520-570 u/s and slide down the slope behind the NF
+  build site), and reverse turns no longer restart while a vehicle still rolls backwards or keep
+  throttling above 250 u/s backwards (a CV backed off a cliff near its base that way). Palmbay 4x:
+  three of three site drives arrived on the plateau. Open: one CV wedged its nose under a static
+  structure beside the NF refinery and could not back out (once in about 70 site drives); routes do
+  not keep clearance from static props for a 284-wide vehicle. Confirm in a 10-bot 1x match.
 - Compare normal steering and short handbrake inputs on open ground at matched entry
   speeds. Measure yaw change, lateral speed, space used and time to stable forward travel.
   The first two modes of `scripts/dev_turn.sh <1|2|3|4> [map] [nf|be]` sample the same steering input
