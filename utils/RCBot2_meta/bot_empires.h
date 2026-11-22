@@ -604,6 +604,11 @@ public:
 	friend int EmpiresVehiclePlayerVehicle(const CBotEmpires*, const edict_t*);
 	friend bool EmpiresVehicleAlive(const CBotEmpires*, const edict_t*);
 	friend bool EmpiresBotWantsVfSpawn(const CBotEmpires*, int);
+	friend struct EmpiresLawlietImpl;
+	void tickEmpiresLawliet();
+	bool handleEmpiresLawlietTask();
+	bool lawlietBlocksWeapons() const;
+	bool applyEmpiresLawlietCommand(CBotCmd& command);
 	// Walks to the team's Command Vehicle, enters it and takes the Commander
 	// seat. Stage 4 means the bot is seated and stays there.
 	bool requestCommanderVehicleEntryOnce();

@@ -2,6 +2,7 @@
 #include "bot_empires_capture_route_terminal.h"
 #include "bot_empires_telemetry.h"
 #include "bot_empires_team_director.h"
+#include "bot_empires_lawliet.h"
 #include "bot_globals.h"
 #include "bot_buttons.h"
 #include "bot_getprop.h"
@@ -1859,18 +1860,56 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				{
 					const edict_t* active = CClassInterface::getCurrentWeapon(m_pEdict);
 					const char* activeClass = active != nullptr && !active->IsFree() ? active->GetClassName() : nullptr;
-					if (activeClass == nullptr || std::strstr(activeClass, "sticky") == nullptr)
+					auto containsCi = [](const char* haystack, const char* needle) -> bool {
+						if (haystack == nullptr || needle == nullptr || *needle == '\0')
+							return false;
+						for (const char* p = haystack; *p != '\0'; ++p)
+						{
+							const char* h = p;
+							const char* n = needle;
+							while (*h != '\0' && *n != '\0' &&
+								std::tolower(static_cast<unsigned char>(*h)) ==
+									std::tolower(static_cast<unsigned char>(*n)))
+							{
+								++h;
+								++n;
+							}
+							if (*n == '\0')
+								return true;
+						}
+						return false;
+					};
+					int cls = -1;
+					bool clsDesired = false;
+					bool clsKnown = false;
+					const char* clsProp = nullptr;
+					const bool scout = readEmpiresClass(m_pEdict, cls, clsDesired, clsKnown, clsProp) &&
+						cls == EMP_CLASS_SCOUT;
+					const bool rightSticky = containsCi(activeClass, "sticky") &&
+						(scout == containsCi(activeClass, "stun"));
+					if (!rightSticky)
 					{
 						const bool be = getTeam() == EMP_TEAM_BE;
-						int cls = -1;
-						bool clsDesired = false;
-						bool clsKnown = false;
-						const char* clsProp = nullptr;
-						const bool scout = readEmpiresClass(m_pEdict, cls, clsDesired, clsKnown, clsProp) &&
-							cls == EMP_CLASS_SCOUT;
-						selectWeaponName(scout ?
+						const char* wanted = scout ?
 							(be ? "weapon_emp_imp_sticky_stun_grenade" : "weapon_emp_nf_sticky_Stun_grenade") :
-							(be ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade"));
+							(be ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade");
+						if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+						{
+							for (int slot = 0; slot < MAX_WEAPONS; ++slot)
+							{
+								const int index = weapons[slot].GetEntryIndex();
+								edict_t* weapon = index > 0 ? INDEXENT(index) : nullptr;
+								const char* wc = weapon != nullptr && !weapon->IsFree() ? weapon->GetClassName() : nullptr;
+								if (wc == nullptr || CClassInterface::getWeaponState(weapon) == WEAPON_NOT_CARRIED)
+									continue;
+								if (containsCi(wc, "sticky") && (scout == containsCi(wc, "stun")))
+								{
+									wanted = wc;
+									break;
+								}
+							}
+						}
+						selectWeaponName(wanted);
 						if (now >= m_flKillSpawnNextBlockLog)
 						{
 							m_flKillSpawnNextBlockLog = now + 1.0f;
@@ -1895,6 +1934,17 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				m_flEmpiresBuildingActionReadyAt = now + 0.6f;
 				RCBOT_DIAG("[RCBOT2] building-sticky thrown userid=%d target=%d class=%s dist=%.0f health=%d\n",
 					userId, engine->IndexOfEdict(target), targetClass, dist, health);
+				const edict_t* thrownWep = CClassInterface::getCurrentWeapon(m_pEdict);
+				const char* thrownCls = thrownWep != nullptr && !thrownWep->IsFree() ? thrownWep->GetClassName() : nullptr;
+				bool isStunWep = false;
+				if (thrownCls != nullptr)
+					for (const char* p = thrownCls; *p != '\0' && !isStunWep; ++p)
+						isStunWep = std::tolower(static_cast<unsigned char>(p[0])) == 's' &&
+							p[1] != '\0' && std::tolower(static_cast<unsigned char>(p[1])) == 't' &&
+							p[2] != '\0' && std::tolower(static_cast<unsigned char>(p[2])) == 'u' &&
+							p[3] != '\0' && std::tolower(static_cast<unsigned char>(p[3])) == 'n';
+				if (isStunWep && isVehicleTarget)
+					EmpiresLawlietNoteStunThrown(getTeam(), engine->IndexOfEdict(target), dist);
 				return true;
 			}
 			m_hEmpiresBuildingActionTarget = nullptr;
@@ -2113,11 +2163,21 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 			{
 				edict_t* e = INDEXENT(index);
-				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr ||
-					std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
+				if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr)
+					continue;
+				const char* eClass = e->GetClassName();
+				const bool isVeh = std::strcmp(eClass, "emp_vehicle") == 0;
+				const bool isNfCv = std::strcmp(eClass, "emp_nf_commander") == 0;
+				const bool isImpCv = std::strcmp(eClass, "emp_imp_commander") == 0;
+				if (!isVeh && !isNfCv && !isImpCv)
 					continue;
 				int vTeam = -1;
-				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) || vTeam != enemyTeam || !EmpiresVehicleAlive(this, e))
+				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) ||
+					(vTeam != EMP_TEAM_NF && vTeam != EMP_TEAM_BE))
+					vTeam = isNfCv ? EMP_TEAM_NF : (isImpCv ? EMP_TEAM_BE : -1);
+				int vHp = 1;
+				if (vTeam != enemyTeam || !EmpiresVehicleAlive(this, e) ||
+					(readEmpiresEntityIntProperty(e, "m_iHealth", vHp) && vHp <= 0))
 					continue;
 				const float dist = empiresNavGoalDistance2D(origin, CBotGlobals::entityOrigin(e));
 				nearestAny = (std::min)(nearestAny, dist);

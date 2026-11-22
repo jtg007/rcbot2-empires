@@ -34,6 +34,14 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
    escalates nudge -> other seat -> driver seat -> retry after 15 s, measured with
    `rcbotd empires_test_exit_block` in a boxed-in heavy tank and APC). Squad transport
    still needs its own acceptance check.
+   Lawliet mode (5.14b, `rcbot_empires_lawliet`): a crewed APC rush on the enemy CV when a team
+   falls behind. Crew members far from the rally point respawn at base, the Scout re-stuns the CV
+   about every 10 s, Riflemen throw sticky grenades. Forced mode (`scripts/dev_lawliet.sh`, 1x,
+   Crossroads) reached and destroyed the CV on the first rush in 6 of 6 runs (45–63 s of assault).
+   Vehicle routes now treat solid `prop_dynamic` entities (trees, roadblocks; 84 on Crossroads)
+   like buildings; the APC no longer wedges at the tree cluster near `(2694 6684)`.
+   Open: the automatic trigger in a real match, the Engineer's ammo crate beside the CV, the Scout
+   continuing after a respawn at the APC. Next: APC flank parking (5.14a).
 5. When a human session is available, verify the EngiBot crash fix with SourceMod
    first, then check commander orders, seat handover and other player interactions.
    Investigate intermittent issues as they recur. Combine short map and mode checks

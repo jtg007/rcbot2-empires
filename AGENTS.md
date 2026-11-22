@@ -73,6 +73,8 @@ macros, so write `(std::min)(…)`, `(std::numeric_limits<T>::max)()` and plain 
 APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
+Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [map] [minutes]`; run two in
+parallel with different `DEV_PORT` values, success ends the run at `lawliet end team=2 reason=cv-destroyed`.
 Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
 `scripts/dev_team_match.sh [map] [minutes]`.
 Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with

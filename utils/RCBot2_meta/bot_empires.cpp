@@ -1,5 +1,6 @@
 #include "bot_empires.h"
 #include "bot_empires_team_director.h"
+#include "bot_empires_lawliet.h"
 #include "bot_empires_binary.h"
 #include "bot_empires_combat_fixture_waypoints.h"
 #include "bot_empires_squad_join.h"
@@ -1734,7 +1735,9 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	// A Commander MOVE is authoritative even when damage would normally make
 	// the generic bot schedule a hide task.  Keep the normal damage bookkeeping
 	// but suppress the autonomous cover interruption until the order completes.
-	if (isEmpiresCommanderMoveActive())
+	if (isEmpiresCommanderMoveActive() ||
+		(engine != nullptr && m_pEdict != nullptr &&
+		 EmpiresLawlietIsCrew(getTeam(), engine->IndexOfEdict(m_pEdict))))
 	{
 		(void)CBot::hurt(pAttacker, iHealthNow, true);
 		return false;
@@ -1870,7 +1873,7 @@ void CBotEmpires::handleWeapons()
 
 	// The ammo-crate action (3.10b step 3) owns the kit attack while it aims and observes;
 	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
-	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0)
+	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons())
 		return;
 
 	const bool coverScheduleActive =
@@ -2412,6 +2415,8 @@ void CBotEmpires::killed(edict_t* pVictim, char* weapon)
 
 void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
+	if (engine != nullptr && m_pEdict != nullptr)
+		EmpiresLawlietOnBotReset(engine->IndexOfEdict(m_pEdict));
 	if (m_iAmmoCrateStage != 0)
 	{
 		EmpiresAmmoRequest* ar = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
@@ -3155,6 +3160,8 @@ void CBotEmpires::alterOutgoingUserCmd(CBotCmd& command)
 {
 	// A bot inside (or entering/leaving) a vehicle owns the whole command.
 	if (applyEmpiresVehicleCommand(command))
+		return;
+	if (applyEmpiresLawlietCommand(command))
 		return;
 
 	// This is the final command boundary. A competing action may have left
@@ -5342,6 +5349,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			"Empires gameplay cover=ended next=normal-ai");
 	}
 
+	if (handleEmpiresLawlietTask())
+		return;
+
 	bool lastEnemySearchEnded = false;
 	bool lastEnemySearchReachedArea = false;
 	const bool lastEnemySearchScheduleActive =
@@ -6464,10 +6474,13 @@ void CBotEmpires::modThink()
 		}
 	}
 	tickTeamDirector();
+	tickEmpiresLawliet();
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();
 	tickEmpiresKillSpawn();
-	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive())
+	const int lawlietClient = engine != nullptr && m_pEdict != nullptr ? engine->IndexOfEdict(m_pEdict) : 0;
+	const bool lawlietBusy = lawlietClient > 0 && EmpiresLawlietBlocksSideTasks(getTeam(), lawlietClient);
+	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive() && !lawlietBusy)
 	{
 		// EngiBots: ammo calls of vehicles at the base only (human test 15.11.: a tank called for
 		// ammo next to both EngiBots and got none); no revive, no refinery turrets.
@@ -13783,6 +13796,59 @@ bool CBotEmpires::resolveBootstrapSpawnId(const int team, int& spawnId, edict_t*
 		m_iKillSpawnId = -1;
 	}
 
+	// Rule 0b: Lawliet APC rush crew spawns at the Lawliet APC or rally/VF anchor.
+	if (chosen == nullptr && !hasConfiguredSpawnId && engine != nullptr && m_pEdict != nullptr)
+	{
+		Vector lawlietAnchor;
+		int lawlietApc = -1;
+		const int lawlietClient = engine->IndexOfEdict(m_pEdict);
+		if (EmpiresLawlietWantsSpawnAnchor(team, lawlietClient, lawlietAnchor, lawlietApc))
+		{
+			if (lawlietApc > 0 && gpGlobals != nullptr && lawlietApc > gpGlobals->maxClients &&
+				lawlietApc < gpGlobals->maxEntities)
+			{
+				edict_t* apcEdict = engine->PEntityOfEntIndex(lawlietApc);
+				if (apcEdict != nullptr && !apcEdict->IsFree())
+				{
+					const Vector apcPos = CBotGlobals::entityOrigin(apcEdict);
+					float bestDistFront = 1.0e9f;
+					for (const SpawnCandidate& c : candidates)
+					{
+						if (!candidateUsable(c) || !c.enabled || c.isCapPoint)
+							continue;
+						if (dist2D(c.origin, apcPos) >= 350.0f)
+							continue;
+						if (chosen == nullptr || c.frontDist2D < bestDistFront)
+						{
+							chosen = &c;
+							bestDistFront = c.frontDist2D;
+						}
+					}
+					if (chosen != nullptr)
+						reason = "lawliet-apc";
+				}
+			}
+			if (chosen == nullptr)
+			{
+				float bestDist = 1.0e9f;
+				for (const SpawnCandidate& c : candidates)
+				{
+					if (!candidateUsable(c))
+						continue;
+					const float d = dist2D(c.origin, lawlietAnchor);
+					if (chosen == nullptr || (c.enabled && !chosen->enabled) ||
+						(c.enabled == chosen->enabled && d < bestDist))
+					{
+						chosen = &c;
+						bestDist = d;
+					}
+				}
+				if (chosen != nullptr)
+					reason = "lawliet-rally";
+			}
+		}
+	}
+
 	// Rule 1a: team director base alert (TODO 5.8): defenders and engineers spawn nearest the threatened
 	// own building / refinery / CV.
 	if (chosen == nullptr && !hasConfiguredSpawnId && engine != nullptr)
@@ -15720,7 +15786,10 @@ bool CBotEmpires::startGame()
 	// sufficient: the four loadout commands must follow changeclass, with
 	// changeequipment as the final validation/commit trigger.
 	helpers->ClientCommand(m_pEdict, command);
-	const int loadoutSeed = engine != nullptr ? (std::max)(0, engine->IndexOfEdict(m_pEdict) - 1) : 0;
+	int loadoutSeed = engine != nullptr ? (std::max)(0, engine->IndexOfEdict(m_pEdict) - 1) : 0;
+	int lawlietVariant = -1;
+	if (EmpiresLawlietForceGrenadeLoadout(currentTeam, requestedClass, lawlietVariant))
+		loadoutSeed = lawlietVariant;
 	const EmpiresLoadoutSpec* loadout =
 		findEmpiresNormalLoadout(currentTeam, requestedClass, loadoutSeed);
 	if (loadout != nullptr && !m_bNormalLoadoutRequested)
@@ -15784,6 +15853,8 @@ void CBotEmpires::freeMapMemory()
 	clearEmpiresSquadGoals();
 	const bool wasAttached = isControlledTestOnly() || m_pEdict != nullptr;
 	const int previousIndex = m_pEdict != nullptr && engine != nullptr ? engine->IndexOfEdict(m_pEdict) : -1;
+	if (previousIndex > 0)
+		EmpiresLawlietOnBotReset(previousIndex);
 	CBot::freeMapMemory();
 	for (int i = 0; i < RCBOT_MAXPLAYERS; ++i)
 	{

@@ -112,7 +112,7 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 </details>
 
 <details>
-<summary><strong>🚜 Vehicles</strong> — <code>5 ✅</code> · <code>4 🟡</code></summary>
+<summary><strong>🚜 Vehicles</strong> — <code>5 ✅</code> · <code>5 🟡</code></summary>
 
 <br>
 
@@ -120,12 +120,13 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 |:---:|---|---|
 | ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
-| ✅ | **Driving** | Follows the navmesh, executes three-point turns, and avoids drop-offs or water too deep for the chassis |
+| ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings and solid map props (trees, roadblocks), and avoids drop-offs or water too deep for the chassis |
 | ✅ | **Retreat & repair** | Returns to the repair pad when damaged, or parks beside the own CV |
 | ✅ | **Roadkills** | Runs over enemy infantry |
 | 🟡 | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
 | 🟡 | **Target priority** | Defend base → hunt spotted tanks → support front → push enemy buildings → enemy CV |
 | 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo |
+| 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate *(far crew members respawn at base instead of walking; forced mode at 1×: CV destroyed in about 60 s; auto trigger not yet seen in a match)* |
 | 🟡 | **Bill Nye mode** | Scout jeeps ram enemy vehicles off the road on `emp_rainbowroad` *(occasionally falls off itself)* |
 
 </details>
@@ -219,6 +220,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_vehicles` | `1` | Bots buy, drive, and fight with vehicles |
 | `rcbot_empires_vehicle_drivers` | `-1` | Max vehicle drivers per team (`-1` = 40% of team bots, minimum 2) |
 | `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
+| `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
 | `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
 
 ### Diagnostics & Offsets
@@ -282,6 +284,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive |
+| `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server |
 | `scripts/run_*_tests.sh` | Unit tests for individual headers |
 

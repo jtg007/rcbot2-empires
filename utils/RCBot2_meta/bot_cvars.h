@@ -110,6 +110,7 @@ extern ConVar rcbot_empires_commander_engineer;
 extern ConVar rcbot_empires_force_offsets;
 extern ConVar rcbot_empires_commander_boomtank;
 extern ConVar rcbot_empires_commander_drive_from;
+extern ConVar rcbot_empires_lawliet;
 extern ConVar rcbot_listen_dist;
 extern ConVar rcbot_footstep_speed;
 extern ConVar rcbot_bot_squads_percent;

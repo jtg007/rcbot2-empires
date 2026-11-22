@@ -764,6 +764,7 @@ struct BuildingBox
 std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nullptr)
 {
 	std::vector<BuildingBox> boxes;
+	int props = 0;
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 	{
 		edict_t* edict = engine->PEntityOfEntIndex(index);
@@ -776,7 +777,11 @@ std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nu
 		// to the mesh (BE Engineer pushed into emp_imp_commander for 245 s).
 		const bool commanderVehicle = name != nullptr &&
 			(std::strcmp(name, "emp_nf_commander") == 0 || std::strcmp(name, "emp_imp_commander") == 0);
-		if (name == nullptr || (!commanderVehicle && (std::strncmp(name, "emp_building_", 13) != 0 ||
+		// Vehicle routes only: solid prop_dynamic trees/roadblocks are unknown to the mesh as well
+		// (Crossroads orexcluster2a at (2694 6684): APC wedged 12x across runs, 22.11.). Infantry
+		// paths stay unchanged.
+		const bool vehicleProp = drivenVehicle != nullptr && name != nullptr && std::strcmp(name, "prop_dynamic") == 0;
+		if (name == nullptr || (!commanderVehicle && !vehicleProp && (std::strncmp(name, "emp_building_", 13) != 0 ||
 			std::strstr(name, "physbox") != nullptr)))
 			continue;
 		ICollideable* collideable = edict->GetCollideable();
@@ -784,11 +789,21 @@ std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nu
 		if (collideable == nullptr || serverEntity == nullptr ||
 			collideable->GetSolid() == SOLID_NONE)
 			continue;
+		if (vehicleProp && (collideable->GetSolidFlags() & FSOLID_NOT_SOLID) != 0)
+			continue;
 		BuildingBox box;
 		box.handle = serverEntity;
 		box.className = name;
 		collideable->WorldSpaceSurroundingBounds(&box.mins, &box.maxs);
 		boxes.push_back(box);
+		if (vehicleProp)
+			++props;
+	}
+	static int s_loggedProps = -1;
+	if (drivenVehicle != nullptr && props != s_loggedProps)
+	{
+		s_loggedProps = props;
+		RCBOT_DIAG("[RCBOT2] nav-vehicle-obstacles props=%d total=%zu\n", props, boxes.size());
 	}
 	return boxes;
 }

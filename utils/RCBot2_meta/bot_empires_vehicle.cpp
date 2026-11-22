@@ -5,6 +5,7 @@
 #include "bot_empires.h"
 #include "bot_empires_binary.h"
 #include "bot_empires_team_economy.h"
+#include "bot_empires_lawliet.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_globals.h"
@@ -908,6 +909,11 @@ bool IsApcChassis(int chassis)
 bool EmpiresBotWantsVfSpawn(const CBotEmpires* bot, int team)
 {
 	if (bot == nullptr || bot->getEdict() == nullptr || !rcbot_empires_vehicles.GetBool())
+		return false;
+	const int client = engine != nullptr ? engine->IndexOfEdict(bot->getEdict()) : 0;
+	if (client > 0 && EmpiresLawlietWantsApcBuy(team, client))
+		return true;
+	if (client > 0 && EmpiresLawlietBlocksVehicleEntry(team, client))
 		return false;
 	float pool = -1.0f;
 	EmpiresTeamResources(team, pool);
@@ -2505,6 +2511,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 
 	const int userId = engine->GetPlayerUserId(m_pEdict);
+	const int client = engine->IndexOfEdict(m_pEdict);
 	const int team = getTeam();
 	const int enemyTeam = team == 2 ? 3 : 2;
 	const int inVehicle = EmpiresVehiclePlayerVehicle(this, m_pEdict);
@@ -2593,6 +2600,20 @@ void CBotEmpires::tickEmpiresVehicle()
 	// ---------------------------------------------------------------- decide
 	if (v.stage == EmpiresVehicleStage::NONE)
 	{
+		if (inVehicle >= 0 && client > 0 && EmpiresLawlietShouldDisembark(team, client, inVehicle))
+		{
+			edict_t* seat = engine->PEntityOfEntIndex(inVehicle);
+			if (seat != nullptr && IsClass(seat, "emp_vehicle") && EmpiresVehicleAlive(this, seat))
+			{
+				RCBOT_DIAG("[RCBOT2] lawliet passenger-disembark userid=%d veh=%d\n", userId, inVehicle);
+				v.vehicle = seat;
+				v.vehicleIndex = inVehicle;
+				v.passengerExit = true;
+				v.nextAction = now;
+				setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
+				return;
+			}
+		}
 		if (now < v.nextDecision || now < v.cooldownUntil ||
 			(!rcbot_empires_vehicles.GetBool() && !EmpiresIsEngibot(m_pEdict)))
 			return;
@@ -2607,7 +2628,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			// idle with "skip in-vehicle"): take it over and drive.
 			edict_t* seat = engine->PEntityOfEntIndex(inVehicle);
 			int driver = -1;
-			if (m_iBuildAssignStage == 0 && seat != nullptr && IsClass(seat, "emp_vehicle") &&
+			if (m_iBuildAssignStage == 0 && (client <= 0 || !EmpiresLawlietBlocksVehicleEntry(team, client)) &&
+				seat != nullptr && IsClass(seat, "emp_vehicle") &&
 				EmpiresVehicleReadInt(this, seat, "m_iTeamNum", -1) == team &&
 				!IsCommanderChassis(EmpiresVehicleReadInt(this, seat, "m_iChassis", -1)) &&
 				EmpiresVehicleAlive(this, seat) &&
@@ -2642,7 +2664,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				// A driver that never slows down would carry the passenger for minutes; the exit
 				// works while moving, so get out after 10 s anyway.
 				const bool seatedLong = now - v.passengerSince > 10.0f;
-				if (driver < 0 || (sampled && speed < 150.0f) || seatedLong)
+				const bool lawlietStay = client > 0 && EmpiresLawlietStayInVehicle(team, client, inVehicle);
+				if (!lawlietStay && (driver < 0 || (sampled && speed < 150.0f) || seatedLong))
 				{
 					RCBOT_DIAG("[RCBOT2] vehicle passenger-exit userid=%d vehicle=%d driver=%d speed=%.0f seated=%.0f at=(%.0f %.0f %.0f)\n",
 						userId, inVehicle, driver, speed, now - v.passengerSince, at.x, at.y, at.z);
@@ -2656,46 +2679,49 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			skip = "in-vehicle";
 		}
-		else if (isEmpiresEngineerClass())
+		else if (isEmpiresEngineerClass() && !(client > 0 && EmpiresLawlietWantsApcBuy(team, client)))
 		{
 			skip = "engineer";
-			edict_t* hurt = empiresRepairCallAllowed(RepairRequestVehicle(team)) ? RepairRequestVehicle(team) : nullptr;
-			RepairRequest& r = s_repairRequest[team];
-			// EngiBots also repair damaged own vehicles in the base / on a repair pad without a
-			// bot repair call (e.g. human-driven or parked vehicles, TODO 7.1).
-			if (hurt == nullptr && RepairRequestVehicle(team) == nullptr && EmpiresIsEngibot(m_pEdict))
+			if (!(client > 0 && EmpiresLawlietBlocksSideTasks(team, client)))
 			{
-				int side = -1;
-				bool armorDamaged = false;
-				if (edict_t* baseVeh = FindBaseVehicleForEngibotRepair(this, team, side, armorDamaged); baseVeh != nullptr)
+				edict_t* hurt = empiresRepairCallAllowed(RepairRequestVehicle(team)) ? RepairRequestVehicle(team) : nullptr;
+				RepairRequest& r = s_repairRequest[team];
+				// EngiBots also repair damaged own vehicles in the base / on a repair pad without a
+				// bot repair call (e.g. human-driven or parked vehicles, TODO 7.1).
+				if (hurt == nullptr && RepairRequestVehicle(team) == nullptr && EmpiresIsEngibot(m_pEdict))
 				{
-					r = RepairRequest();
-					r.vehicle = engine->IndexOfEdict(baseVeh);
-					r.driverUserId = -1;
-					r.origin = CBotGlobals::entityOrigin(baseVeh);
-					r.until = now + 20.0f;
-					r.side = side;
-					r.armorDamaged = armorDamaged;
-					r.baseScan = true;
-					hurt = baseVeh;
-					RCBOT_DIAG("[RCBOT2] engibot vehicle-repair-scan userid=%d veh=%d dist=%.0f side=%d armor=%d\n",
-						userId, r.vehicle, Dist2D(getOrigin(), r.origin), side, armorDamaged ? 1 : 0);
+					int side = -1;
+					bool armorDamaged = false;
+					if (edict_t* baseVeh = FindBaseVehicleForEngibotRepair(this, team, side, armorDamaged); baseVeh != nullptr)
+					{
+						r = RepairRequest();
+						r.vehicle = engine->IndexOfEdict(baseVeh);
+						r.driverUserId = -1;
+						r.origin = CBotGlobals::entityOrigin(baseVeh);
+						r.until = now + 20.0f;
+						r.side = side;
+						r.armorDamaged = armorDamaged;
+						r.baseScan = true;
+						hurt = baseVeh;
+						RCBOT_DIAG("[RCBOT2] engibot vehicle-repair-scan userid=%d veh=%d dist=%.0f side=%d armor=%d\n",
+							userId, r.vehicle, Dist2D(getOrigin(), r.origin), side, armorDamaged ? 1 : 0);
+					}
 				}
+				if (hurt != nullptr && (r.engineerUserId == userId || now > r.claimUntil) &&
+					(NearestOnVehicle(hurt, getEyePosition()) - getEyePosition()).Length2D() < 220.0f)
+				{
+					r.engineerUserId = userId;
+					r.claimUntil = now + 10.0f;
+					v.assistVehicle = hurt;
+					v.vehicleIndex = engine->IndexOfEdict(hurt);
+					setStage(EmpiresVehicleStage::REPAIR_ASSIST, 60.0f);
+					return;
+				}
+				// Further away: interrupt whatever schedule runs (goal-roam does
+				// not return to getTasks for minutes, run 214021) and walk there.
+				if (hurt != nullptr && handleEmpiresVehicleRepairRequest())
+					return;
 			}
-			if (hurt != nullptr && (r.engineerUserId == userId || now > r.claimUntil) &&
-				(NearestOnVehicle(hurt, getEyePosition()) - getEyePosition()).Length2D() < 220.0f)
-			{
-				r.engineerUserId = userId;
-				r.claimUntil = now + 10.0f;
-				v.assistVehicle = hurt;
-				v.vehicleIndex = engine->IndexOfEdict(hurt);
-				setStage(EmpiresVehicleStage::REPAIR_ASSIST, 60.0f);
-				return;
-			}
-			// Further away: interrupt whatever schedule runs (goal-roam does
-			// not return to getTasks for minutes, run 214021) and walk there.
-			if (hurt != nullptr && handleEmpiresVehicleRepairRequest())
-				return;
 		}
 		if (skip != nullptr)
 		{
@@ -2706,9 +2732,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			return;
 		}
+		if (client > 0 && EmpiresLawlietBlocksVehicleEntry(team, client))
+			return;
 
 		const bool billNye = isEmpiresBillNye();
-		if (!billNye)
+		const bool lawlietBuyer = client > 0 && EmpiresLawlietWantsApcBuy(team, client);
+		if (!billNye && !lawlietBuyer)
 		{
 			int drivers = 0;
 			int teamBots = 1;
@@ -2765,6 +2794,9 @@ void CBotEmpires::tickEmpiresVehicle()
 			edict_t* e = engine->PEntityOfEntIndex(i);
 			if (!IsClass(e, "emp_vehicle") || EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != team ||
 				IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)) || !EmpiresVehicleAlive(this, e))
+				continue;
+			const int ch = EmpiresVehicleReadInt(this, e, "m_iChassis", -1);
+			if (lawlietBuyer && ch != 1 && ch != 9)
 				continue;
 			int driver = -1;
 			if (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver))
@@ -2843,13 +2875,24 @@ void CBotEmpires::tickEmpiresVehicle()
 			const float wages = EmpiresPlayerWages(m_pEdict);
 			const EmpiresTeamEconomy::TeamState& money = EmpiresTeamEconomy::Team(team);
 			const float reserve = EmpiresTeamEconomy::ActiveReserve(money, gpGlobals->curtime);
-			if (!EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
+			if (!lawlietBuyer && !EmpiresTeamEconomy::PurchaseAllowed(wages, pool, money.vehicleCost, reserve))
 			{
 				if (now >= v.nextLog)
 				{
 					v.nextLog = now + 20.0f;
 					RCBOT_DIAG("[RCBOT2] vehicle skip userid=%d reason=team-reserve wages=%.0f pool=%.0f cost=%.0f reserve=%.0f\n",
 						userId, wages, pool, money.vehicleCost, reserve);
+				}
+				return;
+			}
+			const float lawlietApcMinCost = team == 2 ? 324.0f : 364.0f;
+			if (lawlietBuyer && pool >= 0.0f && wages + pool < lawlietApcMinCost)
+			{
+				if (now >= v.nextLog)
+				{
+					v.nextLog = now + 20.0f;
+					RCBOT_DIAG("[RCBOT2] vehicle skip userid=%d reason=lawliet-funds wages=%.0f pool=%.0f need=%.0f\n",
+						userId, wages, pool, lawlietApcMinCost);
 				}
 				return;
 			}
@@ -2879,7 +2922,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			if (v.deferredSince <= 0.0f || now - v.deferredSince > 60.0f) // stale wait from an earlier try
 				v.deferredSince = now;
-			if (EmpiresTeamEconomy::DeferToRicherBuyer(wages, richest, money.vehicleCost, now - v.deferredSince, 30.0f))
+			if (!lawlietBuyer &&
+				EmpiresTeamEconomy::DeferToRicherBuyer(wages, richest, money.vehicleCost, now - v.deferredSince, 30.0f))
 			{
 				if (now >= v.nextLog)
 				{
@@ -2987,7 +3031,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	if (v.stageUntil > 0.0f && now > v.stageUntil && v.stage != EmpiresVehicleStage::GIVE_UP_EXIT)
 	{
 		++v.failures;
-		if (v.failures >= 2 && !v.billNye)
+		if (v.failures >= 2 && !v.billNye && !(client > 0 && EmpiresLawlietWantsApcBuy(team, client)))
 			v.wantJeep = true;
 		if (v.stage == EmpiresVehicleStage::GOTO_FACTORY)
 			RCBOT_DIAG("[RCBOT2] vehicle walk-timeout userid=%d pos=(%.0f %.0f %.0f) goal=(%.0f %.0f) step=%d route=%zu/%zu "
@@ -3164,7 +3208,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (now < v.nextAction)
 			return;
 		v.nextAction = now + 0.15f;
-		const bool jeep = v.billNye || v.wantJeep;
+		const bool lawlietBuyer = client > 0 && EmpiresLawlietWantsApcBuy(team, client);
+		const bool jeep = !lawlietBuyer && (v.billNye || v.wantJeep);
 		const bool nf = team == 2;
 		char command[96] = {};
 		switch (v.purchaseStep)
@@ -3192,13 +3237,14 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (EmpiresTeamResources(team, pool))
 				{
 					const float wages = (std::max)(0.0f, EmpiresPlayerWages(m_pEdict));
-					const float reserve = EmpiresTeamEconomy::ActiveReserve(
-						EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
+					const float reserve = lawlietBuyer ? 0.0f :
+						EmpiresTeamEconomy::ActiveReserve(
+							EmpiresTeamEconomy::Team(team), gpGlobals->curtime);
 					budget = wages + (std::max)(0.0f, pool - reserve);
 				}
 			}
-			bool wantApc = false;
-			if (!jeep && !v.buyInPlace && haveResearch &&
+			bool wantApc = lawlietBuyer;
+			if (!lawlietBuyer && !jeep && !v.buyInPlace && haveResearch &&
 				researchDone[EmpiresCommanderEconomy::kResearchApcSpawn])
 			{
 				bool hasApc = false;
@@ -3832,6 +3878,14 @@ void CBotEmpires::tickEmpiresVehicle()
 	if (vehicle == nullptr || vehicle->IsFree() || inVehicle != v.vehicleIndex)
 	{
 		resetEmpiresVehicle(inVehicle < 0 ? "left-vehicle" : "vehicle-changed", 5.0f);
+		return;
+	}
+	if (client > 0 && EmpiresLawlietShouldDisembark(team, client, v.vehicleIndex))
+	{
+		RCBOT_DIAG("[RCBOT2] lawliet driver-disembark userid=%d veh=%d\n", userId, v.vehicleIndex);
+		v.passengerExit = true;
+		v.nextAction = now;
+		setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
 		return;
 	}
 
@@ -4621,6 +4675,15 @@ void CBotEmpires::tickEmpiresVehicle()
 		throttle = 0.0f;
 	}
 
+	Vector lawlietDriveTo = driveTo;
+	float lawlietArrive = arrive;
+	float lawlietThrottle = throttle;
+	bool lawlietHold = false;
+	const bool lawlietDrive = client > 0 && EmpiresLawlietOverrideDriving(
+		team, client, v.vehicleIndex, lawlietDriveTo, lawlietArrive, lawlietThrottle, lawlietHold);
+	if (lawlietDrive)
+		v.retreating = false;
+
 	// -------- badly damaged: back to a repair station or the base
 	// Hull (m_iHealth) and, with armor, each side separately: one side shot
 	// through is as bad as a low hull.
@@ -4669,7 +4732,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		// 3.10d: an MG sharing its button with the cannon (adopted vehicle, other loadout) cannot be
 		// used on infantry (mg-mixed); refit the own loadout on a pad. Only light tank / AFV: the
 		// refit commands carry their slot order, armor and engine.
-		if (!v.retreating && !v.billNye && !v.commanderCV && (chassis == 2 || chassis == 10) &&
+		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV && (chassis == 2 || chassis == 10) &&
 			now >= v.loadoutCheckAt && (v.loadoutVerify || (now >= v.loadoutRetryAt && now >= v.retreatCooldownUntil)))
 		{
 			v.loadoutCheckAt = now + 3.0f;
@@ -4703,7 +4766,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					userId, v.vehicleIndex, v.ammoTrip ? "ammo" : "loadout", v.weaponSummary, origin.x, origin.y, origin.z);
 			}
 		}
-		if (!v.retreating && !v.billNye && !v.commanderCV && (hullFrac < 0.4f || armorGone) &&
+		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV && (hullFrac < 0.4f || armorGone) &&
 			now >= v.retreatCooldownUntil)
 		{
 			v.retreating = true;
@@ -5211,6 +5274,15 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 	}
 
+	if (lawlietDrive)
+	{
+		v.fightMove = false;
+		ram = false;
+		driveTo = lawlietHold ? origin : lawlietDriveTo;
+		arrive = lawlietArrive;
+		throttle = lawlietThrottle;
+	}
+
 	if (v.commanderCV && target == nullptr)
 		arrive = v.cvArrive;
 	// -------- follow a navmesh route unless the goal is close and in sight
@@ -5607,7 +5679,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			 std::strstr(target->GetClassName(), "mlturret") != nullptr)));
 	const bool inDirectFight = !onRoute && (now - v.fightSight < 2.0f);
 	bool facing = false;
-	if (armed && !v.retreating && targetArmedThreat && inDirectFight &&
+	if (armed && !v.retreating && !lawlietDrive && targetArmedThreat && inDirectFight &&
 		worstSide >= 0 && bestSide >= 0 && worstArmor < 0.6f && bestSide != worstSide &&
 		Dist2D(origin, targetAt) < 2500.0f)
 	{
@@ -5851,6 +5923,11 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 		}
 	}
+	if (lawlietHold)
+	{
+		side = 0.0f;
+		forward = forwardSpeed > 60.0f ? -kMaxMove * 0.6f : forwardSpeed < -60.0f ? kMaxMove * 0.6f : 0.0f;
+	}
 	// On the repair pad: creep and stop at the centre (run 20261112-121820
 	// crossed it at 350 u/s and swung into the station walls).
 	if (v.retreating && v.padInside)
@@ -5932,8 +6009,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			forward = 0.0f;
 		}
 	}
-	else if (backTurnStalled || (speed < 40.0f &&
-		(applyManeuver || ((forward > 0.0f || haltedByEdge) && !facing && !(v.billNye && v.ramming)))))
+	else if (!lawlietHold && (backTurnStalled || (speed < 40.0f &&
+		(applyManeuver || ((forward > 0.0f || haltedByEdge) && !facing && !(v.billNye && v.ramming))))))
 	{
 		if (!backTurnStalled && v.slowSince == 0.0f)
 			v.slowSince = now;
@@ -6093,6 +6170,13 @@ void CBotEmpires::tickEmpiresVehicle()
 		v.movingSince = 0.0f;
 
 	int buttons = 0;
+	if (lawlietHold)
+	{
+		forward = forwardSpeed > 60.0f ? -kMaxMove * 0.6f : forwardSpeed < -60.0f ? kMaxMove * 0.6f : 0.0f;
+		side = 0.0f;
+		if (std::fabs(forwardSpeed) < 120.0f)
+			buttons |= 0x08000000;
+	}
 	if (applyManeuver && v.maneuverSpeed == 0.0f && speed < 30.0f)
 		buttons |= 0x08000000;
 	if (forward == 0.0f && std::fabs(forwardSpeed) < 80.0f && !rearSafe && (!found || !headingSafe))

@@ -6,6 +6,7 @@
 #include "bot_cvars.h"
 #include "bot_empires.h"
 #include "bot_empires_binary.h"
+#include "bot_empires_lawliet.h"
 #include "bot_empires_team_director.h"
 #include "bot_getprop.h"
 #include "bot_globals.h"
@@ -658,7 +659,8 @@ void CBotEmpires::tickTeamDirector()
 			continue;
 		const CBotEmpires* emp = static_cast<const CBotEmpires*>(bot);
 		if (emp->m_iCommanderEntryStage != 0 || emp->m_iCommanderBuildStage != 0 ||
-			emp->m_vehicle.stage != EmpiresVehicleStage::NONE)
+			emp->m_vehicle.stage != EmpiresVehicleStage::NONE ||
+			EmpiresLawlietIsCrew(team, i))
 			continue;
 		int classId = -1;
 		bool desired = false, desiredKnown = false;
@@ -848,6 +850,8 @@ void CBotEmpires::tickEmpiresKillSpawn()
 		if (findEmpiresVehicleFactory(team, factory, goal, factoryIndex))
 			reason = "vf-buyer";
 	}
+	else if (EmpiresLawlietBoardingGoal(team, client, goal))
+		reason = "lawliet-board";
 	if (reason == nullptr)
 		return;
 
