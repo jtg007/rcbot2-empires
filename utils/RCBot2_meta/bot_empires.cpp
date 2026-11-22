@@ -3238,6 +3238,17 @@ void CBotEmpires::alterOutgoingUserCmd(CBotCmd& command)
 	{
 		command.buttons &= ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT |
 			IN_ATTACK | IN_ATTACK2 | IN_RELOAD | IN_SPEED | IN_WALK);
+		// On a ladder CGameMovement::LadderMove (0x3f2020) climbs from these buttons only, so
+		// rebuild them from the route's move vector (CBot::runPlayerMove does the same).
+		// Stripped, the bot hung motionless on the emp_palmbay boat ladder until the stuck
+		// jump threw it off (run 20261122-043640).
+		if (CClassInterface::isMoveType(m_pEdict, MOVETYPE_LADDER))
+		{
+			if (command.forwardmove > 0.0f) command.buttons |= IN_FORWARD;
+			else if (command.forwardmove < 0.0f) command.buttons |= IN_BACK;
+			if (command.sidemove > 0.0f) command.buttons |= IN_MOVERIGHT;
+			else if (command.sidemove < 0.0f) command.buttons |= IN_MOVELEFT;
+		}
 		if (logger != nullptr && engine != nullptr && gpGlobals != nullptr &&
 			m_pEdict != nullptr && !m_pEdict->IsFree() &&
 			gpGlobals->curtime >= m_flEmpiresCommanderMoveNextCommandDiagnosticLog)

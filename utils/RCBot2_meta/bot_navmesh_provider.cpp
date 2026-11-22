@@ -33,6 +33,8 @@ struct Route
 	CBot* bot = nullptr;
 	bool active = false;
 	float lastJump = -100.0f;
+	float lastSwimLog = -100.0f;
+	bool ladderAligned = false; // swimming: lined up in front of the ladder
 	int jumps = 0;
 	float lastDoorUse = -100.0f;
 	std::uint64_t intentId = 0;
@@ -921,18 +923,56 @@ void Frame()
 
 		// Ladder: look at the point we climb to; forward movement on a ladder
 		// follows the view pitch.
+		Vector moveTarget = route.path.points[route.point];
 		for (const Vector& ladderPoint : route.path.ladderPoints)
 			if (route.point < route.path.points.size() &&
 				(ladderPoint - route.path.points[route.point]).LengthSqr() < 1.0f)
 			{
+				// The surfacing jump kicks the player off in the frame it mounts (LadderMove 0x3f23c3,
+				// emp_palmbay boat ladders). Looking up at the top as usual: the bot mounted from the
+				// water at pitch -37 (run 20261122-044646).
+				const bool inWater = CClassInterface::getWaterLevel(bot->getEdict()) >= 2;
+				if (inWater || bot->onLadder())
+					bot->suppressSurfaceJump(engine->Time() + 0.5f);
+				// Swimming to it: the hull bulges out beside the ladder and a bot heading for the deck
+				// slid along it past the rungs (runs 20261122-044747, -045517). First line up on the
+				// point in front of the ladder, then press straight in.
+				if (inWater && !bot->onLadder() && route.point > 0)
+				{
+					const Vector front = route.path.points[route.point - 1];
+					Vector in = ladderPoint - front;
+					in.z = 0.0f;
+					if (ladderPoint.z > front.z && in.Length2D() > 1.0f) // climbing up only
+					{
+						in.NormalizeInPlace();
+						Vector offset = bot->getOrigin() - front;
+						offset.z = 0.0f;
+						const float lateral = std::fabs(offset.x * in.y - offset.y * in.x);
+						// Hysteresis: a swimming bot overshoots, a single threshold made it oscillate
+						// around the front point (run 20261122-045645-...-p49931).
+						route.ladderAligned = lateral <= (route.ladderAligned ? 20.0f : 8.0f);
+						// Not lined up: rejoin the line 40 out from the ladder, away from the hull that
+						// bulges out beside it (bots from the south stuck at (374 4740), run
+						// 20261122-050235-...-p49931).
+						const Vector line = route.ladderAligned ? front + in * 40.0f : front - in * 40.0f;
+						moveTarget = Vector(line.x, line.y, ladderPoint.z);
+					}
+				}
 				bot->setLookVector(ladderPoint + Vector(0, 0, 48));
+				if (inWater && engine->Time() - route.lastSwimLog > 1.0f)
+				{
+					route.lastSwimLog = engine->Time();
+					RCBOT_DIAG("[RCBOT2] navmesh-ladder-swim bot=(%.0f %.0f %.0f) on_ladder=%d move=(%.0f %.0f)\n",
+						bot->getOrigin().x, bot->getOrigin().y, bot->getOrigin().z, bot->onLadder() ? 1 : 0,
+						moveTarget.x, moveTarget.y);
+				}
 				bot->setLookAtTask(LOOK_VECTOR, 0.5f);
 				break;
 			}
 
 		if (!bot->setNavigationMoveTarget(route.intentId,
 			RCBotNavigation::Provider::NAVMESH, route.attemptId,
-			route.path.points[route.point]))
+			moveTarget))
 		{
 			resetRoute(route);
 		}

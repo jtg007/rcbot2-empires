@@ -501,12 +501,13 @@ int AddLaddersFromBsp()
 			continue;
 		TheNavMesh->CreateLadder(mins, maxs, 0.0f);
 		const CNavLadder* ladder = TheNavMesh->GetLadders().Tail();
-		RCBOT_DIAG("[RCBOT2] navmesh-ladder add bottom=(%.0f %.0f %.0f) top=(%.0f %.0f %.0f) dir=%d bottom_area=%d top_area=%d\n",
+		auto areaId = [](const CNavArea* area) { return area != nullptr ? static_cast<int>(area->GetID()) : -1; };
+		// Path search climbs to the forward/left/right top areas only; behind counts for components.
+		RCBOT_DIAG("[RCBOT2] navmesh-ladder add bottom=(%.0f %.0f %.0f) top=(%.0f %.0f %.0f) dir=%d bottom_area=%d top_fwd=%d top_left=%d top_right=%d top_behind=%d\n",
 			ladder->m_bottom.x, ladder->m_bottom.y, ladder->m_bottom.z,
 			ladder->m_top.x, ladder->m_top.y, ladder->m_top.z, static_cast<int>(ladder->GetDir()),
-			ladder->m_bottomArea != nullptr ? static_cast<int>(ladder->m_bottomArea->GetID()) : -1,
-			ladder->m_topForwardArea != nullptr ? static_cast<int>(ladder->m_topForwardArea->GetID()) :
-			(ladder->m_topBehindArea != nullptr ? static_cast<int>(ladder->m_topBehindArea->GetID()) : -1));
+			areaId(ladder->m_bottomArea), areaId(ladder->m_topForwardArea), areaId(ladder->m_topLeftArea),
+			areaId(ladder->m_topRightArea), areaId(ladder->m_topBehindArea));
 		++added;
 	}
 	return added;
@@ -1423,6 +1424,14 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 				foot.z = current->GetZ(foot);
 				next->GetClosestPointOnArea(upper, &upper);
 				AppendPoint(path, foot);
+				// Ladder ending in water (emp_palmbay boats): rise beside it first. Heading straight
+				// for the top from the sea floor took the bot under the hull (run 20261122-042335).
+				// Floating height (bottom rung - 16) is reachable from below and from the surface;
+				// 48 under it the surfacing logic kept the bot too high (run 20261122-042908).
+				if (enginetrace != nullptr &&
+					(enginetrace->GetPointContents(ladder->m_bottom + normal * 24.0f + Vector(0, 0, 16)) & MASK_WATER) != 0 &&
+					ladder->m_bottom.z - 16.0f > foot.z + 32.0f)
+					AppendPoint(path, Vector(foot.x, foot.y, ladder->m_bottom.z - 16.0f));
 				AppendPoint(path, upper);
 				path.ladderPoints.push_back(upper);
 				previous = upper;
@@ -1431,6 +1440,13 @@ PathResult BuildPath(const Vector &from, const Vector &to, Path &path,
 			{
 				current->GetClosestPointOnArea(upper, &upper);
 				foot.z = next->GetZ(foot);
+				// Ladder ending in water: leave over the edge to floating height beside it. The foot on
+				// the sea floor lay 7 HU sideways from the top, so the bot stood still on the deck
+				// (run 20261122-045840-...-p49933).
+				if (enginetrace != nullptr &&
+					(enginetrace->GetPointContents(ladder->m_bottom + normal * 24.0f + Vector(0, 0, 16)) & MASK_WATER) != 0)
+					foot = Vector(ladder->m_bottom.x + normal.x * 48.0f, ladder->m_bottom.y + normal.y * 48.0f,
+						ladder->m_bottom.z - 16.0f);
 				AppendPoint(path, upper);
 				AppendPoint(path, foot);
 				path.ladderPoints.push_back(foot);
@@ -2075,6 +2091,30 @@ void DebugNavScan(const Vector& from, const Vector& to, float half, float step)
 	Path path;
 	const PathResult result = BuildPath(from, to, path, nullptr);
 	Msg("[RCBOT2] scan route=%s points=%zu areas=%zu\n", PathResultName(result), path.points.size(), path.areaIds.size());
+	if (result != PathResult::SUCCESS)
+	{
+		CNavArea* start = path.startAreaId > 0 ? TheNavMesh->GetNavAreaByID(path.startAreaId) : nullptr;
+		CNavArea* goal = path.goalAreaId > 0 ? TheNavMesh->GetNavAreaByID(path.goalAreaId) : nullptr;
+		CNavArea* closest = nullptr;
+		const bool plain = start != nullptr && goal != nullptr &&
+			NavAreaBuildPath(start, goal, &to, ShortestPathCost(), &closest) && closest == goal;
+		Msg("[RCBOT2] scan fail start_area=%d goal_area=%d comp=%d/%d goal_blocked=%d plain_path=%d closest=%d\n",
+			path.startAreaId, path.goalAreaId, path.startComponent, path.goalComponent,
+			goal != nullptr && goal->IsBlocked(TEAM_ANY) ? 1 : 0, plain ? 1 : 0,
+			closest != nullptr ? static_cast<int>(closest->GetID()) : -1);
+		for (int up = 0; start != nullptr && up < 2; ++up)
+		{
+			const NavLadderConnectVector* list = start->GetLadders(up ? CNavLadder::LADDER_UP : CNavLadder::LADDER_DOWN);
+			FOR_EACH_VEC((*list), i)
+			{
+				const CNavLadder* ladder = (*list)[i].ladder;
+				const CNavArea* top = ladder != nullptr ? ladder->m_topForwardArea : nullptr;
+				Msg("[RCBOT2] scan fail ladder up=%d top_fwd=%d top_blocked=%d bottom=%d\n", up,
+					top != nullptr ? static_cast<int>(top->GetID()) : -1, top != nullptr && top->IsBlocked(TEAM_ANY) ? 1 : 0,
+					ladder != nullptr && ladder->m_bottomArea != nullptr ? static_cast<int>(ladder->m_bottomArea->GetID()) : -1);
+			}
+		}
+	}
 	for (std::size_t i = 0; i < path.areaIds.size() && i < 6; ++i)
 	{
 		const CNavArea* area = TheNavMesh->GetNavAreaByID(path.areaIds[i]);

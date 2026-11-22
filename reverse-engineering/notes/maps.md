@@ -31,9 +31,48 @@ Navmesh
   (`bot_empires_objective.cpp` ~1815, `closeInHeight` is only required for repair), so bots
   "arrive" under water and hold 30 s -> drown (Recorder session-20261115-161202, NF_02).
 
-Consequence: cp_boat cannot be captured by navmesh bots until deck areas plus a ladder link
-exist, or a swim-to-ladder/climb behaviour is added. Until then a goal whose nearest nav
-area is far below it (no area within ~120 units) should be skipped.
+Consequence (2026-11-15): cp_boat could not be captured until deck areas plus a ladder link
+existed. Resolved 2026-11-22, see "Boat ladder climbing" below.
+
+Navmesh side (2026-11-22):
+- A mesh regenerated with the current generator has deck areas (seeds above every
+  `emp_cap_point`, `nav_generate.cpp` AddWalkableSeeds): boat 1 51 areas, boat 2 60 areas.
+- `ConnectGeneratedLadder` found no bottom area: `GetNearestNavArea` measures from the ladder
+  (z -3034), the sea floor is about 216 below (limit 200). A water bottom now searches 400.
+- It then disconnected the bottom again as "dangling" (bottom more than HumanHeight above its
+  area) while keeping `m_bottomArea`, so logs showed an id but A* had no ladder (no-path with
+  equal components; components also link the deck-to-sea-floor drop). Water bottoms skip that.
+- The route adds a point at floating height (bottom - 16) in front of the ladder; going down,
+  the foot becomes a floating point 48 out (the sea-floor foot lay 7 sideways from the top and
+  the bot stood still on the deck).
+
+### Boat ladder climbing (2026-11-22)
+
+- `CGameMovement::LadderMove` (0x3f2020) is the stock SDK 2013 code: mount trace =
+  `TracePlayerBBox` along wishdir for `LadderDistance()` = 2.0 (0x395090, float 0x950348) with
+  `CEmpGameMovement::LadderMask` (0x3950c0, player solid mask); `OnLadder` (0x3fd620) accepts
+  `contents & CONTENTS_LADDER` or a climbable surfaceprop. On the ladder it climbs only from the
+  buttons IN_FORWARD/IN_BACK/IN_MOVELEFT/IN_MOVERIGHT (mv+0x24 tests at 0x3f2390..0x3f23bd,
+  `ClimbSpeed()` 200, 0x3950a0); with none set the velocity is zeroed. IN_JUMP (test 0x3f23c3)
+  sets MOVETYPE_WALK (0x3f26e0) and velocity = plane normal * 270 (0x9773f0) in the same call
+  that mounted (SetMoveType 9 at 0x3f224c): a held jump (surfacing) kicks the bot off on contact.
+- Boat 1 ladder brush 225 (contents 0x38000008) is a 24 x 1.2 slab, face normal
+  (0.887 -0.462 0), plus axial bevel planes (x 372.3..384.7, y 4780.7..4802.7). A box touching
+  the slab's ends mounts on a bevel plane (thrown along +x or -y on jump), which still climbs.
+- The `metalladder001` prop (collision: rails +-3 deep, 24 wide, 128 tall, from the .phy) sits
+  0.5 behind the brush face and does not block mounting.
+- Cause of "hangs on the ladder, then drops off": during a Commander MOVE
+  `CBotEmpires::alterOutgoingUserCmd` stripped IN_FORWARD/... after `runPlayerMove` had added
+  them for MOVETYPE_LADDER; the bot hung still (origin constant 2 s, buttons 0x0), then
+  `CBot::checkStuck` pressed IN_JUMP and LadderMove threw it 270 off the ladder
+  (run `dev-runs/20261122-044528`). Keeping the buttons on a ladder: climbed on the first grab
+  (`20261122-044646`).
+- Second failure mode (`20261122-044747`, same build): the hull (`boat_fishing01a` .phy piece with
+  face normal (0.93 -0.37), z -3066..-2935) bulges out past the south end of the ladder slab. A
+  bot that drifts south of the ladder front slides along the hull into the corner at about
+  (385 4760); the mount trace toward the deck hits the hull first, so it never mounts
+  (navmesh-stuck-trace normal (0.85 -0.52), frac 0). Mounting works from in front of the slab
+  centre (pressing along -normal) or from the east end (x-max bevel, run 044646).
 
 ### BE APC approaches to the southern boat
 

@@ -3627,7 +3627,9 @@ void CBot :: doMove ()
 
 		if ( isUnderWater() || onLadder() )
 		{
-			if ( effectiveMoveTo.z > getOrigin().z + 32.0f )
+			// 16, not 32: a point counts as reached only within 18 below it (navmesh provider), so
+			// a bot under water stopped rising short of a point straight above it.
+			if ( effectiveMoveTo.z > getOrigin().z + 16.0f )
 				m_fUpSpeed = m_fIdealMoveSpeed;
 			else if ( effectiveMoveTo.z < getOrigin().z - 32.0f )
 				m_fUpSpeed = -m_fIdealMoveSpeed;
@@ -3661,10 +3663,16 @@ void CBot :: doMove ()
 				m_fSurfaceUntil = nowTime + 1.0f;
 			m_fHeadUnderwaterSince = 0.0f;
 		}
+		// No surfacing jump on or right before a ladder: IN_JUMP throws the player off it
+		// (LadderMove 0x3f23c3, emp_palmbay boat ladders); climbing surfaces anyway.
+		const bool noJump = onLadder() || m_fNoSurfaceJumpUntil > engine->Time();
 		if ( m_fSurfaceUntil > nowTime && isUnderWater() )
 		{
 			m_fUpSpeed = m_fIdealMoveSpeed > 0.0f ? m_fIdealMoveSpeed : 320.0f;
-			m_pButtons->holdButton(IN_JUMP, 0, 0.2f, 0);
+			if ( noJump )
+				m_pButtons->letGo(IN_JUMP);
+			else
+				m_pButtons->holdButton(IN_JUMP, 0, 0.2f, 0);
 		}
 	}
 

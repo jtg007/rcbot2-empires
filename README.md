@@ -50,7 +50,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
 | 🟡 | **Doors and gates** | Bots reserve a door button only if the route ends within 72 horizontal units of it; Crossroads base gates and ramps remain problematic |
 | 🟡 | **Map coverage** | Runs on 7 maps; more installed maps have navmeshes without a recorded run yet |
-| 🟡 | **Water** | Surfaces for air and avoids deep water when a land route exists; flags reachable only via water ladders are skipped |
+| ✅ | **Water** | Surfaces for air and avoids deep water when a land route exists. Swims to ladders that end in water, climbs onto boat decks to capture (`emp_palmbay`), and jumps back into the water afterwards |
 
 </details>
 
@@ -240,7 +240,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset require the same driver or teammate sightline to an enemy APC as hunting tanks. Grenadier mortar targeting can use an unseen APC position if it finds a firing arc.
 - **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
-- **`emp_palmbay`:** Both flags sit on boats without navmesh. Vehicles check flag support spots against their fording depth. In a saved match two APCs targeting shallower spots still stopped in deeper water. Arrival and safe parking with the updated checks await match verification; NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn.
+- **`emp_palmbay`:** The boat flags are reached by swimming to a boat ladder. In 6 single-bot runs the bot captured the flag 5 times; once it stayed at the hull beside the ladder and moved on to another goal. Vehicles check flag support spots against their fording depth. In a saved match two APCs targeting shallower spots still stopped in deeper water. Arrival and safe parking with the updated checks await match verification; NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
 - **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.

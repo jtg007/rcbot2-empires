@@ -369,6 +369,12 @@ void CNavLadder::ConnectGeneratedLadder( float maxHeightAboveTopArea )
 
 	// This port takes maxDist second; the Valve call passed true (= 1 unit) and never found an area.
 	m_bottomArea = TheNavMesh->GetNearestNavArea( center, 200.0f );
+	// A ladder that ends in water (emp_palmbay boats: 35 under the surface, sea floor about 216 below)
+	// is reached by swimming up from the floor; the distance is measured from the ladder, not the floor.
+	extern IEngineTrace *enginetrace;
+	const bool waterBottom = enginetrace != nullptr && (enginetrace->GetPointContents( center ) & MASK_WATER) != 0;
+	if (!m_bottomArea && waterBottom)
+		m_bottomArea = TheNavMesh->GetNearestNavArea( center, 400.0f );
 	if (!m_bottomArea)
 	{
 		DevMsg( "ERROR: Unconnected ladder bottom at ( %g, %g, %g )\n", m_bottom.x, m_bottom.y, m_bottom.z );
@@ -464,8 +470,9 @@ void CNavLadder::ConnectGeneratedLadder( float maxHeightAboveTopArea )
 	//
 	// Determine whether this ladder is "dangling" or not
 	// "Dangling" ladders are too high to go up
+	// (not in water: a player swims up to the bottom rung)
 	//
-	if (m_bottomArea)
+	if (m_bottomArea && !waterBottom)
 	{
 		Vector bottomSpot;
 		m_bottomArea->GetClosestPointOnArea( m_bottom, &bottomSpot );

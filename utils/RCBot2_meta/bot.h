@@ -544,6 +544,8 @@ public:
 	// Read-only movement-output access for telemetry. These values are never
 	// written by observers and are not an additional movement authority.
 	float getForwardMoveOutput() const { return m_fForwardSpeed; }
+	// The surfacing jump is held off until then (a jump throws the player off a ladder).
+	void suppressSurfaceJump(float until) { m_fNoSurfaceJumpUntil = until; }
 	float getSideMoveOutput() const { return m_fSideSpeed; }
 	float getUpMoveOutput() const { return m_fUpSpeed; }
 	int getLocalYieldBotId() const;
@@ -1124,6 +1126,7 @@ protected:
 	float m_fUpSpeed;
 	float m_fHeadUnderwaterSince = 0.0f; // 0 = head above water
 	float m_fSurfaceUntil = 0.0f;         // swim up for air until then
+	float m_fNoSurfaceJumpUntil = 0.0f;   // no surfacing jump until then (ladder ahead)
 	float m_fAimMoment; // aiming "mouse" momentum
 
 	float m_fLookAtTimeStart;

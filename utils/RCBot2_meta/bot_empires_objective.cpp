@@ -2598,7 +2598,10 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 		const Vector origin = getOrigin();
 		const float dist = empiresNavGoalDistance2D(origin, m_vEmpiresNavGoalOrigin);
 		const float radius = empiresNavGoalArriveRadius(m_iEmpiresNavGoalType);
-		const bool closeInHeight = std::fabs(origin.z - m_vEmpiresNavGoalOrigin.z) < 150.0f;
+		// Swimming 125 under a boat deck counted as arrived; the bot held there and drowned
+		// (emp_palmbay cp_boat, run 20261122-050235-...-p49931).
+		const bool closeInHeight = std::fabs(origin.z - m_vEmpiresNavGoalOrigin.z) < 150.0f &&
+			!(CClassInterface::getWaterLevel(m_pEdict) >= 1 && m_vEmpiresNavGoalOrigin.z - origin.z > 64.0f);
 		const bool drained = m_pSchedules->isEmpty();
 		// Repair needs the building's floor: the kit reaches 100 (as_escort: a route
 		// that ended one storey above turret 292 counted as arrived).
