@@ -15700,11 +15700,16 @@ bool CBotEmpires::startGame()
 		return CBot::startGame();
 	}
 
-	// A profile class outside Empires' verified infantry range means that no
-	// class request was asked for. Keep the generic fallback unchanged for
-	// that case; a controlled class test uses `rcbotd addbot 1 2`.
+	// Default/quota bots created without an explicit class (min_bots/max_bots or
+	// "rcbotd addbot" with no class arg) would stall in CBot::startGame() without
+	// emp_spawn_select; assign a balanced infantry class so they join the match.
 	if (m_iDesiredClass < EMP_CLASS_SCOUT || m_iDesiredClass > EMP_CLASS_ENGINEER)
-		return CBot::startGame();
+	{
+		static const int kDefaultClasses[] = {
+			EMP_CLASS_RIFLEMAN, EMP_CLASS_ENGINEER, EMP_CLASS_GRENADIER, EMP_CLASS_SCOUT
+		};
+		m_iDesiredClass = kDefaultClasses[(engine->IndexOfEdict(m_pEdict) + currentTeam) & 3];
+	}
 	if (m_bNormalClassStartComplete)
 	{
 		// The class stage is complete, but the normal bot must still follow the

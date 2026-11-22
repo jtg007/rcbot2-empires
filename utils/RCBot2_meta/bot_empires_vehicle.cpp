@@ -4384,7 +4384,8 @@ void CBotEmpires::tickEmpiresVehicle()
 							RCBOT_DIAG("[RCBOT2] stall-escalate who=apc-park stage=1 reason=%s\n", exposed ? "exposed" : "no-progress");
 						}
 					}
-					if (changed || (!v.supportKnown && (!spawnApc || now >= v.nextParkSearch)))
+					if ((!spawnApc && (changed || !v.supportKnown)) ||
+						(spawnApc && ((changed && v.supportKnown) || now >= v.nextParkSearch)))
 					{
 						v.supportFlag = front;
 						v.supportKnown = false;
@@ -4458,19 +4459,13 @@ void CBotEmpires::tickEmpiresVehicle()
 						v.skippedFront = front;
 						v.skipFrontUntil = now + 20.0f;
 					}
-					if (spawnApc || v.supportKnown)
+					if (v.supportKnown)
 					{
-						v.goal = v.supportKnown ? v.supportSpot : origin;
+						v.goal = v.supportSpot;
 						v.goalValid = true;
 						goalKind = 2;
 					}
 				}
-			}
-			if (spawnApc && !v.goalValid && now < v.skipFrontUntil)
-			{
-				v.goal = origin;
-				v.goalValid = true;
-				goalKind = 2;
 			}
 			// 4. Push: when the front holds, closer enemy economy/spawn buildings (refinery/barracks/VF/radar).
 			if (!v.goalValid)

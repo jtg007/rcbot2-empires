@@ -13,9 +13,9 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 0. Priority order
 
-1. **Palmbay vehicles (3.27, 5.14a).** Boat flags: bots now swim to a boat ladder, climb, capture and jump back into the water (single bot, 5 of 6 runs). Watch several bots at one ladder in a 10-bot match. Run `212957` lost six BE APCs on approaches to two support positions. Four targeted ground 207 units below the surface and two targeted ground 134 units below it. All six logged a fording depth of 160 units. Flag support now checks the parking spot for water. Spawn APCs look for flank positions with vehicle access and an infantry route. Compare arrivals, losses and usable spawns in the next 10-bot match at 1x.
+1. **Palmbay vehicles (3.27, 5.14a).** In a 10-bot 1x match (`20261122-124651`) bots climbed the boat ladders and started a capture, no ladder blockage lasted over 20 s, and no APC was lost in water. A spawn APC without a known support spot no longer parks in front of its own factory; it falls through to a push goal. Whether flank parking produces usable spawns is still open.
 2. **Front support (3.10c, 5.26, 3.25, 5.30).** Engineers can answer a human infantry ammo request, infantry can seek navmesh cover under fire, and a seated commander can assign one attacking grenadier to an APC seen by a teammate. Observe actual refills, target engagement and resumption of the original objective. These changes have a Linux x86 build; gameplay verification is pending.
-3. **Team roles (5.4, 5.8, 5.28).** Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
+3. **Team roles (5.4, 5.8, 5.28).** In a 10-bot Coast match at 1x (`20261122-124709`) two bots ordered to push flag 168 stayed together and reached it. Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
 4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault). Run `021732` also recorded a crate 388 units from the CV. Open cases are the automatic trigger, a crew member actually replenishing grenades and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
 5. **Target knowledge (3.20).** Tank hunting, tank defense against APCs and the commander's target call require a sightline from the driver or a teammate. Grenadier mortar targeting can still use an unseen APC position. Check in a match that a hidden APC near a friendly building becomes a defense target only once a teammate sees it.
 6. **Next human session.** Verify the EngiBot purchase with SourceMod, commander orders and vehicle handover. Keep the Coast refinery stand spot (5.8e) parked until evidence identifies the obstruction.
@@ -479,12 +479,7 @@ When the following cases recur, compare the relevant trace and route.
   and one driver gave up after four reverses. The single-crate and pad checks passed.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
   resupply for every class; an engineer can now respond to a human infantry caller. Actual ammunition gain and autonomous requests from ordinary infantry bots remain open.
-- Test-server inventory excluding generated fixtures: 25 BSP maps, 12 with
-  navmeshes. Ten have a successful navmesh load in existing logs. Check
-  `con_district402` and `con_glycencity` for both loading and Conquest behavior in
-  the same runs. After the navmesh crash fix (GitHub #4),
-  `con_urbanchaos` loaded all 6,467 areas with one active bot and no crash
-  (run `20261115-145901-con_urbanchaos-1b-1m-p49979`).
+- Test-server inventory: 21 of 22 multiplayer maps have a navmesh and ran briefly without a crash (22.11.). `con_district402`, `con_glycencity` and `as_escort` loaded and ran without a crash or stuck bot. Still open: `emp_mvalley` (navmesh generation hit the 20-minute timeout) and the training maps.
 - Fairness: vehicle and objective targets are picked from the full entity list; limit to
   what a player could know.
 - Full pad refit (5.10) is covered by the `dev_check` pad test; bot-bought loadouts never trigger
@@ -492,11 +487,9 @@ When the following cases recur, compare the relevant trace and route.
 
 ## 5. Coverage
 
-- Generate navmeshes for the maps without one and run each map briefly.
-- Conquest maps (`con_*`) and `as_escort` objectives for both teams; end of round
-  (tickets 0, sudden death).
-- A long run: 30+ minutes, 16–22 bots, with a map change. A 20-minute match
-  at normal speed and a 25-game-minute accelerated match already cover 10 bots.
+- Generate the `emp_mvalley` navmesh with a longer timeout.
+- End of round on Conquest and escort maps (tickets 0, sudden death).
+- Long run done (22.11., `20261122-131813`): 18 bots, 32 minutes at 1x on Crossroads, then `changelevel emp_coast`, 0 crashes. Quota bots (`min_bots`/`max_bots`) that join after a map change now get a class and spawn.
 - Generated maps: the NF command vehicle entry failure was fixed in the map export by
   raising the NF vehicle origin. With a 90-unit height, both commanders entered and
   the run recorded zero path errors (`tg_nfcv1_20261116`). Revisit bot-side entry
