@@ -67,6 +67,7 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 scripts/dev_build.sh                       # incremental build (~5 s), prints the .so path
 scripts/dev.sh <map> <bots> <minutes>      # build, deploy, run, summary
 scripts/dev_check.sh                       # regression checks in parallel, ~1 min, PASS/FAIL per test
+scripts/run_unit_tests.sh                  # all offline unit tests (~5 s, no SDK or server)
 scripts/dev_run.py --summarize RUN_DIR SESSION_DIR  # evaluate an existing recording
 # Select one scripts/run_*_tests.sh for a single header
 ```

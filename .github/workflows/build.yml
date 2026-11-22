@@ -23,6 +23,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Offline unit tests (headers and dev-runner logic): only g++ and python3, no SDK.
+  unit_tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run unit tests
+        run: scripts/run_unit_tests.sh
+
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}

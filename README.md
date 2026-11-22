@@ -281,7 +281,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 |---|---|
 | `scripts/dev_build.sh` | Incremental cached build |
 | `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize. A server exit while the recorder finishes counts as a failed run. Crash checks ignore Linux minidumps from Steam WebHelper or a Source server launched on a different port. Run options (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
-| `scripts/dev_check.sh` | Parallel regression suite (~1 min): commander chain, long move, repair pad, turret, revive. Stops before building or starting servers if its temporary log directory cannot be created. |
+| `scripts/dev_check.sh` | Parallel regression suite (~1 min): offline unit tests, commander chain, long move, repair pad, turret, revive (`DEV_SKIP_UNIT_TESTS=1` skips the unit tests). Stops before building or starting servers if its temporary log directory cannot be created. |
 | `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
 | `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics. A failed match returns a failure status even when its log is available. Use `scripts/dev_team_match.sh --summarize RUN_DIR` to read the same metrics from a saved run and display its recorder table if available. |
 | `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
@@ -290,6 +290,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server |
+| `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |
 | `scripts/run_*_tests.sh` | Unit tests for individual headers |
 
 </details>

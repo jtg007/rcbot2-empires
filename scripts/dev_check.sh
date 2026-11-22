@@ -2,7 +2,8 @@
 # Regression check: builds once, then runs the short tests in parallel (one
 # server per test on its own port) and prints PASS/FAIL per test. Wall time is
 # the slowest test (ca. 1-1.5 min) instead of the sum. DEV_CHECK_SERIAL=1 runs
-# them one after another like before.
+# them one after another like before. The offline unit tests
+# (scripts/run_unit_tests.sh) run alongside the build; DEV_SKIP_UNIT_TESTS=1 skips them.
 # Usage: scripts/dev_check.sh [map]   (pad/turret/revive use their own default map)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 source scripts/dev_cpu.sh
@@ -11,6 +12,9 @@ TMP="$(mktemp -d)" || exit 1
 fail=0
 row() { printf '%-22s %-5s %s\n' "$1" "$2" "$3"; [[ "$2" == PASS ]] || fail=1; }
 
+if [[ "${DEV_SKIP_UNIT_TESTS:-0}" != 1 ]]; then
+  ( scripts/run_unit_tests.sh >"$TMP/unit.txt" 2>&1; echo $? >"$TMP/unit.status" ) &
+fi
 BUILD_LOG="$TMP/build.txt"
 if [[ "${DEV_SKIP_BUILD:-0}" != 1 ]]; then
   if ! built="$(scripts/dev_build.sh 2>"$BUILD_LOG")"; then
@@ -40,7 +44,7 @@ move() {
   DEV_UNTIL="commander-move retry=6|commander-move result=COMPLETE" \
   DEV_EXPECT='^\[RCBOT2\] commander-move result=COMPLETE' \
   DEV_SHOW="commander-move (result|retry)|error:" \
-  scripts/dev.sh "$MAP" 1 8
+  scripts/dev.sh emp_streetsoffire 1 8  # fixed coordinates, so fixed map
 }
 job chain scripts/dev_chain.sh "$MAP" 4
 job move move
@@ -55,6 +59,15 @@ detail() {
   reason="$(grep -a 'Run result: FAIL\|did not become ready\|not loaded\|^Missing build\|^Build hash mismatch\|^Map not found\|^Port ' "$TMP/$1.txt" | tail -1)"
   printf '%s\n' "${reason:-see $TMP/$1.txt}"
 }
+
+# 0) Offline unit tests
+if [[ "${DEV_SKIP_UNIT_TESTS:-0}" != 1 ]]; then
+  if ok unit; then
+    row unit PASS "$(tail -1 "$TMP/unit.txt")"
+  else
+    row unit FAIL "$(tail -1 "$TMP/unit.txt") (see $TMP/unit.txt)"
+  fi
+fi
 
 # 1) Commander seat -> barracks placed -> Engineer builds it
 if ok chain; then
