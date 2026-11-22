@@ -2424,9 +2424,38 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	// 2. Mortar fallback when no RPG line or out of RPG ammo (only at ~1x timescale).
 	if (gpGlobals->curtime - gpGlobals->realtime <= 25.0f)
 	{
+		auto apcSpottedByTeam = [&](const Vector& apcOrigin) {
+			if (enginetrace == nullptr)
+				return false;
+			auto worldClear = [&](const Vector& from, const Vector& to) {
+				trace_t hit;
+				Ray_t ray;
+				ray.Init(from, to);
+				CTraceFilterWorldOnly worldOnly;
+				enginetrace->TraceRay(ray, MASK_SHOT, &worldOnly, &hit);
+				return hit.fraction > 0.97f;
+			};
+			const Vector centre(apcOrigin.x, apcOrigin.y, apcOrigin.z + 48.0f);
+			if ((eye - centre).Length() < 3500.0f && worldClear(eye, centre))
+				return true;
+			for (int p = 1; p <= gpGlobals->maxClients; ++p)
+			{
+				edict_t* mate = engine->PEntityOfEntIndex(p);
+				if (mate == nullptr || mate->IsFree() || mate == m_pEdict ||
+					CClassInterface::getTeam(mate) != team || !CBotGlobals::entityIsAlive(mate))
+					continue;
+				const Vector mateEye = CBotGlobals::entityOrigin(mate) + Vector(0, 0, 64.0f);
+				if ((mateEye - centre).Length() < 3500.0f && worldClear(mateEye, centre))
+					return true;
+			}
+			return false;
+		};
 		for (const TargetCandidate& c : candidates)
 		{
 			if (c.dist < 600.0f || c.dist > 3400.0f)
+				continue;
+			// 3.20: do not mortar an unseen enemy APC unless self or a living teammate sees it.
+			if (c.isApc && !apcSpottedByTeam(c.origin))
 				continue;
 			const Vector targetPoint(c.origin.x, c.origin.y, c.origin.z + 24.0f);
 			QAngle angles;

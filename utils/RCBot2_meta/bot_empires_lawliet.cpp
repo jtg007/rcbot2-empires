@@ -1609,8 +1609,9 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 			stopMoving();
 			return true;
 		}
+		const Vector center = EntityCenter(apc);
 		const Vector nearest = NearestOnEntity(apc, eye);
-		const float dist = Dist2D(origin, EntityCenter(apc));
+		const float dist = Dist2D(origin, center);
 		const float hullDist = (nearest - eye).Length2D();
 		if (dist > 170.0f && hullDist > 95.0f)
 		{
@@ -1622,12 +1623,19 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 			return true;
 		}
 		EmpiresLawlietImpl::ClearNavForAction(this, "lawliet-board");
-		act.mode = ACT_BOARD_ENTER;
+		if (act.mode != ACT_BOARD_ENTER)
+		{
+			act.mode = ACT_BOARD_ENTER;
+			act.stageAt = now;
+		}
 		act.cmdOverride = true;
-		VectorAngles(nearest - eye, act.cmdView);
+		// Aim at the actual vehicle body rather than the bloated OBB corner (crossroads
+		// 20261122-213339: crew stopped at hullDist=50, dist=250 aiming at empty air).
+		VectorAngles(center - eye, act.cmdView);
 		act.cmdView.z = 0.0f;
-		act.cmdForward = hullDist > 65.0f ? kMaxMove * 0.5f : 0.0f;
-		act.cmdSide = 0.0f;
+		act.cmdForward = (dist > 110.0f || hullDist > 16.0f) ? kMaxMove * 0.6f : 0.0f;
+		act.cmdSide = (now - act.stageAt > 2.5f) ?
+			((static_cast<int>(now) % 2) == 0 ? kMaxMove * 0.4f : -kMaxMove * 0.4f) : 0.0f;
 		act.cmdButtons = 0;
 		if (now >= act.nextAction)
 		{

@@ -78,6 +78,12 @@ void BlockEdge(unsigned fromAreaId, unsigned toAreaId, float seconds = 0.0f, boo
 // Blocks the link leaving the path area closest to position (within 64).
 bool BlockEdgeNearestOnPath(const Vector &position, const std::vector<unsigned int> &areaIds,
 	unsigned &fromAreaId, unsigned &toAreaId, float seconds = 0.0f);
+// Soft infantry-only penalty for a link temporarily blocked by a vehicle:
+// discourages infantry from re-entering the link without causing no-path or
+// affecting vehicle routing.
+void BlockInfantryEdge(unsigned fromAreaId, unsigned toAreaId, float seconds = 15.0f);
+bool BlockInfantryEdgeNearestOnPath(const Vector &position, const std::vector<unsigned int> &areaIds,
+	unsigned &fromAreaId, unsigned &toAreaId, float seconds = 15.0f);
 // Blocks every area link whose line between the area centres passes through the box
 // (a closed door covers several links). Returns how many links were blocked.
 int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, float seconds, bool learned = true,

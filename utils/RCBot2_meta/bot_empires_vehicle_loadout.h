@@ -208,6 +208,12 @@ inline Loadout ChoosePurchaseLoadout(bool nf, bool wantJeep,
 	return current;
 }
 
+inline bool IsRefittableTankChassis(int chassis)
+{
+	return chassis == 2 || chassis == 3 || chassis == 5 ||
+		chassis == 10 || chassis == 11 || chassis == 13;
+}
+
 // Choose a refit loadout for an existing vehicle on a repair pad (chassis cannot change).
 // When allowUpgrades is false (e.g. ammo-only trip or tight funds), stays on plain/standard
 // so the refit costs 0 difference against a base vehicle.

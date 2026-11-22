@@ -186,20 +186,49 @@ bool SnapToMesh(const Vector& at, float radius, Vector& out)
 
 // Walkable spot in front of an object (building, resource pad, CV) on the side toward `from`: the
 // object's own origin sits inside its hull or prop (crossroads dev_check 20261121-153156: push to a
-// resource point ended 66 away with 10 no-progress retries).
+// resource point ended 66 away with 10 no-progress retries; 20261122-213339: barracks offset 300
+// landed inside the 1120-wide barracks box).
 bool ApproachSpot(const Vector& target, bool fromKnown, const Vector& from, float offset, Vector& out)
 {
+	Vector baseDir(1.0f, 0.0f, 0.0f);
 	if (fromKnown)
 	{
 		Vector dir = from - target;
 		dir.z = 0.0f;
 		const float len = dir.Length2D();
 		if (len > 1.0f)
+			baseDir = dir / len;
+	}
+	bool fallbackFound = false;
+	Vector fallback;
+	static const float kAngles[] = { 0.0f, 0.785398f, -0.785398f, 1.570796f, -1.570796f, 2.356194f, -2.356194f, 3.141593f };
+	for (float extra : { 0.0f, 250.0f, 500.0f, 750.0f })
+	{
+		const float r = offset + extra;
+		for (float a : kAngles)
 		{
-			const Vector ahead = target + dir * (offset / len);
-			if (SnapToMesh(ahead, 350.0f, out))
+			const Vector dir(baseDir.x * std::cos(a) - baseDir.y * std::sin(a),
+				baseDir.x * std::sin(a) + baseDir.y * std::cos(a), 0.0f);
+			const Vector probe = target + dir * r;
+			Vector candidate;
+			if (!SnapToMesh(probe, 350.0f, candidate))
+				continue;
+			if (!fallbackFound)
+			{
+				fallback = candidate;
+				fallbackFound = true;
+			}
+			if (!RCBotNavMesh::IsLoaded() || !RCBotNavMesh::PointNearBuilding(candidate, 48.0f))
+			{
+				out = candidate;
 				return true;
+			}
 		}
+	}
+	if (fallbackFound)
+	{
+		out = fallback;
+		return true;
 	}
 	return SnapToMesh(target, 500.0f, out);
 }

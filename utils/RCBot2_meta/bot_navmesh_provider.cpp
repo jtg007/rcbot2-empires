@@ -666,6 +666,7 @@ void Frame()
 					route.jumps, engine->Time() - route.lastJump, gpGlobals->tickcount);
 				bool worldBlocked = false;
 				bool doorBlocked = false;
+				bool vehicleBlocked = false;
 				bool buildingBlocked = false;
 				edict_t* closedDoor = nullptr;
 				edict_t* blockingBuilding = nullptr;
@@ -697,6 +698,7 @@ void Frame()
 								return name == nullptr || (strcmp(name, "emp_eng_restrict") != 0 &&
 									strcmp(name, "emp_comm_restrict") != 0 &&
 									strcmp(name, "emp_building_vehicle_physbox") != 0 &&
+									strcmp(name, "emp_resource_point") != 0 &&
 									strcmp(name, "player") != 0);
 							}
 						private:
@@ -725,18 +727,23 @@ void Frame()
 						// Buildings have their own detours, an unused door gets a use first.
 						const char* hitName = e != nullptr ? e->GetClassName() : nullptr;
 						// A building the detour could not plan around (palmbay 171039: NF barracks
-						// next to the CV, nav-detour-fail no-exit, the mesh planned through it for 4 min).
-						if (lift == 2.0f && !hit.startsolid && hit.fraction < 1.0f && hitName != nullptr &&
+						// next to the CV, nav-detour-fail no-exit, the mesh planned through it for 4 min;
+						// crossroads 213339: bot pressed flush against barracks had start_solid=1).
+						if (lift == 2.0f && (hit.fraction < 1.0f || hit.startsolid) && hitName != nullptr &&
 							std::strncmp(hitName, "emp_building", 12) == 0)
 						{
 							buildingBlocked = true;
 							blockingBuilding = e;
 						}
-						// A parked or abandoned vehicle is just as unknown to the mesh; a bot already
-						// pressed into its hull (start_solid) must plan around it too (TODO 3.16/3.26:
-						// Crossroads 212642 20 of 39, Palmbay 211833 14 of 23 stalls hit emp_vehicle).
+						// A parked or abandoned vehicle is transient: apply a soft infantry-only
+						// single-edge penalty rather than a 60 s box block (which trapped the tank
+						// itself and caused 2127 no-path failures in crossroads 20261122-131813).
 						const bool vehicleHit = hitName != nullptr && std::strcmp(hitName, "emp_vehicle") == 0;
-						if ((!hit.startsolid || vehicleHit) && (hit.fraction < 1.0f || hit.startsolid) && hitName != nullptr &&
+						if (vehicleHit && (hit.fraction < 1.0f || hit.startsolid))
+						{
+							vehicleBlocked = true;
+						}
+						else if (!hit.startsolid && hit.fraction < 1.0f && hitName != nullptr &&
 							engine->IndexOfEdict(e) != 0 && std::strcmp(hitName, "player") != 0 &&
 							std::strncmp(hitName, "emp_building", 12) != 0 &&
 							std::strncmp(hitName, "func_door", 9) != 0 && std::strncmp(hitName, "prop_door", 9) != 0)
@@ -845,6 +852,28 @@ void Frame()
 					{
 						worldBlocked = true;
 						edgeSeconds = 60.0f;
+					}
+				}
+				if (vehicleBlocked && !worldBlocked && !doorBlocked)
+				{
+					const int exactArea = RCBotNavMesh::GetAreaIdAtPosition(here);
+					const int nearArea = RCBotNavMesh::GetNearestAreaId(here);
+					bool blocked = false;
+					for (std::size_t i = 0; !blocked && i + 1 < route.path.areaIds.size(); ++i)
+					{
+						const int id = static_cast<int>(route.path.areaIds[i]);
+						if (id != exactArea && id != nearArea)
+							continue;
+						RCBotNavMesh::BlockInfantryEdge(route.path.areaIds[i], route.path.areaIds[i + 1], 15.0f);
+						RCBOT_DIAG("[RCBOT2] navmesh-vehicle-edge-blocked from=%u to=%u\n",
+							route.path.areaIds[i], route.path.areaIds[i + 1]);
+						blocked = true;
+					}
+					if (!blocked)
+					{
+						unsigned fromId = 0, toId = 0;
+						if (RCBotNavMesh::BlockInfantryEdgeNearestOnPath(here, route.path.areaIds, fromId, toId, 15.0f))
+							RCBOT_DIAG("[RCBOT2] navmesh-vehicle-edge-blocked from=%u to=%u (nearest)\n", fromId, toId);
 					}
 				}
 				if (worldBlocked)

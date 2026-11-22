@@ -146,6 +146,8 @@ namespace RCBotNavMesh
 // there and could not move on). Valid for the loaded map only.
 std::set<std::pair<unsigned, unsigned>> s_blockedEdges;
 std::map<std::pair<unsigned, unsigned>, float> s_timedBlockedEdges; // until gpGlobals->curtime
+// Links temporarily blocked for infantry by a transient vehicle (soft cost penalty, never blocks vehicles).
+std::map<std::pair<unsigned, unsigned>, float> s_infantryBlockedEdges;
 // Links a vehicle got stuck on (infantry may still use them).
 std::map<std::pair<unsigned, unsigned>, float> s_vehicleBlockedEdges;
 // Areas whose water reaches head height (a player there swims and can drown; palmbay
@@ -223,6 +225,41 @@ bool BlockEdgeNearestOnPath(const Vector &position, const std::vector<unsigned i
 	fromAreaId = areaIds[bestIndex];
 	toAreaId = areaIds[bestIndex + 1];
 	BlockEdge(fromAreaId, toAreaId, seconds);
+	return true;
+}
+
+void BlockInfantryEdge(unsigned fromAreaId, unsigned toAreaId, const float seconds)
+{
+	if (seconds > 0.0f && gpGlobals != nullptr)
+		s_infantryBlockedEdges[{fromAreaId, toAreaId}] = gpGlobals->curtime + seconds;
+}
+
+bool BlockInfantryEdgeNearestOnPath(const Vector &position, const std::vector<unsigned int> &areaIds,
+	unsigned &fromAreaId, unsigned &toAreaId, const float seconds)
+{
+	if (!IsLoaded())
+		return false;
+	float best = (std::numeric_limits<float>::max)();
+	std::size_t bestIndex = areaIds.size();
+	for (std::size_t i = 0; i + 1 < areaIds.size(); ++i)
+	{
+		CNavArea *area = TheNavMesh->GetNavAreaByID(areaIds[i]);
+		if (area == nullptr)
+			continue;
+		Vector closest;
+		area->GetClosestPointOnArea(position, &closest);
+		const float distance = (closest - position).Length();
+		if (distance < best)
+		{
+			best = distance;
+			bestIndex = i;
+		}
+	}
+	if (bestIndex >= areaIds.size() || best > 96.0f)
+		return false;
+	fromAreaId = areaIds[bestIndex];
+	toAreaId = areaIds[bestIndex + 1];
+	BlockInfantryEdge(fromAreaId, toAreaId, seconds);
 	return true;
 }
 
@@ -402,6 +439,7 @@ void ClearBlockedEdges()
 {
 	s_blockedEdges.clear();
 	s_timedBlockedEdges.clear();
+	s_infantryBlockedEdges.clear();
 	s_vehicleBlockedEdges.clear();
 	s_waterDepth.clear();
 	s_vehicleNarrow.clear();
@@ -688,6 +726,12 @@ public:
 		const auto timed = s_timedBlockedEdges.find({fromArea->GetID(), area->GetID()});
 		if (timed != s_timedBlockedEdges.end() && gpGlobals != nullptr && gpGlobals->curtime < timed->second)
 			return -1.0f;
+		// Transient vehicle block: high soft cost for infantry so detours are taken
+		// without trapping bots in no-path or affecting vehicle routing.
+		float vehiclePenalty = 0.0f;
+		const auto infBlock = s_infantryBlockedEdges.find({fromArea->GetID(), area->GetID()});
+		if (infBlock != s_infantryBlockedEdges.end() && gpGlobals != nullptr && gpGlobals->curtime < infBlock->second)
+			vehiclePenalty = 2500.0f;
 		// Entering an enemy turret's circle: very expensive instead of forbidden. A detour is still
 		// taken whenever one exists; with none (emp_dmz_b1 gates shut: the only east-west way runs
 		// through a lvl3 turret's 4000 circle) the route goes through instead of no-path everywhere
@@ -723,7 +767,7 @@ public:
 			const float dist = length > 0.0f ? length : (area->GetCenter() - fromArea->GetCenter()).Length();
 			waterPenalty = dist * (AreaDeepWater(area) ? 9.0f : 0.5f);
 		}
-		const float effectiveCost = baseCost + waterPenalty + dangerPenalty +
+		const float effectiveCost = baseCost + waterPenalty + dangerPenalty + vehiclePenalty +
 			static_cast<float>(learned.penalty);
 		if (learned.penalty > 0.0 && m_observer != nullptr)
 			EmpiresAnalysis::RecordLearnedNavigationEdgeConsidered(m_observer,
@@ -778,19 +822,20 @@ std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nu
 		// to the mesh (BE Engineer pushed into emp_imp_commander for 245 s).
 		const bool commanderVehicle = name != nullptr &&
 			(std::strcmp(name, "emp_nf_commander") == 0 || std::strcmp(name, "emp_imp_commander") == 0);
-		// Vehicle routes only: solid prop_dynamic trees/roadblocks are unknown to the mesh as well
-		// (Crossroads orexcluster2a at (2694 6684): APC wedged 12x across runs, 22.11.). Infantry
-		// paths stay unchanged.
+		// Vehicle routes only: solid prop_dynamic trees/roadblocks and building vehicle physboxes
+		// are unknown to the mesh as well (Crossroads 20261122-213339: 19 prop_dynamic + 6 physbox
+		// vehicle stalls). Infantry paths stay unchanged (players walk through vehicle physboxes).
 		const bool vehicleProp = drivenVehicle != nullptr && name != nullptr && std::strcmp(name, "prop_dynamic") == 0;
+		const bool isPhysbox = name != nullptr && std::strstr(name, "physbox") != nullptr;
 		if (name == nullptr || (!commanderVehicle && !vehicleProp && (std::strncmp(name, "emp_building_", 13) != 0 ||
-			std::strstr(name, "physbox") != nullptr)))
+			(drivenVehicle == nullptr && isPhysbox))))
 			continue;
 		ICollideable* collideable = edict->GetCollideable();
 		IServerEntity* serverEntity = edict->GetIServerEntity();
 		if (collideable == nullptr || serverEntity == nullptr ||
 			collideable->GetSolid() == SOLID_NONE)
 			continue;
-		if (vehicleProp && (collideable->GetSolidFlags() & FSOLID_NOT_SOLID) != 0)
+		if ((vehicleProp || isPhysbox) && (collideable->GetSolidFlags() & FSOLID_NOT_SOLID) != 0)
 			continue;
 		BuildingBox box;
 		box.handle = serverEntity;
@@ -1022,8 +1067,12 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	if (InPaddedBox(target, box, 48.0f))
 	{
 		// The route ends at the building itself: walk to the free cell nearest
-		// to the target instead of looking for a way past the building.
-		float nearest = kDetourCell * 2.0f;
+		// to the target instead of looking for a way past the building. If the
+		// target sits inside solid building geometry (e.g. barracks/refinery
+		// center), accept the nearest free cell outside the wall rather than
+		// failing with no-exit.
+		const bool targetSolid = !HullClearOfBuilding(targetAtPlane, targetAtPlane, box);
+		float nearest = targetSolid ? (std::numeric_limits<float>::max)() : kDetourCell * 2.0f;
 		for (int cell = 0; cell < width * height; ++cell)
 		{
 			if (cost[cell] == (std::numeric_limits<float>::max)())
@@ -1185,8 +1234,15 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false, const edict
 				path.points[last].x, path.points[last].y, static_cast<long long>(micros));
 			if (planned)
 			{
-				path.points.erase(path.points.begin() + i + 1, path.points.begin() + last);
+				const Vector finalPt = path.points[last];
+				const bool dropSolidGoal = (last + 1 == path.points.size()) &&
+					InPaddedBox(finalPt, box, 48.0f) &&
+					!HullClearOfBuilding(Vector(finalPt.x, finalPt.y, planeZ), Vector(finalPt.x, finalPt.y, planeZ), box);
+				path.points.erase(path.points.begin() + i + 1,
+					dropSolidGoal ? path.points.end() : (path.points.begin() + last));
 				path.points.insert(path.points.begin() + i + 1, detour.begin(), detour.end());
+				if (dropSolidGoal)
+					break;
 				// Check the outgoing leg for another building as well.
 				i += detour.size() - 1;
 				++applied;

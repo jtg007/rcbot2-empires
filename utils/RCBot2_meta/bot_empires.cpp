@@ -1754,6 +1754,9 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	// the generic bot schedule a hide task.  Keep the normal damage bookkeeping
 	// but suppress the autonomous cover interruption until the order completes.
 	if (isEmpiresCommanderMoveActive() ||
+		empiresVehicleOwnsBot() ||
+		m_iCommanderEntryStage != 0 ||
+		m_iCommanderBuildStage != 0 ||
 		(engine != nullptr && m_pEdict != nullptr &&
 		 EmpiresLawlietIsCrew(getTeam(), engine->IndexOfEdict(m_pEdict))))
 	{

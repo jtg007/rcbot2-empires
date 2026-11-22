@@ -530,6 +530,7 @@ void CBotEmpires::interruptEmpiresEngineerSupportForCombat(
 		m_pSchedules->freeMemory();
 	if (m_pNavigator != nullptr)
 		m_pNavigator->clear();
+	m_flMeshCoverUntil = 0.0f;
 	m_bEmpiresCoverScheduleActive = false;
 	m_fForwardSpeed = 0.0f;
 	m_fSideSpeed = 0.0f;
@@ -573,6 +574,7 @@ void CBotEmpires::interruptEmpiresEngineerResupplyForCombat(
 		m_pSchedules->freeMemory();
 	if (m_pNavigator != nullptr)
 		m_pNavigator->clear();
+	m_flMeshCoverUntil = 0.0f;
 	m_bEmpiresCoverScheduleActive = false;
 	m_fForwardSpeed = 0.0f;
 	m_fSideSpeed = 0.0f;

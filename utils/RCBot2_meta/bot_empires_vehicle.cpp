@@ -618,7 +618,13 @@ public:
 		const char* cls = e != nullptr ? e->GetClassName() : nullptr;
 		if (cls == nullptr || e == m_ignored)
 			return false;
-		return (std::strncmp(cls, "emp_building_", 13) == 0 && std::strstr(cls, "physbox") == nullptr) ||
+		if (std::strcmp(cls, "prop_dynamic") == 0)
+		{
+			ICollideable* col = e->GetCollideable();
+			return col != nullptr && col->GetSolid() != SOLID_NONE &&
+				(col->GetSolidFlags() & FSOLID_NOT_SOLID) == 0;
+		}
+		return std::strncmp(cls, "emp_building_", 13) == 0 ||
 			std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0;
 	}
 
@@ -3488,15 +3494,15 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.nextAction = now;
 			setStage(EmpiresVehicleStage::ENTERING, 8.0f);
 		}
-		// ENTERING: look at the body and tap use.
-		VectorAngles(nearest - getEyePosition(), v.view);
+		// ENTERING: look at the vehicle body (not the bloated OBB corner) and tap use.
+		VectorAngles(center - getEyePosition(), v.view);
 		v.view.z = 0.0f;
 		if (distance > kEnterDistance + 120.0f && hullDist > 160.0f)
 		{
 			setStage(EmpiresVehicleStage::APPROACH, 30.0f);
 			return;
 		}
-		if (hullDist > 65.0f)
+		if (distance > 110.0f || hullDist > 16.0f)
 			v.forward = kMaxMove * 0.5f; // creep closer while trying
 		if (now >= v.nextAction)
 		{
@@ -4086,7 +4092,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					}
 					else if (combatOwnCvKnown && Dist2D(combatOwnCv, at) < 1500.0f)
 					{
-						score -= 3600.0f; // immediate CV threat overrides APC priority
+						score -= 6000.0f; // immediate CV threat overrides APC priority (TODO 3.24)
 					}
 				}
 				if (dist < (v.billNye ? 20000.0f : 4000.0f) && score < bestScore)
@@ -4272,9 +4278,11 @@ void CBotEmpires::tickEmpiresVehicle()
 				for (const Vector& asset : ownAssets)
 					minAssetDist = (std::min)(minAssetDist, Dist2D(asset, at));
 				const bool nearAsset = minAssetDist < (isApc ? 3500.0f : 3000.0f);
-				const float score = d - (isApc ? 3000.0f : 0.0f);
-				const bool canDefend = nearAsset && score < bestDefend;
-				const bool canHunt = d < (isApc ? 7000.0f : 6000.0f) && score < bestHunt;
+				const bool immediateCvThreat = !isApc && ownCvKnown && Dist2D(ownCvOrigin, at) < 1500.0f;
+				const float defendScore = d - (immediateCvThreat ? 6000.0f : (isApc ? 3000.0f : 0.0f));
+				const float huntScore = d - (isApc ? 3000.0f : 0.0f);
+				const bool canDefend = nearAsset && defendScore < bestDefend;
+				const bool canHunt = d < (isApc ? 7000.0f : 6000.0f) && huntScore < bestHunt;
 				if (!canDefend && !canHunt)
 					continue;
 				bool spotted = false;
@@ -4294,7 +4302,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				if (canDefend && (!isApc || spotted))
 				{
-					bestDefend = score;
+					bestDefend = defendScore;
 					defendAt = at;
 					defendApcEnt = isApc ? i : -1;
 					defendApcChassis = eChassis;
@@ -4303,7 +4311,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				if (canHunt && spotted)
 				{
-					bestHunt = score;
+					bestHunt = huntScore;
 					huntAt = at;
 					huntApcEnt = isApc ? i : -1;
 					huntApcChassis = eChassis;
@@ -4838,10 +4846,11 @@ void CBotEmpires::tickEmpiresVehicle()
 		// One weak side: turn a strong one to the enemy (below). Back only when
 		// every side is nearly through or the hull is low.
 		const bool armorGone = bestSide >= 0 && bestArmor < 0.3f;
-		// 3.10d: an MG sharing its button with the cannon (adopted vehicle, other loadout) cannot be
-		// used on infantry (mg-mixed); refit the own loadout on a pad. Only light tank / AFV: the
-		// refit commands carry their slot order, armor and engine.
-		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV && (chassis == 2 || chassis == 10) &&
+		// 3.10d / 3.10b: an MG sharing its button with the cannon (adopted vehicle, other loadout)
+		// cannot be used on infantry (mg-mixed), or heavy weapons are empty; refit/rearm on a pad
+		// (or crate/ammo-call). Supports all refittable tank chassis (Light/AFV, Medium, Heavy).
+		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV &&
+			EmpiresVehicleLoadout::IsRefittableTankChassis(chassis) &&
 			now >= v.loadoutCheckAt && (v.loadoutVerify || (now >= v.loadoutRetryAt && now >= v.retreatCooldownUntil)))
 		{
 			v.loadoutCheckAt = now + 3.0f;
@@ -5227,7 +5236,6 @@ void CBotEmpires::tickEmpiresVehicle()
 				now >= v.refitNext && helpers != nullptr)
 			{
 				const bool nf = team == 2;
-				const bool jeep = chassis == 0 || chassis == 8;
 				char command[96] = "";
 				// Same loadout as bought: the game charges only the difference to the vehicle's
 				// total cost (0x6550a7), so this refit is free and needs no reserve check
@@ -5521,6 +5529,7 @@ void CBotEmpires::tickEmpiresVehicle()
 	if (!closeManeuver && Dist2D(origin, driveTo) > 300.0f)
 	{
 		const edict_t* drivenCV = v.commanderCV ? vehicle : nullptr;
+		const edict_t* sightVehicle = v.padInside ? nullptr : vehicle;
 		if (now >= v.nextReplan || Dist2D(v.routeGoal, driveTo) > 500.0f)
 		{
 			v.nextManeuver = 0.0f;
@@ -5528,7 +5537,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.routeGoal = driveTo;
 			RCBotNavMesh::Path path;
 			const RCBotNavMesh::PathResult result =
-				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, drivenCV);
+				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, vehicle);
 			const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2;
 			if (static_cast<int>(result) != v.routeResult || (ok && v.route.empty()) || path.partial != v.routePartial)
 				RCBOT_DIAG("[RCBOT2] vehicle route userid=%d result=%s%s points=%zu length=%.0f from=(%.0f %.0f %.0f) "
@@ -5584,7 +5593,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			{
 				along += Dist2D(v.route[k - 1], v.route[k]);
 				if (along > look || std::fabs(v.route[k].z - origin.z) > 200.0f ||
-					!DriveLineClear(origin, v.route[k], v.width * 0.5f, drivenCV))
+					!DriveLineClear(origin, v.route[k], v.width * 0.5f, sightVehicle))
 					break;
 				pick = k;
 			}

@@ -16,8 +16,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 1. **Palmbay vehicles (3.27, 5.14a).** In a 10-bot 1x match (`20261122-124651`) bots climbed the boat ladders and started a capture, no ladder blockage lasted over 20 s, and no APC was lost in water. A spawn APC without a known support spot no longer parks in front of its own factory; it falls through to a push goal. Whether flank parking produces usable spawns is still open.
 2. **Front support (3.10c, 5.26, 3.25, 5.30).** Engineers can answer a human infantry ammo request, infantry can seek navmesh cover under fire, and a seated commander can assign one attacking grenadier to an APC seen by a teammate. Observe actual refills, target engagement and resumption of the original objective. These changes have a Linux x86 build; gameplay verification is pending.
 3. **Team roles (5.4, 5.8, 5.28).** In a 10-bot Coast match at 1x (`20261122-124709`) two bots ordered to push flag 168 stayed together and reached it. Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
-4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault). Run `021732` also recorded a crate 388 units from the CV. Open cases are the automatic trigger, a crew member actually replenishing grenades and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
-5. **Target knowledge (3.20).** Tank hunting, tank defense against APCs and the commander's target call require a sightline from the driver or a teammate. Grenadier mortar targeting can still use an unseen APC position. Check in a match that a hidden APC near a friendly building becomes a defense target only once a teammate sees it.
+4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault), and after fixing boarding aim/distance (`20261122-223256`) a forced 4-minute Crossroads run boarded cleanly (`aboard=3/3`, `cv-stunned`, BE CV HP 1.00 → 0.55). Run `021732` also recorded a crate 388 units from the CV. Open cases are boarding under the automatic match trigger (which previously timed out once in `20261122-213339`), a crew member actually replenishing grenades, and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
+5. **Target knowledge (3.20).** Tank hunting, tank defense against APCs, commander target calls, and grenadier mortar targeting of APCs all require a sightline from the bot or a living teammate. Check in a match that a hidden APC near a friendly building becomes a defense or mortar target only once a teammate sees it.
 6. **Next human session.** Verify the EngiBot purchase with SourceMod, commander orders and vehicle handover. Keep the Coast refinery stand spot (5.8e) parked until evidence identifies the obstruction.
 
 ## 1. Being measured
@@ -156,10 +156,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   alert lasts 40 s after its last trigger and moves to another building only for a clearly stronger threat, and a
   bot stalled at a building forbids that mesh link for 60 s (palmbay 1x: swaps 11 -> 8, max per bot 9 -> 3, a 4 min
   stall at the own barracks -> 68 s). How the roles feel needs a human test.
-- [ ] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
+- [x] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
-  20 HP/s once the centre is wet). Fords on emp_cyclopean are not measured yet. palmbay boat flags (deck only by
-  ladders from the water) are skipped; capturing them needs swimming to the ladder and climbing.
+  20 HP/s once the centre is wet). Palmbay boat flags are captured by swimming to the boat ladder, climbing
+  onto the deck, and jumping back into the water afterwards (verified in 10-bot 1x match `20261122-124651`).
+  Fords on `emp_cyclopean` are not measured yet.
 - [ ] **Gates:** doors and sliding gates (`func_movelinear`) count as passable when generating, and routing
   blocks the links a gate covers while shut (`navmesh-gate`). On emp_dmz_b1 (paths open by player count) the
   `no-path` everywhere came from an enemy turret's danger circle being forbidden while the only open way ran
@@ -442,19 +443,19 @@ When the following cases recur, compare the relevant trace and route.
   runs a driving tank outran the scout. Outside throw range, Scouts now drop chases above 150 HU/s. Verify stun and sticky hits at 1x.
 - Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
-  modes, groups, magazine and reserve every 0.25 s; MG only against infantry (up to 1200, the MG
-  round flies 1000 u/s; never the cannon, no infantry target without MG ammo), no fire while the MG reloads;
+  modes, groups, magazine and reserve every 0.25 s; hitscan MG only against infantry (up to 1200;
+  never the cannon, no infantry target without MG ammo), no fire while the MG reloads;
   cannon/missiles against vehicles and buildings. Run `20261114-150322-emp_crossroads-10b-12m`
   (10 bots, real time): MG magazine 60→0 and reserve 4→0 under IN_ATTACK, then IN_ATTACK2 and
   cannon 40→36; one armour target used the cannon. Still open: switching fire groups,
   adding a missile launcher to the bots' loadout, and measured damage. Weapons must match slot
   type and size per chassis (light tank/AFV take only size-1 weapons; slot 2 is the missile slot).
   If the MG shares its button with another weapon (a loadout the bot did not buy), the bot holds
-  fire at infantry (`why=mg-mixed`). Built for light tank/AFV: the loadout is read every 3 s; a
+  fire at infantry (`why=mg-mixed`). Built for all tank chassis (Light/AFV, Medium, Heavy): the loadout is read every 3 s; a
   mixed one sends the tank to the own finished repair pad (`vehicle retreat reason=loadout`), which
-  refits the bot loadout and logs `vehicle loadout-check` (measured: `12:a2,0:a2` before, MG alone
+  refits the bot loadout and logs `vehicle loadout-check` (measured on Light/AFV: `12:a2,0:a2` before, MG alone
   on IN_ATTACK after). Without a pad the trip gives up after 30 s and waits 120 s. Test cvar
-  `rcbot_empires_vehicle_debug_mixed 1` buys such a loadout. Other chassis still open.
+  `rcbot_empires_vehicle_debug_mixed 1` buys such a loadout. Medium/Heavy refit awaits match verification.
   Vehicles have multiple weapon slots assignable to primary or secondary fire; account
   for the actual loadout and groups instead of assuming a fixed slot or button. Requested
   setup: group 1 cannon primary and missile secondary for buildings and vehicles; group 2

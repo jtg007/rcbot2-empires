@@ -105,6 +105,25 @@ int main()
 		const Loadout upRefit = ChooseRefitLoadout(false, 10, tech, true, 500.0f);
 		Require(upRefit.chassis == 10 && upRefit.armorType == kArmorComposite && upRefit.engine == kEngineLightGas,
 			"VL-12 upgraded refit applies composite+gas on existing chassis");
+
+		// Medium and Heavy chassis are refittable and preserve their chassis & slot layout.
+		Require(IsRefittableTankChassis(2) && IsRefittableTankChassis(3) && IsRefittableTankChassis(5) &&
+			IsRefittableTankChassis(10) && IsRefittableTankChassis(11) && IsRefittableTankChassis(13) &&
+			!IsRefittableTankChassis(0) && !IsRefittableTankChassis(1) &&
+			!IsRefittableTankChassis(8) && !IsRefittableTankChassis(9),
+			"VL-13 IsRefittableTankChassis covers all 6 tank chassis only");
+
+		const Loadout nfMedRefit = ChooseRefitLoadout(true, 3, tech, false, 1000.0f);
+		Require(nfMedRefit.chassis == 3 && nfMedRefit.cannonSlot == 0 && nfMedRefit.mgSlot == 1 &&
+			nfMedRefit.armorType == kArmorPlain && nfMedRefit.engine == kEngineMedStd &&
+			nfMedRefit.totalWeight <= nfMedRefit.maxWeight,
+			"VL-14 NF medium ammo refit");
+
+		const Loadout beHeavyRefit = ChooseRefitLoadout(false, 13, tech, true, 1500.0f);
+		Require(beHeavyRefit.chassis == 13 && beHeavyRefit.cannonSlot == 0 && beHeavyRefit.mgSlot == 2 &&
+			beHeavyRefit.armorType == kArmorComposite && beHeavyRefit.engine == kEngineHeavyGas &&
+			beHeavyRefit.totalWeight <= beHeavyRefit.maxWeight,
+			"VL-15 BE heavy upgraded refit");
 	}
 
 	// 5. Exhaustive weight invariant across all tech & team combinations.

@@ -129,6 +129,9 @@ void CBotEmpires::releaseCommanderOrders(int team, const char* reason)
 	}
 	RCBOT_DIAG("[RCBOT2] commander-orders release team=%d point=%d units=%d reason=%s\n", team, orders.point, count, reason);
 	orders.point = -1;
+	orders.focusUser = -1;
+	orders.focusEntity = -1;
+	orders.focusUntil = 0.0f;
 }
 
 void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)

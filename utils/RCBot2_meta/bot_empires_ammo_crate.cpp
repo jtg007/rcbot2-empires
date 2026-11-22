@@ -154,6 +154,8 @@ EmpiresAmmoRequest* OpenRequest(CBotEmpires* bot, int team, int userId, const Ve
 
 void EmpiresRecordInfantryAmmoCall(edict_t* player)
 {
+	if (player == nullptr || player->IsFree() || engine == nullptr || gpGlobals == nullptr)
+		return;
 	IPlayerInfo* info = playerinfomanager ? playerinfomanager->GetPlayerInfo(player) : nullptr;
 	if (!info || info->IsFakeClient() || info->IsDead() || info->IsInAVehicle() ||
 		(info->GetTeamIndex() != 2 && info->GetTeamIndex() != 3))

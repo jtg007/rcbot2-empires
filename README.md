@@ -39,14 +39,14 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 > **Legend:** `✅` works in matches · `🟡` partial / not yet reliable · `⬜` planned
 
 <details>
-<summary><strong>🧭 Movement & Navigation</strong> — <code>3 ✅</code> · <code>3 🟡</code></summary>
+<summary><strong>🧭 Movement & Navigation</strong> — <code>4 ✅</code> · <code>2 🟡</code></summary>
 
 <br>
 
 | Status | Feature | Notes |
 |:---:|---|---|
-| ✅ | **Waypoint-free navigation** | Generated navmesh; routes around buildings placed during the match |
-| ✅ | **Stuck recovery** | Detects stalls, backs off, tries another route; avoids blocked links near buildings for 60 s |
+| ✅ | **Waypoint-free navigation** | Generated navmesh; routes around buildings placed during the match and ends at the nearest walkable spot outside solid building walls when a goal lies inside a structure |
+| ✅ | **Stuck recovery** | Detects stalls (including flush building contacts), backs off, and tries another route; avoids blocked links near buildings for 60 s and applies a soft 15 s infantry-only edge penalty for vehicles without blocking vehicle routing |
 | ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
 | 🟡 | **Doors and gates** | Bots reserve a door button only if the route ends within 72 horizontal units of it; Crossroads base gates and ramps remain problematic |
 | 🟡 | **Map coverage** | 21 of 22 multiplayer maps have a generated navmesh and completed a short run without a crash, including Conquest (`con_district402`, `con_glycencity`) and `as_escort`; `emp_mvalley` still lacks a navmesh, and round end (tickets 0, sudden death) is untested |
@@ -55,7 +55,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🎖️ Commander</strong> — <code>5 ✅</code> · <code>5 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🎖️ Commander</strong> — <code>7 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
 
 <br>
 
@@ -66,11 +66,11 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Engineer dispatch** | Sends free engineers to unfinished or damaged buildings; stalled engineers try another side, then release the job |
 | ✅ | **Vehicle factory placement** | Reserves a clear spot near the CV with the exit facing the enemy, or drives to a remote site |
 | ✅ | **CV survival** | Pulls back from nearby enemy vehicles or heavy fire |
+| ✅ | **Research** | Radar, Structural Engineering, and Vehicle Factory first, then turrets, APC spawn, chassis, armor, engines, and heavy tanks; resumes paused research and resets on radar loss |
+| ✅ | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
 | 🟡 | **Human handover** | Yields the seat when a human enters or uses the CV *(not yet tested with a real player)* |
 | 🟡 | **Driving the CV** | Drives to distant build sites and slows to about 250 u/s in the last 800 units, so it no longer overshoots the site onto slopes; gives up after 25 s without progress and builds from its current spot |
-| 🟡 | **Research** | Radar, Structural Engineering, and Vehicle Factory first, then turrets, APC spawn, chassis, armor, engines, and heavy tanks |
-| 🟡 | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
-| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner. A new guard assignment can split an attacking pair en route to a flag |
+| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner |
 | ⬜ | **Strategic adaptation** | Prioritize resource points by value and react dynamically to lost buildings |
 
 </details>
@@ -93,7 +93,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🪖 Infantry</strong> — <code>4 ✅</code> · <code>6 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>4 🟡</code> · <code>1 ⬜</code></summary>
 
 <br>
 
@@ -103,9 +103,9 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); navmesh cover under fire awaits match verification, and class spacing remains open |
 | ✅ | **Flag capture** | Captures objectives on maps with capture points |
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
-| 🟡 | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
+| ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
+| ✅ | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
 | 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
-| 🟡 | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
 | 🟡 | **Squads, mines, binoculars** | Implemented, rarely used |
@@ -114,7 +114,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🚜 Vehicles</strong> — <code>5 ✅</code> · <code>5 🟡</code></summary>
+<summary><strong>🚜 Vehicles</strong> — <code>6 ✅</code> · <code>4 🟡</code></summary>
 
 <br>
 
@@ -122,13 +122,13 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 |:---:|---|---|
 | ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay after observing an empty driver seat for five seconds. Movement over 100 units from the start of that interval restarts the timer. A nearby human teammate within 250 units keeps priority in the bay even after 30 seconds. Engine-reported bots from other plugins do not reserve the vehicle. The updated timer and human priority await a handover check |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
-| ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings and solid map props (trees, roadblocks), and avoids drop-offs or water too deep for the chassis |
+| ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings, building vehicle physboxes, and solid map props (trees, roadblocks) for all vehicle classes, and avoids drop-offs or water too deep for the chassis |
 | ✅ | **Retreat & repair** | Returns to the repair pad when damaged. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
 | ✅ | **Roadkills** | Runs over enemy infantry |
-| 🟡 | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
-| 🟡 | **Target priority** | Defend base → hunt spotted tanks → support front → push enemy buildings → enemy CV |
-| 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo |
-| 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) waits for a confirmed crew driver before it rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate (observed in one of four forced Crossroads runs; Scouts and Riflemen can seek resupply after the last grenade disappears from inventory; a refill remains unconfirmed) *(distant crew bots respawn at base; disconnected bots leave the crew before their slot is reused; forced mode at 1×: CV destroyed in about 60 s; auto trigger not yet seen in a match)* |
+| ✅ | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
+| 🟡 | **Target priority** | Defend base (immediate CV threats first) → hunt spotted tanks → support front → push enemy buildings → enemy CV *(CV-threat override over APCs awaits match verification)* |
+| 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo; Light/AFV, Medium, and Heavy tanks can retreat to refit/rearm *(Medium/Heavy and simultaneous calls pending verification)* |
+| 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) waits for a confirmed crew driver before it rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate (observed in one of four forced Crossroads runs; Scouts and Riflemen can seek resupply after the last grenade disappears from inventory; a refill remains unconfirmed) *(distant crew bots respawn at base; disconnected bots leave the crew before their slot is reused; boarding aims at the vehicle center and closes in until in use range; forced mode at 1× boards cleanly and damages/destroys the CV; auto trigger boarding awaits match verification)* |
 | 🟡 | **Bill Nye mode** | Scout jeeps ram enemy vehicles off the road on `emp_rainbowroad` *(occasionally falls off itself)* |
 
 </details>
@@ -238,7 +238,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
-- Tanks defending a friendly asset require the same driver or teammate sightline to an enemy APC as hunting tanks. Grenadier mortar targeting can use an unseen APC position if it finds a firing arc.
+- Tanks defending a friendly asset and grenadiers mortaring an enemy APC now require a driver/grenadier or teammate sightline *(pending match verification)*.
 - **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
 - **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
