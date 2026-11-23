@@ -731,8 +731,8 @@ private:
 	void ResetNodes( void );									// nodes are going away as part of an incremental nav generation
 	void Strip( void );											// remove "analyzed" data from nav area
 
-	void FinishMerge( CNavMesh *TheNavMesh, CNavArea *adjArea );						// recompute internal data once nodes have been adjusted during merge
-	void MergeAdjacentConnections( CNavMesh *TheNavMesh, CNavArea *adjArea );			// for merging with "adjArea" - pick up all of "adjArea"s connections
+	void FinishMerge( CNavMesh *TheNavMesh, CNavArea *adjArea, const NavAreaVector &redirect );						// recompute internal data once nodes have been adjusted during merge
+	void MergeAdjacentConnections( CNavMesh *TheNavMesh, CNavArea *adjArea, const NavAreaVector &candidates );			// for merging with "adjArea" - pick up all of "adjArea"s connections
 	void AssignNodes( CNavArea *area );							// assign internal nodes to the given area
 
 	void FinishSplitEdit( CNavArea *newArea, NavDirType ignoreEdge );	// given the portion of the original area, update its internal data

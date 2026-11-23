@@ -515,6 +515,8 @@ struct EmpiresVehicleBrain
 	bool padInside = false;
 	bool padEntryValid = false;
 	Vector padEntry = Vector(0, 0, 0);
+	Vector padProgressOrigin = Vector(0, 0, 0);
+	float padProgressSince = -1.0f;
 	float refitNext = 0.0f;
 	Vector homePark = Vector(0, 0, 0);
 	Vector homeParkFor = Vector(0, 0, 0);

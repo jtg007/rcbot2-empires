@@ -895,7 +895,7 @@ void CNavArea::AddLadderDown( CNavLadder *ladder )
  * Recompute internal data once nodes have been adjusted during merge
  * Destroy adjArea.
  */
-void CNavArea::FinishMerge( CNavMesh* TheNavMesh, CNavArea *adjArea )
+void CNavArea::FinishMerge( CNavMesh* TheNavMesh, CNavArea *adjArea, const NavAreaVector &redirect )
 {
 	// update extent
 	m_nwCorner = *m_node[ NORTH_WEST ]->GetPosition();
@@ -922,7 +922,7 @@ void CNavArea::FinishMerge( CNavMesh* TheNavMesh, CNavArea *adjArea )
 	adjArea->AssignNodes( this );
 
 	// merge adjacency links - we gain all the connections that adjArea had
-	MergeAdjacentConnections(TheNavMesh, adjArea );
+	MergeAdjacentConnections(TheNavMesh, adjArea, redirect );
 
 	// remove subsumed adjacent area
 	TheNavAreas.FindAndRemove( adjArea );
@@ -970,7 +970,7 @@ public:
 /**
  * For merging with "adjArea" - pick up all of "adjArea"s connections
  */
-void CNavArea::MergeAdjacentConnections(CNavMesh *TheNavNesh, CNavArea *adjArea )
+void CNavArea::MergeAdjacentConnections(CNavMesh *TheNavNesh, CNavArea *adjArea, const NavAreaVector &candidates )
 {
 	// merge adjacency links - we gain all the connections that adjArea had
 	int dir;
@@ -994,9 +994,9 @@ void CNavArea::MergeAdjacentConnections(CNavMesh *TheNavNesh, CNavArea *adjArea 
 	// into the merged area, one for each of the adjacent subsumed smaller ones.
 	// If an area has a connection to the merged area, we must remove all references to adjArea, and add
 	// a single connection to us.
-	FOR_EACH_VEC( TheNavAreas, it )
+	FOR_EACH_VEC( candidates, it )
 	{
-		CNavArea *area = TheNavAreas[ it ];
+		CNavArea *area = candidates[ it ];
 
 		if (area == this || area == adjArea)
 			continue;
@@ -1754,7 +1754,7 @@ bool CNavArea::MergeEdit(CNavMesh* TheNavMesh, CNavArea *adj )
 		m_swZ = GetZ( m_nwCorner.x, m_seCorner.y );
 
 	// merge adjacency links - we gain all the connections that adjArea had
-	MergeAdjacentConnections( TheNavMesh, adj );
+	MergeAdjacentConnections( TheNavMesh, adj, TheNavAreas );
 
 	InheritAttributes( adj );
 

@@ -109,6 +109,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
 | ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
 | ✅ | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
+| 🟡 | **Fewer idle guards** | Small teams (3–4 free infantry) keep no standing defender at the base without an alert, and a bot holding a defend or sector spot walks to the next spot around it every 12 s instead of standing 30 s (`rcbot_empires_lean_defense`, `rcbot_empires_defend_patrol`) *(crossroads 15-min pair: idle 1154 s vs 1422 s)* |
 | 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
@@ -127,7 +128,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay after observing an empty driver seat for five seconds. Movement over 100 units from the start of that interval restarts the timer. A nearby human teammate within 250 units keeps priority in the bay even after 30 seconds. Engine-reported bots from other plugins do not reserve the vehicle. The updated timer and human priority await a handover check |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
 | ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings, building vehicle physboxes, and solid map props (trees, roadblocks) for all vehicle classes, and avoids drop-offs or water too deep for the chassis |
-| ✅ | **Retreat & repair** | Returns to the repair pad when damaged. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
+| ✅ | **Retreat & repair** | Returns to the repair pad when damaged. A tank that moves less than 96 units from its last progress mark in eight seconds on the approach tries to free itself, even when rocking registers as speed. If repairs finish during a refit, it finishes sending the commands while it remains on the pad. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
 | ✅ | **Roadkills** | Runs over enemy infantry |
 | ✅ | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
 | 🟡 | **Target priority** | Defend base (immediate CV threats first) → hunt spotted tanks → support front → push enemy buildings → enemy CV *(CV-threat override over APCs awaits match verification)* |
@@ -227,6 +228,8 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_vehicle_drivers` | `-1` | Max vehicle drivers per team (`-1` = 40% of team bots, minimum 2) |
 | `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
 | `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
+| `rcbot_empires_lean_defense` | `1` | Standing base defender (no alert) only from 5 free infantry bots; 0 = from 3 |
+| `rcbot_empires_defend_patrol` | `1` | Defend/sector spot held 12 s, then the next spot around it (arrive within 100); 0 = 30 s hold, 250 radius |
 | `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
 
 ### Infantry Combat
@@ -300,7 +303,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 |---|---|
 | `scripts/dev_build.sh` | Incremental cached build |
 | `scripts/dev.sh <map> <bots> <minutes>` | Build, deploy, run match, and summarize. A nonempty `DEV_ROSTER` sets the bot count for the run and its health check. Names are numbered per team (`NF_01`, `NF_02`, …). A server exit while the recorder finishes counts as a failed run. Crash checks ignore Linux minidumps from Steam WebHelper or a Source server launched on a different port. Run options (`DEV_UNTIL`, `DEV_EXPECT`, `DEV_FAIL`, `DEV_TIMESCALE`, `DEV_ROSTER`, `DEV_PRE`, `DEV_CMDS`, `DEV_PORT`) |
-| `scripts/dev_check.sh` | Parallel regression suite (~1 min): offline unit tests, commander chain, long move, repair pad, turret, revive (`DEV_SKIP_UNIT_TESTS=1` skips the unit tests). Stops before building or starting servers if its temporary log directory cannot be created. |
+| `scripts/dev_check.sh` | Parallel regression suite (~1 min): offline unit tests, commander chain, long move, repair pad (repair and refit command sent on the same vehicle), turret, revive (`DEV_SKIP_UNIT_TESTS=1` skips the unit tests). Stops before building or starting servers if its temporary log directory cannot be created. |
 | `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
 | `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics. A failed match returns a failure status even when its log is available. Use `scripts/dev_team_match.sh --summarize RUN_DIR` to read the same metrics from a saved run and display its recorder table if available. |
 | `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
@@ -308,7 +311,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
-| `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server |
+| `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server with all available CPUs eligible by default (set `RCBOT_CPUS` to restrict affinity). Each sample shares its vertical clearance trace across four corners. Area merges use indexed incoming ground links and report elapsed time and candidate counts. |
 | `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |
 | `scripts/run_*_tests.sh` | Unit tests for individual headers |
 

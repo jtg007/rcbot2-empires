@@ -886,6 +886,11 @@ namespace
 	}
 
 	constexpr float kNavGoalCaptureHold = 30.0f;   // game seconds on a cap point
+	// rcbot_empires_defend_patrol: a defend/sector spot is held this long, then the next pick walks to another
+	// spot around it (crossroads 165502: 52 defend-holds of 30 s, arrivals 0-1.5 s after the pick because the
+	// 250 arrive radius covered most of the 120-420 sector ring; 1683 s idle in the match).
+	constexpr float kNavGoalDefendPatrolHold = 12.0f;
+	constexpr float kNavGoalDefendPatrolRadius = 100.0f;
 	constexpr float kNavGoalArrivedAvoid = 45.0f;  // move on after arriving
 	constexpr float kNavGoalFailAvoid = 60.0f;     // skip failed targets
 	constexpr float kNavGoalNoneRetry = 5.0f;      // nothing to pick
@@ -2709,7 +2714,8 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 
 		const Vector origin = getOrigin();
 		const float dist = empiresNavGoalDistance2D(origin, m_vEmpiresNavGoalOrigin);
-		const float radius = empiresNavGoalArriveRadius(m_iEmpiresNavGoalType);
+		const bool defendPatrol = m_iEmpiresNavGoalType == NAVGOAL_DEFEND && rcbot_empires_defend_patrol.GetBool();
+		const float radius = defendPatrol ? kNavGoalDefendPatrolRadius : empiresNavGoalArriveRadius(m_iEmpiresNavGoalType);
 		// Swimming 125 under a boat deck counted as arrived; the bot held there and drowned
 		// (emp_palmbay cp_boat, run 20261122-050235-...-p49931).
 		const bool closeInHeight = std::fabs(origin.z - m_vEmpiresNavGoalOrigin.z) < 150.0f &&
@@ -2733,7 +2739,8 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 			{
 				cancelNavigationAttempt("goal-roam-arrive");
 				m_pSchedules->freeMemory();
-				m_flEmpiresNavGoalHoldUntil = now + kNavGoalCaptureHold;
+				const float holdSeconds = defendPatrol ? kNavGoalDefendPatrolHold : kNavGoalCaptureHold;
+				m_flEmpiresNavGoalHoldUntil = now + holdSeconds;
 				m_iEmpiresDefendHoldEntity = heldEntity;
 				m_vEmpiresDefendHoldOrigin = m_vEmpiresNavGoalOrigin;
 				const CEmpiresMod* pHeldMod = static_cast<const CEmpiresMod*>(CBotGlobals::getCurrentMod());
@@ -2741,7 +2748,7 @@ bool CBotEmpires::handleEmpiresNavmeshGoal()
 					if (point.entityIndex == heldEntity)
 						m_vEmpiresDefendHoldOrigin = point.groundApproachKnown ? point.groundApproachOrigin : point.origin;
 				RCBOT_DIAG("[RCBOT2] goal-roam defend-hold userid=%d entity=%d seconds=%.0f\n",
-					engine->GetPlayerUserId(m_pEdict), heldEntity, kNavGoalCaptureHold);
+					engine->GetPlayerUserId(m_pEdict), heldEntity, holdSeconds);
 				return true;
 			}
 			cancelNavigationAttempt("goal-roam-arrive");

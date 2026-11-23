@@ -10,7 +10,7 @@
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ -n "${1:-}" ]] || { echo "usage: scripts/dev_navgen.sh <map>"; exit 1; }
 PRE="${DEV_NAVGEN_PRE:-}"
-DEV_SRCDS_ARGS="${DEV_SRCDS_ARGS:--nowatchdog}" DEV_NO_RECORDER=1 DEV_TIMESCALE=1 \
+RCBOT_CPUS="${RCBOT_CPUS-}" DEV_SRCDS_ARGS="${DEV_SRCDS_ARGS:--nowatchdog}" DEV_NO_RECORDER=1 DEV_TIMESCALE=1 \
 DEV_PRE="rcbot_empires_auto_commander 0;rcbot_empires_vehicles 0" \
 DEV_CMDS="wait 5;sv_cheats 1${PRE:+;$PRE};p_nav_generate;waitfor 1200 Navigation map .* saved" \
 DEV_UNTIL="Navigation map .* saved" DEV_SHOW="Generation complete|Navigation map|NOT found" \

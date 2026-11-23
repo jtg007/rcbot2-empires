@@ -93,6 +93,8 @@ extern ConVar rcbot_empires_engibot_cost;
 extern ConVar rcbot_empires_engibot_limit;
 extern ConVar rcbot_empires_commander_orders;
 extern ConVar rcbot_empires_kill_spawn;
+extern ConVar rcbot_empires_lean_defense;
+extern ConVar rcbot_empires_defend_patrol;
 extern ConVar rcbot_empires_skirmish;
 extern ConVar rcbot_empires_fight_odds;
 extern ConVar rcbot_empires_fight_cover;

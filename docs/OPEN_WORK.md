@@ -142,7 +142,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 - [x] **MOVE completion distance (3.18).** Streetsoffire off-mesh orders ended 63 HU from a nearby edge target, 308 HU from a blocked ground target and 196 HU from its roof counterpart on the upper level. The bot reported completion without stalling.
 - [ ] **Team director and bot commander orders (built, measuring, 5.4/5.8/5.28):** per team a small picture every
   1.5 s (phase push / base alert / stabilize, up to two push and two hold goals, alert target, tickets). Free infantry
-  (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense, at least one
+  (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense (with `rcbot_empires_lean_defense` no standing
+  defender below 5 free bots; defend/sector spots are patrolled every 12 s with `rcbot_empires_defend_patrol`), at least one
   defender on a base alert; the seated bot commander gives each group an *attack location* order on its goal
   (`commander-sector`), bots stay within 450 of it. Without reachable flags push goals are the nearest enemy
   refinery / forward barracks and the free resource point nearest the middle of the map. Defenders spawn and walk

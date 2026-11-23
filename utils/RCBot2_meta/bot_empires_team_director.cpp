@@ -705,8 +705,9 @@ void CBotEmpires::tickTeamDirector()
 		for (int g = 0; g < board.holdCount; ++g)
 			if (board.hold[g].entity >= 0 && board.hold[g].entity == board.alert.entity)
 				alertHold = g;
-	board.split = SplitRoles(count, teamBots, board.phase, board.holdCount > 0);
-	const RoleSplit calm = SplitRoles(count, teamBots, PHASE_PUSH, board.holdCount > 0);
+	const bool leanDefense = rcbot_empires_lean_defense.GetBool();
+	board.split = SplitRoles(count, teamBots, board.phase, board.holdCount > 0, leanDefense);
+	const RoleSplit calm = SplitRoles(count, teamBots, PHASE_PUSH, board.holdCount > 0, leanDefense);
 	if (alertHold >= 0 && calm.hold > 0)
 		board.split = calm;
 	else

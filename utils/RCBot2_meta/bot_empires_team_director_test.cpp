@@ -62,6 +62,26 @@ int main()
 		"middle beats deep enemy half");
 	CheckSplit(5, 5, PHASE_STABILIZE, true, 2, 2, 1, "stabilize holds more");
 	CheckSplit(5, 8, PHASE_PUSH, false, 4, 0, 1, "no hold goal pushes");
+	{
+		struct Lean { int n, teamBots, phase, p, h, d; const char* what; };
+		const Lean lean[] = {
+			{ 3, 5, PHASE_PUSH, 2, 1, 0, "lean: three bots without a standing defender" },
+			{ 4, 5, PHASE_PUSH, 2, 2, 0, "lean: four bots without a standing defender" },
+			{ 5, 5, PHASE_PUSH, 2, 2, 1, "lean: one defender from five free bots" },
+			{ 3, 8, PHASE_PUSH, 1, 1, 1, "lean: minimum from 8 team bots stays" },
+			{ 3, 5, PHASE_BASE_ALERT, 1, 1, 1, "lean: alert still takes a defender" },
+			{ 3, 5, PHASE_STABILIZE, 1, 1, 1, "lean: stabilize keeps a defender" },
+		};
+		for (const Lean& c : lean)
+		{
+			const RoleSplit s = SplitRoles(c.n, c.teamBots, c.phase, true, true);
+			if (s.push != c.p || s.hold != c.h || s.defense != c.d)
+			{
+				std::printf("FAIL %s: got %d/%d/%d want %d/%d/%d\n", c.what, s.push, s.hold, s.defense, c.p, c.h, c.d);
+				++g_failures;
+			}
+		}
+	}
 
 	// Stable assignment: previous roles are kept while they fit.
 	{

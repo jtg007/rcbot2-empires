@@ -4910,8 +4910,10 @@ void CBotEmpires::tickEmpiresVehicle()
 			// The hull may stop short of the highest value seen (run 220710:
 			// 140/150, healed while waiting): a long plateau high up counts too.
 			const bool plateau = now - v.lastHealthRise > 30.0f && hullFrac >= 0.8f && worstArmor >= 0.8f;
-			// A loadout trip ends only after the refit was sent (healthy tanks would end at once).
-			const bool refitPending = v.loadoutRefit && !v.refitDone;
+			// Damage trips can reach full HP between selecting the engine and sending the build.
+			// Allow an active sequence to finish, but release a healed tank if it loses the pad.
+			const bool activeRefit = v.refitStep > 0 && now <= v.refitNext + 2.0f;
+			const bool refitPending = !v.refitDone && (v.loadoutRefit || activeRefit);
 			const char* end = v.crateDone ? "resupplied" : refitPending ? (now - v.lastHealthRise > 180.0f ? "retreat-timeout" : nullptr) : (hullFrac >= 0.95f && worstArmor >= 0.9f) || plateau ? "repaired" :
 				now - v.lastHealthRise > 120.0f ? "retreat-timeout" : nullptr;
 			// Never park for good (user): after 20 s without repairs try again
@@ -4940,8 +4942,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			if (end != nullptr)
 			{
-				RCBOT_DIAG("[RCBOT2] vehicle %s userid=%d veh=%d hp=%.0f/%.0f armor=%d/%d/%d/%d max=%d\n", end, userId,
-					v.vehicleIndex, health, v.maxHealth, armor[0], armor[1], armor[2], armor[3], armorMax);
+				RCBOT_DIAG("[RCBOT2] vehicle %s userid=%d veh=%d hp=%.0f/%.0f armor=%d/%d/%d/%d max=%d refit_sent=%d\n", end, userId,
+					v.vehicleIndex, health, v.maxHealth, armor[0], armor[1], armor[2], armor[3], armorMax, v.refitDone ? 1 : 0);
 				v.retreating = false;
 				v.parkValid = false;
 				v.homeParkValid = false;
@@ -4972,6 +4974,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 		}
 	}
+	bool drivingToPad = false;
 	if (v.retreating)
 	{
 		// Nearest own, finished repair station, else the own command vehicle.
@@ -5164,6 +5167,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			if (v.padStation != stationIndex)
 			{
 				v.padStation = stationIndex;
+				v.padProgressSince = -1.0f;
 				v.padInside = false;
 				char why[512];
 				const std::vector<Vector> entries = RepairPadEntrances(station, origin.z, why, sizeof(why));
@@ -5177,7 +5181,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					if (RCBotNavMesh::IsLoaded())
 					{
 						RCBotNavMesh::Path route;
-						if (RCBotNavMesh::BuildVehiclePath(origin, entry, route, v.width > 0.0f ? v.width : 150.0f) ==
+						if (RCBotNavMesh::BuildVehiclePath(origin, entry, route, v.width > 0.0f ? v.width : 150.0f, false, v.waterDepth, vehicle) ==
 							RCBotNavMesh::PathResult::SUCCESS)
 							length = route.length;
 					}
@@ -5196,6 +5200,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					ranked.empty() ? -1.0f : ranked[0].first, ranked.size() > 1 ? ranked[1].first : -1.0f,
 					v.padEntryAttempt, why);
 			}
+			drivingToPad = Dist2D(origin, pad) >= 140.0f;
 			if (v.padEntryValid && !v.padInside && Dist2D(origin, v.padEntry) < 250.0f)
 			{
 				v.padInside = true;
@@ -6100,6 +6105,23 @@ void CBotEmpires::tickEmpiresVehicle()
 			forward = 0.0f;
 	}
 
+	// A rocking tank can repeatedly cross the speed threshold without moving a hull length.
+	bool padStalled = false;
+	if (!drivingToPad || lawlietHold)
+		v.padProgressSince = -1.0f;
+	else if (v.padProgressSince < 0.0f || Dist2D(origin, v.padProgressOrigin) >= 96.0f)
+	{
+		v.padProgressSince = now;
+		v.padProgressOrigin = origin;
+	}
+	else if (now - v.padProgressSince >= 8.0f && now >= v.reverseUntil)
+	{
+		padStalled = true;
+		v.padProgressSince = now;
+		RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=1 reason=pad-no-progress userid=%d veh=%d pos=(%.0f %.0f) moved=%.0f\n",
+			userId, v.vehicleIndex, origin.x, origin.y, Dist2D(origin, v.padProgressOrigin));
+	}
+
 	// Stuck while throttling: back off with the wheels turned the other way.
 	if (!applyManeuver && now < v.reverseUntil)
 	{
@@ -6114,12 +6136,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			forward = 0.0f;
 		}
 	}
-	else if (!lawlietHold && (backTurnStalled || (speed < 40.0f &&
+	else if (!lawlietHold && (padStalled || backTurnStalled || (speed < 40.0f &&
 		(applyManeuver || ((forward > 0.0f || haltedByEdge) && !facing && !(v.billNye && v.ramming))))))
 	{
-		if (!backTurnStalled && v.slowSince == 0.0f)
+		if (!padStalled && !backTurnStalled && v.slowSince == 0.0f)
 			v.slowSince = now;
-		else if (backTurnStalled || now - v.slowSince > 2.5f)
+		else if (padStalled || backTurnStalled || now - v.slowSince > 2.5f)
 		{
 			v.slowSince = 0.0f;
 			++v.stuckReverses;

@@ -55,6 +55,8 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_vehicle_drivers` | -1 | Maximum bots per team using a vehicle at once (Bill Nye not counted); -1 = 40 % of the team bots, at least 2. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: one Scout takes a jeep, rams enemy vehicles off the map, stuns them when stuck, runs over infantry. -1 = NF on maps named `*rainbowroad*`, 0 off, 2 NF, 3 BE. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_lawliet` | 1 | Lawliet mode (desperation APC rush on the enemy CV): 0 off, 1 auto when behind in research and map control (or tickets), 2 force NF, 3 force BE. | `bot_empires_lawliet.cpp/.h` |
+| `rcbot_empires_lean_defense` | 1 | The team director keeps a standing defender at the base (no alert) only from 5 free infantry bots (floor 20 %; minima from 8/12 team bots stay). 0 = round 20 %, so 3 free bots become push/hold/defense. | `bot_empires_team_director.h` |
+| `rcbot_empires_defend_patrol` | 1 | A bot holding a defend or sector spot moves on to another spot around it after 12 s instead of standing 30 s, and must walk to within 100 of the spot (0 = 30 s hold, 250 arrive radius). | `bot_empires_objective.cpp` |
 | `rcbot_empires_kill_spawn` | 1 | A defender on a base alert or a far vehicle buyer may respawn (via `kill`) at a spawn at least 3800 HU closer to its goal (no combat for 6 s, tickets > 20 and > 25 %, 90 s per bot). | `bot_empires_team_director.cpp` |
 
 ## Diagnostics and platform

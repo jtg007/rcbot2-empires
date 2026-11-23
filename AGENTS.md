@@ -11,6 +11,12 @@ No rewrite, no parallel "AI v2", no new framework without a measured gap.
 - Before a diagnostic run, state which observation would change the next step. Reuse a saved baseline when the build, map, speed and trigger fit the question. Compare the same outcome under the same conditions after the smallest fix.
 - Trigger rare mechanics in a short scenario that ends at the observable outcome (for example, grenade reserves increase). Assess natural activation during a regular match.
 - Give each 10-bot match at 1× one primary question. Use the same run for other checks when their triggers occur. Leave unobserved cases open. Treat a single match comparison as an indication and repeat it when the result determines whether to keep or revert the change.
+- Use the shortest test that answers the question: unit tests, then a scenario script or `dev_quick.sh`
+  (time scale only where allowed), then a 10-bot match. Run a 10-bot match at 1× once the short test passes
+  and match impact is the question.
+- Do not assume game mechanics (valid targets of a weapon, turret levels per map). Check the game binary
+  or game data before implementing them.
+- Revert a fix that makes the measured outcome worse instead of committing it.
 - Never kill processes by name or pattern (`pkill`, `killall srcds`, …); only stop PIDs you started. Parallel test runs, a real server and the game client may be running alongside.
 - A change counts as working only with numbers from a real test run (log lines,
   counts, times). Write "built, not measured" when that is the state.

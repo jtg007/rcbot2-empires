@@ -356,23 +356,16 @@ float CNavNode::GetGroundHeightAboveNode( NavCornerType cornerType ) const
 /**
  * Look up to JumpCrouchHeight in the air to see if we can fit a whole HumanHeight box
  */
-bool CNavNode::TestForCrouchArea( NavCornerType cornerNum, const Vector& mins, const Vector& maxs, float *groundHeightAboveNode )
+bool CNavNode::TestForCrouchArea( NavCornerType cornerNum, const Vector& mins, const Vector& maxs, float maxHeight, float *groundHeightAboveNode )
 {
 	CTraceFilterWalkableEntities filter( NULL, COLLISION_GROUP_PLAYER_MOVEMENT, WALK_THRU_EVERYTHING );
 	trace_t tr;
-
-	Vector start( m_pos );
-	Vector end( start );
-	end.z += JumpCrouchHeight;
-	UTIL_TraceHull( start, end, NavTraceMins, NavTraceMaxs, MASK_NPCSOLID_BRUSHONLY, filter, &tr );
-
-	float maxHeight = tr.endpos.z - start.z;
 
 	Vector realMaxs( maxs );
 
 	for ( float height = 0; height <= maxHeight; height += 1.0f )
 	{
-		start = m_pos;
+		Vector start = m_pos;
 		start.z += height;
 
 		realMaxs.z = HumanCrouchHeight;
@@ -417,6 +410,14 @@ bool CNavNode::TestForCrouchArea( NavCornerType cornerNum, const Vector& mins, c
 //--------------------------------------------------------------------------------------------------------------
 void CNavNode::CheckCrouch( void )
 {
+	// All four corner tests use the same vertical sweep at the node centre.
+	CTraceFilterWalkableEntities filter( NULL, COLLISION_GROUP_PLAYER_MOVEMENT, WALK_THRU_EVERYTHING );
+	trace_t tr;
+	Vector end = m_pos;
+	end.z += JumpCrouchHeight;
+	UTIL_TraceHull( m_pos, end, NavTraceMins, NavTraceMaxs, MASK_NPCSOLID_BRUSHONLY, filter, &tr );
+	const float maxHeight = tr.endpos.z - m_pos.z;
+
 	// For each direction, trace upwards from our best ground height to VEC_HULL_MAX.z to see if we have standing room.
 	for ( int i=0; i<NUM_CORNERS; ++i )
 	{
@@ -461,7 +462,7 @@ void CNavNode::CheckCrouch( void )
 			}
 		}
 
-		if ( !TestForCrouchArea( corner, mins, maxs, &m_groundHeightAboveNode[i] ) )
+		if ( !TestForCrouchArea( corner, mins, maxs, maxHeight, &m_groundHeightAboveNode[i] ) )
 		{
 			SetAttributes( NAV_MESH_CROUCH );
 			m_crouch[corner] = true;

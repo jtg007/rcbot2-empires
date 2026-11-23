@@ -75,7 +75,7 @@ private:
 	CNavNode() {}													// constructor used only for hash lookup
 	friend class CNavMesh;
 
-	bool TestForCrouchArea( NavCornerType cornerNum, const Vector& mins, const Vector& maxs, float *groundHeightAboveNode );
+	bool TestForCrouchArea( NavCornerType cornerNum, const Vector& mins, const Vector& maxs, float maxHeight, float *groundHeightAboveNode );
 	void CheckCrouch( void );
 
 	Vector m_pos;													///< position of this node in the world

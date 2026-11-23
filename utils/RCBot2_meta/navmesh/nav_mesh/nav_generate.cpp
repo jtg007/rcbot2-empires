@@ -9,6 +9,9 @@
 // Auto-generate a Navigation Mesh by sampling the current map
 // Author: Michael S. Booth (mike@turtlerockstudios.com), 2003
 
+#include <set>
+#include <unordered_map>
+#include <vector>
 #include "nav_mesh.h"
 #include "nav_node.h"
 #include "nav_pathfind.h"
@@ -2069,6 +2072,49 @@ void CNavMesh::MergeGeneratedAreas( void )
 {
 	Msg( "Merging navigation areas...\n" );
 
+	const double mergeStart = Plat_FloatTime();
+	double fullScanCandidates = 0;
+	double indexedCandidates = 0;
+	// FindAndRemove preserves the order of surviving areas. Original slots therefore
+	// give the same redirection order as scanning TheNavAreas after each merge.
+	std::unordered_map<CNavArea *, int> slot;
+	NavAreaVector original;
+	original.CopyArray( TheNavAreas.Base(), TheNavAreas.Count() );
+	std::vector<std::set<int>> incoming( original.Count() );
+	FOR_EACH_VEC( original, i )
+		slot.emplace( original[i], i );
+	FOR_EACH_VEC( original, i )
+		for ( int dir = 0; dir < NUM_DIRECTIONS; ++dir )
+			FOR_EACH_VEC( original[i]->m_connect[dir], j )
+				incoming[slot.at( original[i]->m_connect[dir][j].area )].insert( i );
+
+	auto finishMerge = [&]( CNavArea *area, CNavArea *adjArea )
+	{
+		const int survivor = slot.at( area );
+		const int removed = slot.at( adjArea );
+		NavAreaVector redirect;
+		for ( int source : incoming[removed] )
+		{
+			if ( source != survivor && source != removed )
+			{
+				redirect.AddToTail( original[source] );
+				incoming[survivor].insert( source );
+			}
+		}
+		for ( int dir = 0; dir < NUM_DIRECTIONS; ++dir )
+			FOR_EACH_VEC( adjArea->m_connect[dir], j )
+			{
+				const int target = slot.at( adjArea->m_connect[dir][j].area );
+				incoming[target].erase( removed );
+				if ( target != removed && target != survivor )
+					incoming[target].insert( survivor );
+			}
+		incoming[removed].clear();
+		fullScanCandidates += TheNavAreas.Count();
+		indexedCandidates += redirect.Count();
+		area->FinishMerge( this, adjArea, redirect );
+	};
+
 	bool merged;
 
 	do
@@ -2101,7 +2147,7 @@ void CNavMesh::MergeGeneratedAreas( void )
 					merged = true;
 					//CONSOLE_ECHO( "  Merged (north) areas #%d and #%d\n", area->m_id, adjArea->m_id );
 
-					area->FinishMerge( this, adjArea );
+					finishMerge( area, adjArea );
 
 					// restart scan - iterator is invalidated
 					break;
@@ -2131,7 +2177,7 @@ void CNavMesh::MergeGeneratedAreas( void )
 					merged = true;
 					//CONSOLE_ECHO( "  Merged (south) areas #%d and #%d\n", area->m_id, adjArea->m_id );
 
-					area->FinishMerge( this, adjArea );
+					finishMerge( area, adjArea );
 
 					// restart scan - iterator is invalidated
 					break;
@@ -2163,7 +2209,7 @@ void CNavMesh::MergeGeneratedAreas( void )
 					merged = true;
 					//CONSOLE_ECHO( "  Merged (west) areas #%d and #%d\n", area->m_id, adjArea->m_id );
 
-					area->FinishMerge( this, adjArea );
+					finishMerge( area, adjArea );
 
 					// restart scan - iterator is invalidated
 					break;
@@ -2194,7 +2240,7 @@ void CNavMesh::MergeGeneratedAreas( void )
 					merged = true;
 					//CONSOLE_ECHO( "  Merged (east) areas #%d and #%d\n", area->m_id, adjArea->m_id );
 
-					area->FinishMerge( this, adjArea );
+					finishMerge( area, adjArea );
 
 					// restart scan - iterator is invalidated
 					break;
@@ -2206,6 +2252,8 @@ void CNavMesh::MergeGeneratedAreas( void )
 		}
 	}
 	while( merged );
+	Msg( "Merged navigation areas in %.2f s (redirect candidates %.0f, full scan %.0f)\n",
+		Plat_FloatTime() - mergeStart, indexedCandidates, fullScanCandidates );
 }
 
 //--------------------------------------------------------------------------------------------------------------
