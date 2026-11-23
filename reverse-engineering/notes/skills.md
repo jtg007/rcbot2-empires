@@ -33,3 +33,14 @@ Static analysis of `server_srv.so` (32 bit, symbols), 2026-11-15. Not yet confir
 `+0x121d` is set, the amount from kit field `+0x8f4` is multiplied by kit field `+0x8fc`
 (0x3cfc90). `+0x121c` multiplies the `+0x8f0` amount by `+0x8f8`. Only the effect byte is read,
 not the active slot. Not yet determined: whether `+0x8f4` applies to construction or only to repair.
+
+## Scout binoculars (23.11.2026)
+
+- `CWeaponNFBinoculars::PrimaryAttack` (0x3ca180): trace from the eye along eye angles + punch,
+  12000 units; on a hit enemy player (not same team) it calls `CEmpPlayer::SetSpotted` (0x660300),
+  prints to the scout and gives rank points (`IncrementRank`).
+- Spot state lives in a component at player+0x1170; `CEmpPlayer::IsSpotted` = component state == 3.
+  Players have **no** `m_bSpotted`; the networked mirror is `m_VisibilityState` (0 -> 3 when spotted,
+  measured run `20261123-164922`, scout 1900 units from the target).
+- A single-frame IN_ATTACK right after drawing the binoculars does nothing (weapon still locked
+  after deploy); repeated taps every 0.3 s spot within ~1 s.

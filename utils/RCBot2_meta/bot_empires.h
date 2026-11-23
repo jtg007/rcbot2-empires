@@ -573,6 +573,7 @@ public:
 	void modThink() override;
 	void getTasks(unsigned iIgnore = 0) override;
 	void handleWeapons() override;
+	void getLookAtVector() override;
 	void freeMapMemory() override;
 	bool requestNormalPathOnce(int startWaypoint = -1,
 		int destinationWaypoint = -1, bool terminalAfterStop = false);
@@ -846,6 +847,13 @@ private:
 	int m_iSkirmishAllies = 0;
 	int m_iSkirmishEnemies = 0;
 	float m_flSkirmishOddsAt = 0.0f;
+	int m_iSkirmishClassMode = 0; // 0 normal, 1 scout flank, 2 grenadier vs vehicle, 3 engineer rear
+	int m_iSkirmishFlanks = 0;
+	int m_iSkirmishRearHolds = 0;
+	bool findEmpiresFrontAlly(edict_t* enemy, const Vector& enemyPos, Vector& allyPos, float& allyDist) const;
+	bool empiresHasRocket() const;
+	bool handleEmpiresScoutBinoculars();
+	float m_flNextBinocularSpot = 0.0f;
 	void countEmpiresFightOdds(const Vector& origin, int& allies, int& enemies);
 	bool findEmpiresSkirmishCover(const Vector& origin, edict_t* enemy, const Vector& toEnemy, Vector& out) const;
 	void calloutEmpiresEnemy(edict_t* enemy);

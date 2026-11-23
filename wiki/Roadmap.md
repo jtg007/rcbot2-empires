@@ -92,7 +92,7 @@ two paired matches (all on vs. all off) with no new stalls, kills 28 vs. 24.
 3.12 repair pad (Crossroads entrance timeouts), 3.15 rainbowroad corner (-7461, -911), 5.8c Palmbay VF (remaining CV cliff fall), driving physics fine-tuning (local maneuvers, curve speed,
 handbrake; default 0), build-site camera (SourceTV/spectator), 5.8e Coast refineries, commander walling/recycling/artillery (dynamic walls can block own vehicles; artillery needs spotting and ballistics).
 
-## Infantry plan ("wow", 2026-11-23)
+## Infantry plan (2026-11-23)
 
 Goal: players should notice bots fighting together and deliberately, not running straight at them or standing around at long range. Yardstick: `emp_crossroads` 10 bots, 1x,
 `emp_sv_research_complete 0`, 15 min. Before: `APPROACH_ENEMY` walked straight at the enemy until almost inside it; cover only after being hit, with fire stopped.
@@ -109,7 +109,7 @@ match with the feature off; compare new vs. old with cvar values `2`/`3` (NF onl
 | 3 Use cover actively | `rcbot_empires_fight_cover`: reloading, < 35 % HP or outnumbered -> short move to a spot out of the enemy's sight, back once ready; keeps firing (generic hurt-hide schedule suppressed in a skirmish) | Done, default on |
 | 4 Targeted grenades | Throw at >= 2 enemies within 250 HU or one who vanished behind cover | Open: bot loadouts have no frag grenade against infantry |
 | 5 Callouts | `rcbot_empires_callouts`: spot quick command only for a group or an enemy within 800 HU, once per team per minute and per bot every 3 minutes. Medic call open (location text format of `emp_menu_command 31` unknown) | Spot callout done |
-| 6 Classes in combat | Scout flanks and spots with binoculars; Grenadier keeps distance (mortar from 900 HU, RPG vs. vehicles); Engineer stays behind teammates and heals | Open |
+| 6 Classes in combat | Scout flanks and spots with binoculars (`rcbot_empires_scout_flank`, `_scout_binoculars`); Grenadier keeps distance: mortar from 900 HU, at least 400 HU from soldiers, RPG stand-off 550-1300 HU against vehicles (`_grenadier_rpg`); Engineer stays behind teammates (`_engineer_rear`) and heals | Done, default on (10-bot match check pending) |
 
 Measured (two paired matches, all on vs. all off): kills 13/17 and 15/7, together 28 vs. 24; no new stalls, 0 crashes. Fixed during the work: the hull trace started inside
 `emp_resource_point` volumes, so every step was rejected exactly where bots fight most.

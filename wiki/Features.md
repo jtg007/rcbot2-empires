@@ -82,6 +82,8 @@ order, build/repair a guarded building, and never capture, roam, drive, command 
 | Fight cover `rcbot_empires_fight_cover` | Validation | Reloading, badly hurt or outnumbered bots step out of sight to a close safe spot and return; keeps shooting (replaces the old "hurt hide schedule" in `hurt()`). |
 | Join fight `rcbot_empires_join_fight` | Validation | Free infantry within 2000 HU walks to a teammate's fight (max 2 helpers per fight; a fight report stays valid for 15 s). |
 | Callouts `rcbot_empires_callouts` | Validation | Bots spot enemies they start fighting (groups or within 800 HU; once per team per minute, per bot every 3 min). |
+| Classes in combat (`_scout_flank`, `_scout_binoculars`, `_grenadier_rpg`, `_engineer_rear`) | Validation | Scout flanks a teammate's enemy and spots far enemies with the binoculars (game marks the target spotted, `m_VisibilityState` 3); Grenadier RPG stand-off against vehicles (550-1300 HU) and at least 400 HU from soldiers; Engineer stays behind the front teammate. |
+| Calm idle look `rcbot_empires_calm_look` | Validation | Standing bots look toward the last enemy or around their facing instead of random points around their head. |
 
 The five infantry switches default to 1. Two paired 15-minute 10-bot Crossroads matches (all on vs. all off, run in parallel) showed
 no new stalls and no crashes; kills 28 vs. 24. Each switch can be set to 0 on a live server without a rebuild.

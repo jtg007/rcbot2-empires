@@ -104,6 +104,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); navmesh cover under fire awaits match verification, and class spacing remains open |
 | 🟡 | **Skirmish movement** | Inside its weapon's effective band (max ~900 units; beyond that it keeps advancing) a bot side-steps away from the enemy's aim in short irregular bursts, backs off when too close, reloading, badly hurt or outnumbered, presses in when its side is ahead, and breaks line of sight to a close safe spot to reload. Every step is snapped to the navmesh and hull-traced; blocked steps escalate to standing, then to the old approach (`rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`) *(two paired 10-bot matches: no new stalls)* |
 | 🟡 | **Joining fights & callouts** | Free infantry walks to a teammate's fight within 2000 units (max 2 helpers per fight); bots spot a group of enemies or a close enemy for the team, at most once per team per minute (`rcbot_empires_join_fight`, `rcbot_empires_callouts`) |
+| 🟡 | **Classes in combat & calm look** | Scouts circle to the other side of an enemy a teammate fights and spot far enemies (1000–4000 units) with the binoculars; Grenadiers with rockets keep 550–1300 units from an enemy vehicle and fire the RPG from there, and at least 400 units from soldiers; Engineers stay behind the teammate closest to the enemy. A bot standing without a route looks toward the last enemy or calmly around its facing instead of at random points (`rcbot_empires_scout_flank`, `_scout_binoculars`, `_grenadier_rpg`, `_engineer_rear`, `_calm_look`) *(short tests; 10-bot match pending)* |
 | ✅ | **Flag capture** | Captures objectives on maps with capture points |
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
 | ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
@@ -237,6 +238,11 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_fight_cover` | `1` | Reloading, badly hurt or outnumbered: break line of sight to a close safe spot while still fighting |
 | `rcbot_empires_join_fight` | `1` | Free infantry joins a teammate's fight within 2000 units (max 2 helpers) |
 | `rcbot_empires_callouts` | `1` | Spot a group or a close enemy for the team (once per team per minute, per bot every 3 minutes) |
+| `rcbot_empires_scout_flank` | `1` | A scout circles to the other side of an enemy a teammate fights (up to 1200 units) |
+| `rcbot_empires_scout_binoculars` | `1` | A scout spots an unspotted enemy 1000–4000 units away with the binoculars (per bot every 45 s, per team every 20 s) |
+| `rcbot_empires_grenadier_rpg` | `1` | A grenadier with rockets keeps 550–1300 units from an enemy vehicle and fires the RPG; at least 400 units from soldiers |
+| `rcbot_empires_engineer_rear` | `1` | An engineer in a fight stays behind the teammate closest to the enemy (up to 1600 units) |
+| `rcbot_empires_calm_look` | `1` | A bot standing without a route looks toward the last enemy (20 s) or calmly around its facing, not at random points |
 
 ### Diagnostics & Offsets
 

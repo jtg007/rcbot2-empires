@@ -397,8 +397,13 @@ When the following cases recur, compare the relevant trace and route.
   free bots within 2000 HU join a teammate's fight (max. 2 helpers) and a throttled spot callout is sent
   (cvars `rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`, `_join_fight`, `_callouts`, all default 1).
   Two paired 10-bot Crossroads matches at 1x (all on vs. all off, `133220`/`133250`, `134952`/`135032`):
-  no new stalls, no crashes, kills 28 vs. 24. Open: grenades against groups or cover (no frag grenade in
-  the loadouts), class roles in a fight, effect with human players. Recovery of the previous objective,
+  no new stalls, no crashes, kills 28 vs. 24. Class roles (`_scout_flank`, `_scout_binoculars`,
+  `_grenadier_rpg`, `_engineer_rear`) and a calm idle look (`_calm_look`) are built: scouts flank a teammate's
+  enemy and spot far enemies with the binoculars (`m_VisibilityState` 0 -> 3 in a short test), grenadiers keep an
+  RPG stand-off of 550-1300 HU to vehicles and at least 400 HU to soldiers, engineers stay behind the front
+  teammate. Match pair on/off (`165502`/`165522`): kills 17/19, no crashes; only 9 infantry fights, so the roles
+  rarely triggered. Open: natural effect of the class roles (grenadier vs. vehicle not seen in a match yet),
+  grenades against groups or cover (no frag grenade in the loadouts), effect with human players. Recovery of the previous objective,
   class spacing, Scout hide and Grenadier road mines remain open.
 - Shared team economy: commander and bots should share one view of team resources, income
   and planned spending so money is used for a natural game flow. Static findings: vehicle

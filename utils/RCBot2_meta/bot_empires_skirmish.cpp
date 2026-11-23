@@ -145,9 +145,10 @@ void CBotEmpires::endEmpiresSkirmish(const char* reason)
 	if (!m_bSkirmishActive)
 		return;
 	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
-	RCBOT_DIAG("[RCBOT2] skirmish end userid=%d reason=%s secs=%.1f steps=%d blocked=%d pauses=%d covers=%d odds_back=%d\n",
+	RCBOT_DIAG("[RCBOT2] skirmish end userid=%d reason=%s secs=%.1f steps=%d blocked=%d pauses=%d covers=%d odds_back=%d flanks=%d rear=%d class_mode=%d\n",
 		engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1, reason, now - m_flSkirmishStarted,
-		m_iSkirmishSteps, m_iSkirmishBlocks, m_iSkirmishPauses, m_iSkirmishCovers, m_iSkirmishOddsBack);
+		m_iSkirmishSteps, m_iSkirmishBlocks, m_iSkirmishPauses, m_iSkirmishCovers, m_iSkirmishOddsBack,
+		m_iSkirmishFlanks, m_iSkirmishRearHolds, m_iSkirmishClassMode);
 	m_bSkirmishActive = false;
 	m_pSkirmishEnemy = nullptr;
 	m_iSkirmishPhase = 0;
@@ -191,9 +192,20 @@ bool CBotEmpires::handleEmpiresSkirmish()
 	const bool valid = seen || (enemy != nullptr && enemy == m_pSkirmishEnemy.get() && m_bSkirmishActive);
 	// Only soldiers on foot: vehicles and buildings keep their own handling.
 	const int enemyIndex = valid ? engine->IndexOfEdict(enemy) : 0;
-	const bool soldier = valid && enemyIndex > 0 && enemyIndex <= gpGlobals->maxClients &&
-		EmpiresVehiclePlayerVehicle(this, enemy) < 0;
-	if (!soldier)
+	const bool enemyPlayer = valid && enemyIndex > 0 && enemyIndex <= gpGlobals->maxClients;
+	const bool inVehicle = enemyPlayer && EmpiresVehiclePlayerVehicle(this, enemy) >= 0;
+	int classId = -1;
+	{
+		bool desired = false, desiredKnown = false;
+		const char* prop = nullptr;
+		if (!readEmpiresClass(m_pEdict, classId, desired, desiredKnown, prop))
+			classId = -1;
+	}
+	// Step 6: a grenadier with rockets keeps a stand-off distance to a vehicle and fires the RPG
+	// from there (getBestWeapon picks it from 300 HU on) instead of running at it.
+	const bool rocketStandoff = inVehicle && classId == EMP_CLASS_GRENADIER &&
+		rcbot_empires_grenadier_rpg.GetBool() && empiresHasRocket();
+	if (!enemyPlayer || (inVehicle && !rocketStandoff))
 	{
 		endEmpiresSkirmish(valid ? "not-soldier" : "enemy-lost");
 		return false;
@@ -226,14 +238,35 @@ bool CBotEmpires::handleEmpiresSkirmish()
 
 	float nearDist, farDist;
 	SkirmishBand(getCurrentWeapon(), nearDist, farDist);
-	// Grenadiers mortar from 900 on; leave that range to the mortar state machine.
-	int classId = -1;
-	bool desired = false, desiredKnown = false;
-	const char* prop = nullptr;
-	if (readEmpiresClass(m_pEdict, classId, desired, desiredKnown, prop) && classId == 2)
+	if (rocketStandoff)
+	{
+		nearDist = 550.0f;
+		farDist = 1300.0f;
+	}
+	else if (classId == EMP_CLASS_GRENADIER)
+	{
+		// Grenadiers mortar from 900 on; leave that range to the mortar state machine.
 		farDist = (std::min)(farDist, 880.0f);
+		// Rocket splash hurts the shooter: keep at least 400 from a soldier.
+		if (rcbot_empires_grenadier_rpg.GetBool() && empiresHasRocket())
+			nearDist = (std::max)(nearDist, 400.0f);
+	}
+	// Step 6: scouts circle to the other side of an enemy a teammate fights; engineers stay
+	// behind that teammate. Both need a teammate closer to the enemy who can see him.
+	const Vector enemyPos = CBotGlobals::entityOrigin(enemy);
+	Vector allyPos;
+	float allyDist = 0.0f;
+	const bool scoutFlank = !rocketStandoff && classId == EMP_CLASS_SCOUT &&
+		rcbot_empires_scout_flank.GetBool() && findEmpiresFrontAlly(enemy, enemyPos, allyPos, allyDist);
+	const bool engineerRear = !rocketStandoff && classId == EMP_CLASS_ENGINEER &&
+		rcbot_empires_engineer_rear.GetBool() && findEmpiresFrontAlly(enemy, enemyPos, allyPos, allyDist) &&
+		allyDist < dist + 300.0f;
 	// Hysteresis: once skirmishing, the approach takes over only well outside the band.
-	const float leaveDist = m_bSkirmishActive ? farDist * 1.25f : farDist;
+	float leaveDist = m_bSkirmishActive ? farDist * 1.25f : farDist;
+	if (scoutFlank)
+		leaveDist = (std::max)(leaveDist, 1200.0f);
+	if (engineerRear)
+		leaveDist = (std::max)(leaveDist, 1600.0f);
 	if (dist > leaveDist)
 	{
 		endEmpiresSkirmish("enemy-far");
@@ -251,16 +284,20 @@ bool CBotEmpires::handleEmpiresSkirmish()
 		m_iSkirmishPhase = 0;
 		m_iSkirmishSteps = m_iSkirmishBlocks = m_iSkirmishPauses = 0;
 		m_iSkirmishCovers = m_iSkirmishOddsBack = 0;
+		m_iSkirmishFlanks = m_iSkirmishRearHolds = 0;
+		m_iSkirmishClassMode = 0;
 		m_bSkirmishNoStepLogged = false;
 		m_flSkirmishOddsAt = 0.0f;
 		m_iSkirmishStage = 0;
 		m_iSkirmishSide = randomInt(0, 1) == 0 ? -1 : 1;
-		RCBOT_DIAG("[RCBOT2] skirmish start userid=%d enemy_userid=%d dist=%.0f band=%.0f-%.0f\n",
-			engine->GetPlayerUserId(m_pEdict), engine->GetPlayerUserId(enemy), dist, nearDist, farDist);
+		RCBOT_DIAG("[RCBOT2] skirmish start userid=%d enemy_userid=%d dist=%.0f band=%.0f-%.0f class=%d vehicle=%d flank=%d rear=%d\n",
+			engine->GetPlayerUserId(m_pEdict), engine->GetPlayerUserId(enemy), dist, nearDist, farDist,
+			classId, inVehicle ? 1 : 0, scoutFlank ? 1 : 0, engineerRear ? 1 : 0);
 		calloutEmpiresEnemy(enemy);
 	}
-	if (seen)
-		postEmpiresContact(CBotGlobals::entityOrigin(enemy));
+	// Helpers with rifles are no use against a vehicle.
+	if (seen && !inVehicle)
+		postEmpiresContact(enemyPos);
 	// Take the movement over from the approach route and any navigation intent, once.
 	if (m_bEmpiresApproachTaskIssued || !m_pSchedules->isEmpty() || m_navigationIntent.active)
 	{
@@ -345,7 +382,6 @@ bool CBotEmpires::handleEmpiresSkirmish()
 
 		// Side away from the enemy's aim (YaPB): stay on the side of his facing line we are on,
 		// with a 30 % swap so the pattern does not become predictable.
-		const Vector enemyPos = CBotGlobals::entityOrigin(enemy);
 		IPlayerInfo* enemyInfo = playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(enemy) : nullptr;
 		if (enemyInfo != nullptr)
 		{
@@ -356,6 +392,38 @@ bool CBotEmpires::handleEmpiresSkirmish()
 		}
 		if (randomFloat(0.0f, 1.0f) < 0.3f)
 			m_iSkirmishSide = -m_iSkirmishSide;
+
+		// Step 6 class roles.
+		m_iSkirmishClassMode = rocketStandoff ? 2 : 0;
+		if (scoutFlank && mode[0] != 'b')
+		{
+			// Circle away from the teammate (seen from the enemy) until about 100 degrees apart,
+			// so the enemy cannot watch both. Moving along +side turns us clockwise around him.
+			Vector allyRel = allyPos - enemyPos;
+			Vector mineRel = origin - enemyPos;
+			allyRel.z = mineRel.z = 0.0f;
+			const float al = allyRel.Length2D();
+			const float ml = mineRel.Length2D();
+			const float cosApart = al > 1.0f && ml > 1.0f ? allyRel.Dot(mineRel) / (al * ml) : 1.0f;
+			if (cosApart > -0.17f)
+			{
+				const float cross = allyRel.x * mineRel.y - allyRel.y * mineRel.x;
+				m_iSkirmishSide = cross > 0.0f ? -1 : 1;
+				mode = "flank";
+				m_iSkirmishClassMode = 1;
+				++m_iSkirmishFlanks;
+			}
+		}
+		else if (engineerRear)
+		{
+			// Never in front of the teammate: at least 150 behind him, no advancing.
+			if (dist < allyDist + 150.0f)
+				mode = "back";
+			else if (mode[0] == 'a')
+				mode = "strafe";
+			m_iSkirmishClassMode = 3;
+			++m_iSkirmishRearHolds;
+		}
 
 		bool pause = m_iSkirmishStage >= 1;
 		if (!pause && mode[0] == 's' && dist > kCrouchRange && m_iSkirmishPhase == 1 &&
@@ -393,6 +461,8 @@ bool CBotEmpires::handleEmpiresSkirmish()
 				dir = attempt < 2 ? side * s * 0.5f - toEnemy : side * static_cast<float>(m_iSkirmishSide);
 			else if (mode[0] == 'a')
 				dir = attempt < 2 ? side * s * 0.7f + toEnemy : toEnemy;
+			else if (mode[0] == 'f')
+				dir = attempt < 2 ? side * s + toEnemy * (dist > (nearDist + farDist) * 0.5f ? 0.5f : -0.2f) : toEnemy;
 			else
 				dir = attempt < 2 ? side * s : (dist < (nearDist + farDist) * 0.5f ? -toEnemy : toEnemy);
 			dir.NormalizeInPlace();
@@ -529,6 +599,7 @@ bool CBotEmpires::findEmpiresSkirmishCover(const Vector& origin, edict_t* enemy,
 namespace
 {
 float s_nextTeamCallout[4] = {};
+float s_nextTeamBinocular[4] = {};
 }
 
 void CBotEmpires::calloutEmpiresEnemy(edict_t* enemy)
@@ -742,6 +813,8 @@ void CBotEmpires::resetEmpiresSkirmishState(bool mapChange)
 				c = FightContact();
 		for (float& t : s_nextTeamCallout)
 			t = 0.0f;
+		for (float& t : s_nextTeamBinocular)
+			t = 0.0f;
 	}
 	m_bSkirmishActive = false;
 	m_pSkirmishEnemy = nullptr;
@@ -750,9 +823,168 @@ void CBotEmpires::resetEmpiresSkirmishState(bool mapChange)
 	m_flSkirmishTick = 0.0f;
 	m_flSkirmishOddsAt = 0.0f;
 	m_flNextCallout = 0.0f;
+	m_flNextBinocularSpot = 0.0f;
 	m_flNextContactPost = 0.0f;
 	m_iJoinContactId = 0;
 	m_iJoinSkipId = 0;
 	m_flJoinNextNav = 0.0f;
 	m_flJoinNextSearch = 0.0f;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Step 6: class roles in a fight.
+
+// The teammate on foot closest to the enemy (within 1500) who can see him.
+bool CBotEmpires::findEmpiresFrontAlly(edict_t* enemy, const Vector& enemyPos, Vector& allyPos, float& allyDist) const
+{
+	if (gpGlobals == nullptr || playerinfomanager == nullptr)
+		return false;
+	const int team = m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetTeamIndex() : -1;
+	bool found = false;
+	allyDist = 1500.0f;
+	for (int i = 1; i <= gpGlobals->maxClients; ++i)
+	{
+		edict_t* player = INDEXENT(i);
+		if (player == nullptr || player->IsFree() || player == m_pEdict)
+			continue;
+		IPlayerInfo* info = playerinfomanager->GetPlayerInfo(player);
+		if (info == nullptr || !info->IsConnected() || info->IsDead() || info->GetHealth() <= 0 ||
+			info->IsObserver() || info->GetTeamIndex() != team)
+			continue;
+		const Vector pos = CBotGlobals::entityOrigin(player);
+		const float d = (pos - enemyPos).Length2D();
+		if (d >= allyDist || EmpiresVehiclePlayerVehicle(this, player) >= 0)
+			continue;
+		if (enemy != nullptr && !CBotGlobals::isVisible(player, pos + Vector(0, 0, 64), enemy))
+			continue;
+		allyDist = d;
+		allyPos = pos;
+		found = true;
+	}
+	return found;
+}
+
+bool CBotEmpires::empiresHasRocket() const
+{
+	if (m_pWeapons == nullptr)
+		return false;
+	// weapon_emp_nf_rpg / weapon_emp_imp_rpg (EMPWeaps ids 13 and 27).
+	for (const int id : {13, 27})
+	{
+		CWeapon* info = CWeapons::getWeapon(id);
+		CBotWeapon* weapon = info != nullptr ? m_pWeapons->getWeapon(info) : nullptr;
+		if (weapon != nullptr && weapon->hasWeapon() && !weapon->outOfAmmo(this))
+			return true;
+	}
+	return false;
+}
+
+// A scout that sees an unspotted enemy far away stops and spots him with the binoculars (the
+// existing select/aim/attack action), so the team sees him on the map. Per bot every 45 s, per
+// team every 20 s, never with another enemy close.
+bool CBotEmpires::handleEmpiresScoutBinoculars()
+{
+	if (isEmpiresScoutBinocularActionActive())
+	{
+		const int saved = m_iMoveLookPriority;
+		setMoveLookPriority(MOVELOOK_OVERRIDE);
+		stopMoving();
+		setMoveLookPriority(saved);
+		return true;
+	}
+	if (!rcbot_empires_scout_binoculars.GetBool() || gpGlobals == nullptr || engine == nullptr ||
+		playerinfomanager == nullptr || m_bSkirmishActive || m_pPlayerInfo == nullptr)
+		return false;
+	const float now = gpGlobals->curtime;
+	if (now < m_flNextBinocularSpot)
+		return false;
+	edict_t* enemy = m_pEnemy.get();
+	if (enemy == nullptr || !hasSomeConditions(CONDITION_SEE_CUR_ENEMY) ||
+		hasSomeConditions(CONDITION_ENEMY_DEAD) || !CBotGlobals::entityIsValid(enemy) ||
+		!CBotGlobals::entityIsAlive(enemy) || !isEnemy(enemy, false) || !isVisible(enemy))
+		return false;
+	const int enemyIndex = engine->IndexOfEdict(enemy);
+	if (enemyIndex <= 0 || enemyIndex > gpGlobals->maxClients)
+		return false;
+	int classId = -1;
+	bool desired = false, desiredKnown = false;
+	const char* prop = nullptr;
+	if (!readEmpiresClass(m_pEdict, classId, desired, desiredKnown, prop) || classId != EMP_CLASS_SCOUT)
+		return false;
+	const Vector origin = getOrigin();
+	const float dist = (CBotGlobals::entityOrigin(enemy) - origin).Length2D();
+	if (dist < 1000.0f || dist > 4000.0f || getHealthPercent() < 0.5f)
+		return false;
+	const int team = m_pPlayerInfo->GetTeamIndex();
+	if (team < 0 || team >= 4 || now < s_nextTeamBinocular[team])
+		return false;
+	// Already spotted (players: m_VisibilityState 3, see maybeSpotEmpiresEnemy).
+	int visibilityState = 0;
+	if (readEmpiresEntityIntProperty(enemy, "m_VisibilityState", visibilityState) && visibilityState == 3)
+		return false;
+	for (int i = 1; i <= gpGlobals->maxClients; ++i)
+	{
+		edict_t* player = INDEXENT(i);
+		if (player == nullptr || player->IsFree() || player == enemy)
+			continue;
+		IPlayerInfo* info = playerinfomanager->GetPlayerInfo(player);
+		if (info == nullptr || !info->IsConnected() || info->IsDead() || info->IsObserver() ||
+			info->GetTeamIndex() < 2 || info->GetTeamIndex() == team)
+			continue;
+		if ((CBotGlobals::entityOrigin(player) - origin).Length2D() < 900.0f && isVisible(player))
+			return false;
+	}
+	if (!requestEmpiresScoutBinocularTarget(enemy, false))
+	{
+		m_flNextBinocularSpot = now + 10.0f;
+		return false;
+	}
+	m_flNextBinocularSpot = now + 45.0f;
+	s_nextTeamBinocular[team] = now + 20.0f;
+	RCBOT_DIAG("[RCBOT2] scout-binoculars start userid=%d target_userid=%d dist=%.0f\n",
+		engine->GetPlayerUserId(m_pEdict), engine->GetPlayerUserId(enemy), dist);
+	// Stand while spotting; the approach resumes afterwards.
+	if (m_bEmpiresApproachTaskIssued)
+	{
+		m_bEmpiresApproachTaskIssued = false;
+		m_pEmpiresApproachTarget = nullptr;
+		if (m_pSchedules != nullptr)
+			m_pSchedules->freeMemory();
+		if (m_pNavigator != nullptr)
+			m_pNavigator->clear();
+	}
+	cancelNavigationAttempt("binoculars");
+	const int saved = m_iMoveLookPriority;
+	setMoveLookPriority(MOVELOOK_OVERRIDE);
+	stopMoving();
+	setMoveLookPriority(saved);
+	return true;
+}
+
+// Calm idle look. The generic LOOK_AROUND (bot.cpp) picks a random point within 128 units of
+// the bot's own eye every 2-3 s: any yaw, often down or behind, so standing bots (refinery
+// hold, waiting) kept whipping their view around (user 23.11.: "sinnlos hin und her schauen").
+void CBotEmpires::getLookAtVector()
+{
+	if (m_iLookTask != LOOK_AROUND || !rcbot_empires_calm_look.GetBool() || engine == nullptr)
+	{
+		CBot::getLookAtVector();
+		return;
+	}
+	const float now = engine->Time();
+	if (m_fLookAroundTime < now)
+	{
+		const Vector eye = getEyePosition();
+		if (m_pLastEnemy.get() != nullptr && now - m_fLastSeeEnemy < 20.0f)
+			m_vLookAroundOffset = Vector(m_vLastSeeEnemy.x, m_vLastSeeEnemy.y, m_vLastSeeEnemy.z + 48.0f);
+		else
+		{
+			const QAngle level(0.0f, m_vViewAngles.y + randomFloat(-30.0f, 30.0f), 0.0f);
+			Vector forward;
+			AngleVectors(level, &forward);
+			m_vLookAroundOffset = eye + forward * 512.0f;
+		}
+		m_fLookAroundTime = now + randomFloat(3.0f, 5.0f);
+	}
+	setLookAt(m_vLookAroundOffset);
 }

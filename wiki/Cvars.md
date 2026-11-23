@@ -41,6 +41,11 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_fight_cover` | 1 | Reloading, badly hurt or outnumbered infantry steps out of sight to a close safe spot and comes back; also suppresses the generic hurt-hide schedule while a skirmish is active. | `bot_empires_skirmish.cpp`, `bot_empires.cpp` |
 | `rcbot_empires_join_fight` | 1 | Free infantry walks to a teammate's fight within 2000 units (max 2 helpers per fight). | `bot_empires_skirmish.cpp` |
 | `rcbot_empires_callouts` | 1 | Infantry calls out (spots) enemies it starts fighting (only a group of enemies or one within 800 units; once per team per minute, per bot every 3 minutes). | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_scout_flank` | 1 | A scout whose teammate fights the same enemy circles to the other side of that enemy (up to 1200 units). | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_scout_binoculars` | 1 | A scout that sees an unspotted enemy 1000-4000 units away stops and spots him with the binoculars (per bot every 45 s, per team every 20 s). | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_grenadier_rpg` | 1 | A grenadier with rockets keeps 550-1300 units from an enemy vehicle and fires the RPG; keeps at least 400 units from soldiers (splash). | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_engineer_rear` | 1 | An engineer in a fight stays behind the teammate closest to the enemy (up to 1600 units). | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_calm_look` | 1 | A bot standing without a route looks toward the last enemy it saw (20 s) or calmly around its facing (+-30 degrees, every 3-5 s) instead of at random points. | `bot_empires_skirmish.cpp` |
 
 ## Team behaviour and vehicles
 

@@ -1547,8 +1547,10 @@ void CBotEmpires::maybeSpotEmpiresEnemy()
 	const int team = getTeam();
 	if (team < 0 || team >= 4 || now < s_nextTeamSpot[team])
 		return;
-	bool alreadySpotted = false;
-	if (readEmpiresEntityBoolProperty(pEnemy, "m_bSpotted", alreadySpotted) && alreadySpotted)
+	// Players have no m_bSpotted; their spot state is m_VisibilityState (3 = spotted, set by
+	// CEmpPlayer::SetSpotted; binocular test 20261123: 0 -> 3).
+	int visibilityState = 0;
+	if (readEmpiresEntityIntProperty(pEnemy, "m_VisibilityState", visibilityState) && visibilityState == 3)
 		return;
 	const Vector enemyOrigin = CBotGlobals::entityOrigin(pEnemy);
 	constexpr float kSpotNearOwn = 1500.0f;
@@ -2329,6 +2331,15 @@ void CBotEmpires::handleEmpiresScoutBinocularAction()
 			return;
 		}
 
+		// One frame of IN_ATTACK can land while the freshly drawn binoculars are still locked
+		// (next-attack time after deploy); tap again every 0.3 s until the spot shows or the
+		// deadline passes.
+		if (now - m_flEmpiresScoutBinocularActionAimUntil >= 0.3f)
+		{
+			m_flEmpiresScoutBinocularActionAimUntil = now;
+			m_pButtons->letGo(IN_ATTACK);
+			m_pButtons->tap(IN_ATTACK);
+		}
 		if (now >= m_flEmpiresScoutBinocularActionDeadline)
 		{
 			failEmpiresScoutBinocularAction(
@@ -5580,6 +5591,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			m_vLastSeeEnemy.x, m_vLastSeeEnemy.y, m_vLastSeeEnemy.z);
 		return;
 	}
+
+	// A scout spots a far, unspotted enemy with the binoculars first (bot_empires_skirmish.cpp).
+	if (handleEmpiresScoutBinoculars())
+		return;
 
 	// A visible enemy soldier inside the weapon band: side-step and keep distance instead of
 	// running at him (bot_empires_skirmish.cpp). Outside the band the approach below closes in.
