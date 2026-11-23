@@ -124,3 +124,24 @@ Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830. Ru
   and afterwards `handleWeapons`; `CBotEmpires::handleWeapons` without a visible enemy calls
   `m_pButtons->letGo(IN_ATTACK)` before `doButtons`. The MG-turret action works because `handleWeapons` returns early
   while `isEmpiresEngineerBuildActionActive()`. Fix: the same early return while the crate action aims or observes.
+
+## Seismic grenade (measured 23.11.2026, emp_crossroads, 1x)
+
+- Weapon script (`scripts_dir.vpk`, `weapon_emp_{nf,imp}_seismic_grenade.txt`): Damage 20, Explosion Radius 300,
+  Explosion Falloff Offset 0.5 (full damage within 150), Grenade Timer 6. Projectile classes
+  `emp_nf_seismic_grenade_projectile` / `emp_imp_seismic_grenade_projectile`; detonation removes the entity.
+- Damages every building. `InfantrySeismicResist` is a resistance: barracks (0) lost exactly 20 per hit
+  (250 HP barracks destroyed by 14 throws). Turrets -0.7 / engineer camera+radar -1.0 should take extra
+  damage (not measured yet), walls 0.5 half.
+- Throw: `CBaseSDKGrenade::ThrowGrenade` 0x445240 formula confirmed (view pitch p -> a = -10 + p*10/9,
+  v = min(750, (90 - a) * 6), plus player velocity). Measured launch ~640 u/s at p = -10.
+- **Gravity of the projectile is ~0.4x: g = 317..322** (apex and descent of a traced throw,
+  run 20261123-015951), not sv_gravity 800. Flat range at v 750 / 45 deg is ~1750 standing.
+- Fuse: detonation 4.7-4.8 s after the bot releases attack.
+- `emp_building_vehicle_physbox` (barracks: OBB +-496 x +-360 x +-272, solid 6, studio mesh) stops
+  grenades: a throw at the barracks centre bounced back off the box face ~350 from the centre.
+  Aim at the floor in front of the box.
+- The engineer's seismic ammo read 6 before every throw (23 throws in one life): no visible depletion.
+- Own grenades landing ~130-170 from the thrower cost it ~1 HP each (100 -> 80 over 23 throws).
+- With no player left on the enemy team, destroying its barracks ends the round: every player gets
+  flag 0x40 and freezes in place (looked like a bot stall in the 1-bot test).

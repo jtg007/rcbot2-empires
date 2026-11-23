@@ -76,7 +76,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🔧 Engineers</strong> — <code>3 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🔧 Engineers</strong> — <code>4 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
 
 <br>
 
@@ -85,6 +85,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
 | ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer who can search before that window closes. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
+| ✅ | **Heal teammates** | Engineers out of combat heal a visible hurt teammate within 700 units with the kit (clears the deployable selection, keeps a revive charge with the Revive skill); a hurt bot waits up to 8 seconds for the engineer. Seen in a 10-bot match (25 → 100 HP in 6 s) |
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
 | 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
@@ -93,7 +94,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>4 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>5 🟡</code></summary>
 
 <br>
 
@@ -109,7 +110,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
 | 🟡 | **Squads, mines, binoculars** | Implemented, rarely used |
-| ⬜ | **Seismic grenades** | Engineers clearing enemy turrets |
+| 🟡 | **Seismic grenades** | Engineers lob seismics at enemy buildings up to ~1400 units away (turrets first, then cameras/radar, large buildings, walls last), aiming in front of the building's vehicle collision box; they stand still for the throw, give up after five throws without damage, and put the grenade away afterwards. 20 damage per hit on a barracks *(verified in tests; throwing at a firing turret from outside its range still open)* |
 
 </details>
 
@@ -287,7 +288,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
-| `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive |
+| `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server |
 | `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |

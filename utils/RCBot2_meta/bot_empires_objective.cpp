@@ -1801,6 +1801,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			m_iButtons &= ~(IN_ATTACK | IN_USE);
 			m_hEmpiresBuildingActionTarget = nullptr;
 			m_iEmpiresBuildingActionMode = 0;
+			m_bEmpiresBuildingActionSeismic = false;
 			m_flEmpiresBuildingActionUntil = 0.0f;
 			m_flEmpiresBuildingAttackNext = now + 1.5f;
 			return false;
@@ -1850,10 +1851,42 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			stopMoving();
 			Vector aimPoint = targetCenter;
 			aimPoint.z += (std::min)(120.0f, dist * 0.25f);
+			const bool seismic = m_bEmpiresBuildingActionSeismic;
+			if (seismic)
+			{
+				// Ballistic view pitch from armEmpiresSeismicThrow (bot_empires_seismic.cpp).
+				const Vector eye = getEyePosition();
+				const float yaw = std::atan2(m_vSeismicTrackTargetAt.y - eye.y, m_vSeismicTrackTargetAt.x - eye.x);
+				const float pitchRad = m_flEmpiresSeismicPitch * 3.14159265f / 180.0f;
+				aimPoint = eye + Vector(std::cos(yaw) * std::cos(pitchRad), std::sin(yaw) * std::cos(pitchRad),
+					-std::sin(pitchRad)) * 200.0f;
+			}
 			setLookAtTask(LOOK_VECTOR, 0.25f);
 			setLookVector(aimPoint);
 			if (now < m_flEmpiresBuildingActionReadyAt)
 				return true;
+			if (seismic)
+			{
+				if (!m_pSchedules->isEmpty() || m_navigationIntent.active)
+				{
+					cancelNavigationAttempt("seismic-throw");
+					m_pSchedules->freeMemory();
+				}
+				holdEmpiresHealPosition();
+			}
+			if (seismic && !m_bEmpiresBuildingActionThrown && m_flEmpiresBuildingActionPressUntil <= 0.0f)
+			{
+				// ThrowGrenade adds the player's velocity: throw only once standing.
+				Vector vel(0, 0, 0);
+				if (CClassInterface::getVelocity(m_pEdict, &vel) && vel.Length2D() > 30.0f)
+					return true;
+				QAngle want;
+				VectorAngles(aimPoint - getEyePosition(), want);
+				float dPitch = std::fabs(AngleNormalize(want.x) - AngleNormalize(m_vViewAngles.x));
+				float dYaw = std::fabs(AngleNormalize(want.y - m_vViewAngles.y));
+				if (dPitch > 2.0f || dYaw > 3.0f)
+					return true;
+			}
 			if (!m_bEmpiresBuildingActionThrown)
 			{
 				// Press only with the grenade in hand: the 0.75 s after selectWeaponName were not
@@ -1888,15 +1921,16 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 					const char* clsProp = nullptr;
 					const bool scout = readEmpiresClass(m_pEdict, cls, clsDesired, clsKnown, clsProp) &&
 						cls == EMP_CLASS_SCOUT;
-					const bool rightSticky = containsCi(activeClass, "sticky") &&
-						(scout == containsCi(activeClass, "stun"));
+					const bool rightSticky = seismic ? containsCi(activeClass, "seismic") :
+						(containsCi(activeClass, "sticky") && (scout == containsCi(activeClass, "stun")));
 					if (!rightSticky)
 					{
 						const bool be = getTeam() == EMP_TEAM_BE;
-						const char* wanted = scout ?
+						const char* wanted = seismic ?
+							(be ? "weapon_emp_imp_seismic_grenade" : "weapon_emp_nf_seismic_grenade") : scout ?
 							(be ? "weapon_emp_imp_sticky_stun_grenade" : "weapon_emp_nf_sticky_Stun_grenade") :
 							(be ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade");
-						if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+						if (const CBaseHandle* weapons = seismic ? nullptr : CClassInterface::getWeaponList(m_pEdict))
 						{
 							for (int slot = 0; slot < MAX_WEAPONS; ++slot)
 							{
@@ -1934,6 +1968,25 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 				m_iButtons &= ~IN_ATTACK;
 				m_bEmpiresBuildingActionThrown = true;
 				m_flEmpiresBuildingActionReadyAt = now + 0.6f;
+				if (seismic && m_flSeismicTrackStart > 0.0f)
+				{
+					RCBOT_DIAG("[RCBOT2] seismic thrown userid=%d target=%d class=%s dist=%.0f health=%d untracked\n",
+						userId, engine->IndexOfEdict(target), targetClass, dist, health);
+					return true;
+				}
+				if (seismic)
+				{
+					m_iSeismicTrackTarget = engine->IndexOfEdict(target);
+					m_iSeismicTrackHealth = health;
+					m_iSeismicTrackProjectile = 0;
+					m_flSeismicTrackStart = now;
+					m_flSeismicTrackResultAt = 0.0f;
+					RCBOT_DIAG("[RCBOT2] seismic thrown userid=%d target=%d class=%s dist=%.0f health=%d view_pitch=%.1f view_yaw=%.1f "
+						"eye=(%.0f %.0f %.0f)\n", userId, m_iSeismicTrackTarget, targetClass, dist, health,
+						AngleNormalize(m_vViewAngles.x), AngleNormalize(m_vViewAngles.y), getEyePosition().x,
+						getEyePosition().y, getEyePosition().z);
+					return true;
+				}
 				RCBOT_DIAG("[RCBOT2] building-sticky thrown userid=%d target=%d class=%s dist=%.0f health=%d\n",
 					userId, engine->IndexOfEdict(target), targetClass, dist, health);
 				const edict_t* thrownWep = CClassInterface::getCurrentWeapon(m_pEdict);
@@ -1952,7 +2005,9 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			m_hEmpiresBuildingActionTarget = nullptr;
 			m_iEmpiresBuildingActionMode = 0;
 			m_flEmpiresBuildingActionUntil = 0.0f;
-			m_flEmpiresBuildingAttackNext = now + 0.8f;
+			m_flEmpiresBuildingAttackNext = now + (seismic ? 1.0f : 0.8f);
+			m_flEmpiresSeismicHoldUntil = seismic ? now + 1.2f : 0.0f;
+			m_bEmpiresBuildingActionSeismic = false;
 			return false;
 		}
 		if (m_iEmpiresBuildingActionMode == 2)
@@ -1983,6 +2038,18 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 
 	if (now < m_flEmpiresBuildingAttackNext)
 	{
+		// Engineer between two seismic throws: stay put for the next one.
+		if (now < m_flEmpiresSeismicHoldUntil)
+		{
+			// The navmesh follower rewrites the move target every frame: release the route.
+			if (!m_pSchedules->isEmpty() || m_navigationIntent.active)
+			{
+				cancelNavigationAttempt("seismic-hold");
+				m_pSchedules->freeMemory();
+			}
+			holdEmpiresHealPosition();
+			return true;
+		}
 		// Between rapid follow-up shots on a building/CV, hold position instead of
 		// letting goal-roam walk away for half a second.
 		if (!m_bEmpiresTurretRocketIsThreat && m_hEmpiresTurretRocketTarget.get() != nullptr &&
@@ -2001,8 +2068,11 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	bool classDesiredKnown = false;
 	const char* classProperty = nullptr;
 	if (!readEmpiresClass(m_pEdict, classId, classDesired, classDesiredKnown, classProperty) ||
-		(classId != EMP_CLASS_GRENADIER && classId != EMP_CLASS_RIFLEMAN && classId != EMP_CLASS_SCOUT))
+		(classId != EMP_CLASS_GRENADIER && classId != EMP_CLASS_RIFLEMAN && classId != EMP_CLASS_SCOUT &&
+			classId != EMP_CLASS_ENGINEER))
 		return false;
+	if (classId == EMP_CLASS_ENGINEER)
+		return armEmpiresSeismicThrow(now, userId, team);
 
 	const int enemyTeam = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
 	const char* enemyCvClass = enemyTeam == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";

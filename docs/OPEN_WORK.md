@@ -425,7 +425,17 @@ When the following cases recur, compare the relevant trace and route.
   game-DLL command and never reaches the plugin's client-command hook). Tested with
   `rcbotd empires_test_wages <userid> <wages>` (a bot really says "wages"); the `!give` path and
   the human's HUD are untested.
-- Engineer: seismic grenades against turrets (measure throw range first), walls, cameras.
+- Engineer heal (built, seen in a match): an engineer out of combat heals a visible hurt teammate
+  within 700 units with the kit; the hurt bot gives up its route and waits up to 8 s
+  (`scripts/dev_heal.sh`). Pitfall: the navmesh follower rewrites the move target every server frame,
+  so `stopMoving()` alone never holds a bot with an active route - release the route first.
+- Engineer seismic grenades (built, not yet triggered in a match): lobbed at enemy buildings up to
+  1400 units to a landing point in front of the building's `emp_building_vehicle_physbox` (it bounces
+  grenades back); turrets > camera/radar > large buildings > walls; 20 damage per hit on a barracks;
+  projectile gravity measured ~320 (not 800), so a standing throw reaches ~1750 flat
+  (`scripts/dev_seismic.sh`; numbers in `reverse-engineering/notes/engineer.md`). Open: a run-up throw at
+  a firing turret from outside its 2000-unit range (the turret retreat keeps engineers out today),
+  map barricades, damage on turrets/cameras, walls and cameras as builds.
   Turret upgrade (5.6) is done: an engineer with the upgrade skill raises its own finished
   turrets 1 -> 2 -> 3 with `emp_eng_upgrade` (only up to the map's turret restriction) and rebuilds them
   (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); whether engineers reach rank 30 in a match is open.

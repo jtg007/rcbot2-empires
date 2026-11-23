@@ -819,6 +819,29 @@ private:
 	bool handleEmpiresTurretThreat();
 	// Engineer with the Revive skill revives dead teammates (bot_empires_revive.cpp).
 	bool handleEmpiresRevive();
+	// Engineer heals hurt teammates nearby with the kit (bot_empires_heal.cpp).
+	bool handleEmpiresHeal();
+	void endEmpiresHeal(const char* reason, float skipFor);
+	void tickEmpiresHealPatient();
+	bool empiresHealPatientWaiting();
+	bool m_bHealPatientHeld = false;
+	void holdEmpiresHealPosition();
+	void lookEmpiresHealTarget(const Vector& at);
+	float m_flHealNextLog = 0.0f;
+	int m_iHealTarget = 0;
+	int m_iHealTargetUserId = -1;
+	int m_iHealStartHealth = 0;
+	int m_iHealLastHealth = 0;
+	int m_iHealSkipUserId = -1;
+	float m_flHealSkipUntil = 0.0f;
+	float m_flHealNextSearch = 0.0f;
+	float m_flHealStarted = 0.0f;
+	float m_flHealProgressAt = 0.0f;
+	float m_flHealBestDistance = 0.0f;
+	float m_flHealNextNav = 0.0f;
+	bool m_bHealAttacking = false;
+	bool m_bHealInReach = false;
+	Vector m_vHealNavGoal;
 	int m_iReviveTarget = 0;
 	int m_iReviveTargetUserId = -1;
 	struct ReviveRetry { int targetUserId; float until; };
@@ -875,6 +898,8 @@ private:
 	bool handleEmpiresTurretUpgrade();
 	bool handleEmpiresGrenadierTurretAttack();
 	bool handleEmpiresBuildingAttack();
+	bool armEmpiresSeismicThrow(float now, int userId, int team);
+	void tickEmpiresSeismicTrack();
 	bool handleEmpiresDoorButton();
 	bool handleEmpiresTurretRocketFallback(edict_t* turret, float range, int health, bool logFailure);
 	void tickEmpiresTurretRocket();
@@ -1548,6 +1573,25 @@ private:
 	float m_flEmpiresBuildingActionReadyAt = 0.0f;
 	float m_flEmpiresBuildingActionPressUntil = 0.0f;
 	bool m_bEmpiresBuildingActionThrown = false;
+	// Engineer seismic throw (5.31.2): mode 1 with a ballistic pitch, plus a flight/damage trace.
+	bool m_bEmpiresBuildingActionSeismic = false;
+	float m_flEmpiresSeismicPitch = 0.0f;
+	float m_flEmpiresSeismicHoldUntil = 0.0f;
+	int m_iSeismicBurstTarget = 0;
+	int m_iSeismicBurstHealth = 0;
+	int m_iSeismicBurstThrows = 0;
+	int m_iSeismicSkipTarget = 0;
+	float m_flSeismicSkipUntil = 0.0f;
+	int m_iSeismicTrackProjectile = 0;
+	int m_iSeismicTrackTarget = 0;
+	int m_iSeismicTrackHealth = 0;
+	float m_flSeismicTrackStart = 0.0f;
+	float m_flSeismicTrackLastSeen = 0.0f;
+	float m_flSeismicTrackResultAt = 0.0f;
+	float m_flSeismicNoneLog = 0.0f;
+	Vector m_vSeismicTrackLast = Vector(0, 0, 0);
+	Vector m_vSeismicTrackFirst = Vector(0, 0, 0);
+	Vector m_vSeismicTrackTargetAt = Vector(0, 0, 0);
 
 	// Pressing a map button that opens a closed door (as_escort base gate control1).
 	int m_iEmpiresDoorButton = -1;

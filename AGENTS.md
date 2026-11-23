@@ -140,6 +140,7 @@ and braking from at least 500 HU/s. Filter the server log for `vehicle turn-test
 Damaged tank to pad and refit (~40 s): `scripts/dev_pad.sh [map] [timescale]` disables
 refinery turret jobs for this run. `dev_check.sh` covers turrets in a separate test.
 Turret upgrade 1 -> 3 (~1.5 min): `DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh [map]` (ranks the engineer up with cheats).
+Engineer heals a hurt teammate (~1 min): `scripts/dev_heal.sh [map] [timescale]`. Engineer throws seismics at the NF barracks (~1 min, 1x): `[DEV_SEISMIC_POS="x y z"] scripts/dev_seismic.sh [map] [timescale]`.
 Mixed loadout refit on the pad (~1 min): `scripts/dev_mixed.sh [map] [timescale]`.
 Empty cannon -> pad -> refit (~1.5 min): `scripts/dev_ammo.sh [map] [timescale]`. Empty cannon -> nearer team
 ammo crate (~1 min): `[DEV_CRATE_WAIT=s] scripts/dev_crate.sh [map] [timescale] [distance]`. Ammo call ->

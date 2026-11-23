@@ -1038,6 +1038,14 @@ void CBotEmpires::setup()
 	m_flEmpiresBuildingActionUntil = 0.0f;
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionSeismic = false;
+	m_flEmpiresSeismicHoldUntil = 0.0f;
+	m_iSeismicBurstTarget = 0;
+	m_iSeismicBurstThrows = 0;
+	m_flSeismicSkipUntil = 0.0f;
+	m_iSeismicTrackProjectile = 0;
+	m_flSeismicTrackStart = 0.0f;
+	m_flSeismicTrackResultAt = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_iEmpiresLastHealth = 0;
 	m_commanderMoveShadow.Reset();
@@ -1939,7 +1947,8 @@ void CBotEmpires::handleWeapons()
 
 	// The ammo-crate action (3.10b step 3) owns the kit attack while it aims and observes;
 	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
-	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons())
+	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons() ||
+		m_bHealAttacking)
 		return;
 
 	const bool coverScheduleActive =
@@ -2483,6 +2492,8 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
 	if (engine != nullptr && m_pEdict != nullptr)
 		EmpiresLawlietOnBotReset(engine->IndexOfEdict(m_pEdict));
+	if (m_iHealTarget != 0)
+		endEmpiresHeal("died", 0.0f);
 	if (m_iAmmoCrateStage != 0)
 	{
 		EmpiresAmmoRequest* ar = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
@@ -2500,6 +2511,14 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	m_flEmpiresBuildingActionUntil = 0.0f;
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionSeismic = false;
+	m_flEmpiresSeismicHoldUntil = 0.0f;
+	m_iSeismicBurstTarget = 0;
+	m_iSeismicBurstThrows = 0;
+	m_flSeismicSkipUntil = 0.0f;
+	m_iSeismicTrackProjectile = 0;
+	m_flSeismicTrackStart = 0.0f;
+	m_flSeismicTrackResultAt = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_flVoidNextCheck = 0.0f;
 	m_flVoidSince = -1.0f;
@@ -5355,6 +5374,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	// Buying, walking to and driving a vehicle replaces the normal goals.
 	if (empiresVehicleOwnsBot())
 		return;
+	// Hurt and an engineer is coming to heal us (bot_empires_heal.cpp): wait for him.
+	if (empiresHealPatientWaiting())
+		return;
 
 	// Seated (e.g. as passenger) the origin is vehicle-local: no foot planning.
 	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
@@ -6205,6 +6227,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		if (handleEmpiresAmmoRequest())
 			return;
 
+		if (handleEmpiresHeal())
+			return;
+
 		if (handleEmpiresRefineryTurret())
 			return;
 
@@ -6573,8 +6598,12 @@ void CBotEmpires::modThink()
 		const bool engibot = EmpiresIsEngibot(m_pEdict);
 		if (!engibot)
 			handleEmpiresRevive();
+		if (m_iReviveTarget == 0)
+			handleEmpiresHeal();
 		if (!handleEmpiresAmmoRequest() && !engibot)
 			handleEmpiresRefineryTurret();
+		tickEmpiresHealPatient();
+		tickEmpiresSeismicTrack();
 	}
 	if (m_vehicle.stage == EmpiresVehicleStage::DRIVING ||
 		m_vehicle.stage == EmpiresVehicleStage::ENTERING ||
@@ -16211,6 +16240,11 @@ void CBotEmpires::freeMapMemory()
 	m_iAmmoCrateVehicle = -1;
 	m_iAmmoCrateTries = 0;
 	m_flAmmoCrateNextSearch = 0.0f;
+	m_iHealTarget = 0;
+	m_iHealTargetUserId = -1;
+	m_iHealSkipUserId = -1;
+	m_flHealNextSearch = 0.0f;
+	m_bHealAttacking = false;
 	m_vTurretSpot = vec3_origin;
 	m_flTurretYaw = 0.0f;
 	m_flTurretUntil = 0.0f;
@@ -16259,6 +16293,14 @@ void CBotEmpires::freeMapMemory()
 	m_flEmpiresBuildingActionUntil = 0.0f;
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_bEmpiresBuildingActionSeismic = false;
+	m_flEmpiresSeismicHoldUntil = 0.0f;
+	m_iSeismicBurstTarget = 0;
+	m_iSeismicBurstThrows = 0;
+	m_flSeismicSkipUntil = 0.0f;
+	m_iSeismicTrackProjectile = 0;
+	m_flSeismicTrackStart = 0.0f;
+	m_flSeismicTrackResultAt = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_iEmpiresDoorButton = -1;
 	m_iEmpiresDoorButtonDoor = -1;
