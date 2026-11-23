@@ -819,6 +819,51 @@ private:
 	bool handleEmpiresTurretThreat();
 	// Engineer with the Revive skill revives dead teammates (bot_empires_revive.cpp).
 	bool handleEmpiresRevive();
+	// Infantry side-steps, keeps its weapon band and backs off in a fight (bot_empires_skirmish.cpp).
+	bool handleEmpiresSkirmish();
+	void endEmpiresSkirmish(const char* reason);
+	bool empiresSkirmishSpotSafe(const Vector& origin, const Vector& want, edict_t* enemy, Vector& out) const;
+	bool m_bSkirmishActive = false;
+	MyEHandle m_pSkirmishEnemy;
+	Vector m_vSkirmishGoal;
+	float m_flSkirmishStarted = 0.0f;
+	float m_flSkirmishLastSeen = 0.0f;
+	float m_flSkirmishPhaseStarted = 0.0f;
+	float m_flSkirmishPhaseUntil = 0.0f;
+	float m_flSkirmishDisabledUntil = 0.0f;
+	int m_iSkirmishPhase = 0; // 0 none, 1 step, 2 stand/crouch, 3 step reached
+	int m_iSkirmishSide = 1;
+	int m_iSkirmishSteps = 0;
+	int m_iSkirmishBlocks = 0;
+	int m_iSkirmishPauses = 0;
+	int m_iSkirmishStage = 0;
+	int m_iSkirmishCovers = 0;
+	float m_flSkirmishTick = 0.0f;
+	bool m_bSkirmishNoStepLogged = false;
+	mutable int m_iSkirmishRejectMask = 0;
+	mutable char m_szSkirmishRejectHit[48] = {};
+	int m_iSkirmishOddsBack = 0;
+	int m_iSkirmishAllies = 0;
+	int m_iSkirmishEnemies = 0;
+	float m_flSkirmishOddsAt = 0.0f;
+	void countEmpiresFightOdds(const Vector& origin, int& allies, int& enemies);
+	bool findEmpiresSkirmishCover(const Vector& origin, edict_t* enemy, const Vector& toEnemy, Vector& out) const;
+	void calloutEmpiresEnemy(edict_t* enemy);
+	float m_flNextCallout = 0.0f;
+	void postEmpiresContact(const Vector& enemyPos);
+	bool handleEmpiresJoinFight();
+	void endEmpiresJoinFight(const char* reason);
+	// Map change / new bot: gpGlobals->curtime restarts at 0, so stored times would block or misfire.
+	void resetEmpiresSkirmishState(bool mapChange);
+	float m_flNextContactPost = 0.0f;
+	int m_iJoinContactId = 0;
+	int m_iJoinSkipId = 0;
+	Vector m_vJoinGoal;
+	float m_flJoinStarted = 0.0f;
+	float m_flJoinProgressAt = 0.0f;
+	float m_flJoinBestDist = 0.0f;
+	float m_flJoinNextNav = 0.0f;
+	float m_flJoinNextSearch = 0.0f;
 	// Engineer heals hurt teammates nearby with the kit (bot_empires_heal.cpp).
 	bool handleEmpiresHeal();
 	void endEmpiresHeal(const char* reason, float skipFor);

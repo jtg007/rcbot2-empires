@@ -1048,6 +1048,7 @@ void CBotEmpires::setup()
 	m_flSeismicTrackResultAt = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_iEmpiresLastHealth = 0;
+	resetEmpiresSkirmishState(false);
 	m_commanderMoveShadow.Reset();
 	m_commanderMoveShadow.SetTelemetrySink(
 		RecordCommanderMoveShadowTelemetry, this);
@@ -1773,6 +1774,15 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	}
 
 	noteEmpiresTurretThreat(pAttacker);
+	// In a skirmish the bot takes cover itself and keeps shooting (bot_empires_skirmish.cpp); the
+	// generic hide schedule walked away with the fire held.
+	if (m_bSkirmishActive && rcbot_empires_fight_cover.GetBool() && gpGlobals != nullptr &&
+		gpGlobals->curtime - m_flSkirmishTick < 0.5f)
+	{
+		(void)CBot::hurt(pAttacker, iHealthNow, true);
+		interruptEmpiresEngineerSupportForCombat("damage-interrupt");
+		return false;
+	}
 	const bool hideScheduled = CBot::hurt(pAttacker, iHealthNow, bDontHide);
 	// Engineer support is interruptible by real damage. Release the kit and
 	// route immediately; the next normal think cycle can reacquire the attacker
@@ -2494,6 +2504,8 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 		EmpiresLawlietOnBotReset(engine->IndexOfEdict(m_pEdict));
 	if (m_iHealTarget != 0)
 		endEmpiresHeal("died", 0.0f);
+	endEmpiresSkirmish("died");
+	endEmpiresJoinFight("died");
 	if (m_iAmmoCrateStage != 0)
 	{
 		EmpiresAmmoRequest* ar = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
@@ -5569,6 +5581,11 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		return;
 	}
 
+	// A visible enemy soldier inside the weapon band: side-step and keep distance instead of
+	// running at him (bot_empires_skirmish.cpp). Outside the band the approach below closes in.
+	if (handleEmpiresSkirmish())
+		return;
+
 	edict_t* pApproachTarget = m_pEmpiresApproachTarget.get();
 	const bool validApproachTarget =
 		m_bEmpiresApproachTaskIssued &&
@@ -6228,6 +6245,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			return;
 
 		if (handleEmpiresHeal())
+			return;
+
+		// Walk to a teammate's fight nearby instead of a far goal (bot_empires_skirmish.cpp).
+		if (handleEmpiresJoinFight())
 			return;
 
 		if (handleEmpiresRefineryTurret())
@@ -15989,6 +16010,7 @@ void CBotEmpires::freeMapMemory()
 	clearEmpiresEnemyLosFixture("map-shutdown");
 	clearEmpiresScoutPriorityFixture("map-shutdown");
 	clearEmpiresSquadGoals();
+	resetEmpiresSkirmishState(true);
 	const bool wasAttached = isControlledTestOnly() || m_pEdict != nullptr;
 	const int previousIndex = m_pEdict != nullptr && engine != nullptr ? engine->IndexOfEdict(m_pEdict) : -1;
 	if (previousIndex > 0)

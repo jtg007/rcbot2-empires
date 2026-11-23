@@ -94,7 +94,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>5 🟡</code></summary>
+<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>7 🟡</code></summary>
 
 <br>
 
@@ -102,6 +102,8 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 |:---:|---|---|
 | ✅ | **All four classes** | Scout, Rifleman, Grenadier, and Engineer with multiple loadouts and class skills |
 | ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); navmesh cover under fire awaits match verification, and class spacing remains open |
+| 🟡 | **Skirmish movement** | Inside its weapon's effective band (max ~900 units; beyond that it keeps advancing) a bot side-steps away from the enemy's aim in short irregular bursts, backs off when too close, reloading, badly hurt or outnumbered, presses in when its side is ahead, and breaks line of sight to a close safe spot to reload. Every step is snapped to the navmesh and hull-traced; blocked steps escalate to standing, then to the old approach (`rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`) *(two paired 10-bot matches: no new stalls)* |
+| 🟡 | **Joining fights & callouts** | Free infantry walks to a teammate's fight within 2000 units (max 2 helpers per fight); bots spot a group of enemies or a close enemy for the team, at most once per team per minute (`rcbot_empires_join_fight`, `rcbot_empires_callouts`) |
 | ✅ | **Flag capture** | Captures objectives on maps with capture points |
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
 | ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
@@ -225,6 +227,16 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
 | `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
 | `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
+
+### Infantry Combat
+
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_skirmish` | `1` | Side-step and keep an effective distance in a fight instead of running at the enemy (`2` NF only, `3` BE only, for comparisons) |
+| `rcbot_empires_fight_odds` | `1` | Weigh visible enemies against nearby teammates: give ground when outnumbered, press in when ahead |
+| `rcbot_empires_fight_cover` | `1` | Reloading, badly hurt or outnumbered: break line of sight to a close safe spot while still fighting |
+| `rcbot_empires_join_fight` | `1` | Free infantry joins a teammate's fight within 2000 units (max 2 helpers) |
+| `rcbot_empires_callouts` | `1` | Spot a group or a close enemy for the team (once per team per minute, per bot every 3 minutes) |
 
 ### Diagnostics & Offsets
 

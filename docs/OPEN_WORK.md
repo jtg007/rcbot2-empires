@@ -391,7 +391,15 @@ When the following cases recur, compare the relevant trace and route.
   `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
   (including rifleman stickies and scout sniper/shotgun) are active for all four classes,
   and spawn selection breaks ties among non-flag spawns by 2D distance to the front/VF.
-  Navmesh cover is implemented. Recovery of the previous objective, class spacing, Scout hide and Grenadier road mines remain open.
+  Navmesh cover is implemented. Skirmish movement (`bot_empires_skirmish.cpp`): infantry side-steps
+  away from the enemy's line of fire within an effective weapon band (max. 900 HU, advances when farther),
+  backs off when too close, reloading, below 35 % HP or outnumbered, ducks into cover out of sight,
+  free bots within 2000 HU join a teammate's fight (max. 2 helpers) and a throttled spot callout is sent
+  (cvars `rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`, `_join_fight`, `_callouts`, all default 1).
+  Two paired 10-bot Crossroads matches at 1x (all on vs. all off, `133220`/`133250`, `134952`/`135032`):
+  no new stalls, no crashes, kills 28 vs. 24. Open: grenades against groups or cover (no frag grenade in
+  the loadouts), class roles in a fight, effect with human players. Recovery of the previous objective,
+  class spacing, Scout hide and Grenadier road mines remain open.
 - Shared team economy: commander and bots should share one view of team resources, income
   and planned spending so money is used for a natural game flow. Static findings: vehicle
   purchases pay from the buyer's own wages first and only the remainder from the team pool,

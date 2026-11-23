@@ -116,6 +116,11 @@ ConVar rcbot_empires_vehicles("rcbot_empires_vehicles", "1", 0, "if 1, bots buy 
 ConVar rcbot_empires_debug_log("rcbot_empires_debug_log", "0", 0, "if 1, print the bots' diagnostic [RCBOT2] lines to the server console (on in the dev harness)");
 ConVar rcbot_empires_engibot("rcbot_empires_engibot", "1", 0, "1 = the commander can buy base engineer bots with /buildengibot in chat");
 ConVar rcbot_empires_engibot_cost("rcbot_empires_engibot_cost", "100", 0, "team resources one /buildengibot costs");
+ConVar rcbot_empires_skirmish("rcbot_empires_skirmish", "1", 0, "infantry in a fight keeps an effective distance to its weapon, side-steps away from the enemy aim and backs off when too close, reloading or hurt, instead of running straight at the enemy (2 = NF only, 3 = BE only, for comparisons)");
+ConVar rcbot_empires_fight_odds("rcbot_empires_fight_odds", "1", 0, "in a fight, infantry compares visible enemies with teammates nearby: outnumbered it gives ground, ahead it presses in");
+ConVar rcbot_empires_fight_cover("rcbot_empires_fight_cover", "1", 0, "in a fight, infantry that is reloading, badly hurt or outnumbered steps out of the enemy's sight to a close safe spot and comes back afterwards");
+ConVar rcbot_empires_join_fight("rcbot_empires_join_fight", "1", 0, "free infantry walks to a fight of a teammate within 2000 units (max 2 helpers per fight)");
+ConVar rcbot_empires_callouts("rcbot_empires_callouts", "1", 0, "infantry calls out (spots) enemies it starts fighting, like a player (only a group of enemies or one within 800 units; once per team per minute, per bot every 3 minutes)");
 ConVar rcbot_empires_kill_spawn("rcbot_empires_kill_spawn", "1", 0, "if 1, a defender on a base alert or a far vehicle buyer may respawn (kill) at a spawn at least 3800 HU closer to its goal (no combat 6 s, tickets > 20 and > 25 %, 90 s per bot)");
 ConVar rcbot_empires_commander_orders("rcbot_empires_commander_orders", "1", 0, "the seated bot commander orders its free attacker bots to the next capture point (attack location)");
 ConVar rcbot_empires_engibot_limit("rcbot_empires_engibot_limit", "2", 0, "maximum EngiBots per team (0-8)");
