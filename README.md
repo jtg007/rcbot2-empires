@@ -20,7 +20,7 @@ Built on [RCBot2][rcbot2-fork] for Source SDK 2013 (x86) and tested on Linux ded
 Front support (pending match verification): spawn APCs look for dry flank parking with vehicle access and a short infantry route to a contested flag. Engineers can answer a human infantry ammo call. Under fire, infantry can take nearby navmesh cover and resume their objective. A seated bot commander can redirect one attacking grenadier to an enemy APC seen by a teammate.
 
 > [!WARNING]
-> **Work in progress.** The bots play complete matches, but still make mistakes. Check the [feature breakdown](#detailed-status-by-role), [known issues](#known-issues), and [open-work list](docs/OPEN_WORK.md) for current limits.
+> **Work in progress.** The bots play complete matches, but still make mistakes. Check the [feature breakdown](#detailed-status-by-role), [known issues](#known-issues), and [open-work list](docs/OPEN_WORK.md) for current limits. The [project wiki](wiki/README.md) gives a page-by-page overview (features, cvars, commands, code map, build and test).
 
 ---
 
@@ -280,7 +280,7 @@ The script prints the resulting `.so` path.
 
 ## Development
 
-Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_SERVER` at an isolated test server with the addon installed. For contributor and agent workflows, see [AGENTS.md](AGENTS.md) and [docs/OPEN_WORK.md](docs/OPEN_WORK.md).
+Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_SERVER` at an isolated test server with the addon installed. For contributor and agent workflows, see [AGENTS.md](AGENTS.md), [docs/OPEN_WORK.md](docs/OPEN_WORK.md) and the [wiki](wiki/README.md).
 
 > [!IMPORTANT]
 > Tank shells and mortars only work at `DEV_TIMESCALE=1` — with fast-forward enabled they detonate at the muzzle.
