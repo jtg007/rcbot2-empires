@@ -7,6 +7,7 @@
 // chest and holds attack until the teammate is full, moves away or nothing changes.
 #include "bot_empires.h"
 #include "bot_empires_binary.h"
+#include "bot_empires_lawliet.h"
 #include "bot_globals.h"
 #include "bot_getprop.h"
 #include "bot_navmesh_api.h"
@@ -169,6 +170,14 @@ bool CBotEmpires::handleEmpiresHeal()
 			const int targetUserId = engine->GetPlayerUserId(player);
 			if (targetUserId == m_iHealSkipUserId && now < m_flHealSkipUntil)
 				continue;
+			if (CBot* targetBot = CBots::getBotPointer(player); targetBot != nullptr)
+			{
+				CBotEmpires* tb = static_cast<CBotEmpires*>(targetBot);
+				if (tb->commanderDutyBlocksSideTasks() || EmpiresLawlietBlocksSideTasks(team, i) ||
+					tb->m_iReviveTarget != 0 || tb->m_iBuildAssignStage > 0 ||
+					tb->m_iAmmoCrateStage != 0 || tb->m_iEmpiresBuildingActionMode != 0)
+					continue;
+			}
 			const HealClaim& claim = s_healClaim[i];
 			if (claim.engineerUserId >= 0 && claim.engineerUserId != userId && claim.until > now)
 				continue;
@@ -393,6 +402,10 @@ bool CBotEmpires::empiresHealPatientWaiting()
 	if (claim.engineerUserId < 0 || claim.until <= now || now - claim.since > 8.0f)
 		return false;
 	if (hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && m_pEnemy.get() != nullptr)
+		return false;
+	if (commanderDutyBlocksSideTasks() || EmpiresLawlietBlocksSideTasks(getTeam(), index) ||
+		m_iReviveTarget != 0 || m_iBuildAssignStage > 0 || m_iAmmoCrateStage != 0 ||
+		m_iEmpiresBuildingActionMode != 0)
 		return false;
 	edict_t* engineer = CBotGlobals::playerByUserId(claim.engineerUserId);
 	return engineer != nullptr && CBotGlobals::entityIsAlive(engineer) &&

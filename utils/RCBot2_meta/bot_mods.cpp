@@ -393,11 +393,6 @@ void CEmpiresMod::initMod()
 	// registry.  If weapons.ini has no EMPIRES section, loadWeapons() uses
 	// EMPWeaps as the verified fallback table.
 	CWeapons::loadWeapons(m_szWeaponListName == nullptr ? "EMPIRES" : m_szWeaponListName, EMPWeaps);
-
-	// Empires is currently in the native bootstrap phase. Keep the normal
-	// quota/min-max reconciler from creating unrelated bots during initial
-	// load and late plugin reloads. Explicit bootstrap commands remain valid.
-	CBots::setEmpiresBootstrapTestMode(true);
 }
 
 void CEmpiresMod::mapInit()

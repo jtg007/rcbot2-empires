@@ -1763,6 +1763,29 @@ bool ScoutStunTargetTooFast(edict_t* vehicle, float distance)
 }
 }
 
+void CBotEmpires::abortEmpiresBuildingAction(const char* reason)
+{
+	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
+	const int userId = engine != nullptr && m_pEdict != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1;
+	if (m_iEmpiresBuildingActionMode != 0)
+		RCBOT_DIAG("[RCBOT2] building-action abort userid=%d mode=%d reason=%s\n",
+			userId, m_iEmpiresBuildingActionMode, reason != nullptr ? reason : "unknown");
+	if (m_pButtons != nullptr)
+	{
+		m_pButtons->letGo(IN_ATTACK);
+		m_pButtons->letGo(IN_USE);
+	}
+	m_iButtons &= ~(IN_ATTACK | IN_USE);
+	m_hEmpiresBuildingActionTarget = nullptr;
+	m_iEmpiresBuildingActionMode = 0;
+	m_bEmpiresBuildingActionSeismic = false;
+	m_flEmpiresBuildingActionUntil = 0.0f;
+	m_flEmpiresBuildingActionPressUntil = 0.0f;
+	m_flEmpiresSeismicHoldUntil = 0.0f;
+	m_bEmpiresBuildingActionThrown = false;
+	m_flEmpiresBuildingAttackNext = now + 1.5f;
+}
+
 bool CBotEmpires::handleEmpiresBuildingAttack()
 {
 	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr ||
@@ -1793,17 +1816,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		{
 			if (m_iEmpiresBuildingActionMode == 3)
 				RCBOT_DIAG("[RCBOT2] scout-stun end userid=%d reason=%s\n", userId, alive ? "timeout" : "target-gone");
-			if (m_pButtons != nullptr)
-			{
-				m_pButtons->letGo(IN_ATTACK);
-				m_pButtons->letGo(IN_USE);
-			}
-			m_iButtons &= ~(IN_ATTACK | IN_USE);
-			m_hEmpiresBuildingActionTarget = nullptr;
-			m_iEmpiresBuildingActionMode = 0;
-			m_bEmpiresBuildingActionSeismic = false;
-			m_flEmpiresBuildingActionUntil = 0.0f;
-			m_flEmpiresBuildingAttackNext = now + 1.5f;
+			abortEmpiresBuildingAction(alive ? "timeout" : "target-gone");
 			return false;
 		}
 		Vector targetCenter = CBotGlobals::entityOrigin(target);

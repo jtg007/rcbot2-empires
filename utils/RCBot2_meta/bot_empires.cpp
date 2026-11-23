@@ -6584,6 +6584,11 @@ void CBotEmpires::modThink()
 				engine->GetPlayerUserId(m_pEdict), restrict, at.x, at.y, at.z);
 		}
 	}
+	if ((m_iEmpiresBuildingActionMode != 0 || m_flEmpiresSeismicHoldUntil > 0.0f) &&
+		hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && m_pEnemy.get() != nullptr)
+	{
+		abortEmpiresBuildingAction("enemy");
+	}
 	tickTeamDirector();
 	tickEmpiresLawliet();
 	tickEmpiresVehicle();

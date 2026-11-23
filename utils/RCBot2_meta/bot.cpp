@@ -5273,6 +5273,19 @@ void CBots :: mapInit ()
 	m_flAddKickBotTime = engine->Time() + 10.0f;
 }
 
+bool EmpiresIsEngibot(const edict_t* player); // bot_empires_engibot.cpp: bought by a commander, never quota-kicked
+
+static int CountEmpiresEngibots()
+{
+	int count = 0;
+	for (short i = 0; i < RCBOT_MAXPLAYERS; ++i)
+	{
+		if (CBots::getBot(i) != nullptr && EmpiresIsEngibot(CBots::getBot(i)->getEdict()))
+			++count;
+	}
+	return count;
+}
+
 bool CBots :: needToAddBot ()
 {
 	if (automaticBotsSuppressed())
@@ -5282,7 +5295,8 @@ bool CBots :: needToAddBot ()
 		return false;
 	}
 
-	const int iBots = CBots::numBots();
+	const int engibots = CountEmpiresEngibots();
+	const int iBots = CBots::numBots() - engibots;
 
 	// In MVM mode, only count RED team human players for slot management.
 	// BLU team slots are reserved for wave robots and should not prevent
@@ -5300,7 +5314,7 @@ bool CBots :: needToAddBot ()
 		return false;
 	}
 
-	const int iClients = CBotGlobals::numPlayersPlaying();
+	const int iClients = CBotGlobals::numPlayersPlaying() - engibots;
 
 	if ((m_iMinBots!=-1 && iBots < m_iMinBots) || (iClients < m_iMaxBots && m_iMaxBots != -1)) {
 		return true;
@@ -5308,8 +5322,6 @@ bool CBots :: needToAddBot ()
 
 	return false;
 }
-
-bool EmpiresIsEngibot(const edict_t* player); // bot_empires_engibot.cpp: bought by a commander, never quota-kicked
 
 bool CBots :: needToKickBot ()
 {
@@ -5325,8 +5337,9 @@ bool CBots :: needToKickBot ()
 	if (CBotGlobals::isMod(MOD_TF2) && CTeamFortress2Mod::isMapType(TF_MAP_MVM))
 		return false;
 
-	const int iClients = CBotGlobals::numPlayersPlaying();
-	const int iBots = CBots::numBots();
+	const int engibots = CountEmpiresEngibots();
+	const int iClients = CBotGlobals::numPlayersPlaying() - engibots;
+	const int iBots = CBots::numBots() - engibots;
 
 	if ( m_flAddKickBotTime < engine->Time() )
 	{

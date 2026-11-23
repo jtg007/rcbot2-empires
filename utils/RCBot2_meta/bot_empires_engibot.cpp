@@ -159,11 +159,13 @@ struct EngibotRequest
 };
 EngibotRequest s_requests[8];
 int s_requestCount = 0;
+float s_lastRequestTime[RCBOT_MAXPLAYERS + 1] = {};
 
 void HandleEngibotRequest(edict_t* speaker, int speakerId, bool test);
 } // namespace
 
-// player_say (bot_events.cpp). Only a human commander counts, a bot speaker only for the test command.
+// player_say (bot_events.cpp) and Hook_ClientCommand say/say_team (bot_plugin_meta.cpp).
+// Only a human commander counts, a bot speaker only for the test command.
 void EmpiresHandleEngibotChat(edict_t* speaker, const char* text)
 {
 	if (speaker == nullptr || engine == nullptr || gpGlobals == nullptr || !StartsWithCommand(text, "buildengibot"))
@@ -175,9 +177,16 @@ void EmpiresHandleEngibotChat(edict_t* speaker, const char* text)
 	if ((!test && CBots::getBotPointer(speaker) != nullptr) || CBotGlobals::getCurrentMod() == nullptr ||
 		CBotGlobals::getCurrentMod()->getBotType() != BOTTYPE_EMPIRES)
 		return;
+	const int speakerIndex = engine->IndexOfEdict(speaker);
+	const float now = gpGlobals->curtime;
+	if (speakerIndex > 0 && speakerIndex <= RCBOT_MAXPLAYERS &&
+		now < s_lastRequestTime[speakerIndex] && s_lastRequestTime[speakerIndex] - now <= 0.5f)
+		return; // deduplicate Hook_ClientCommand + player_say for the same chat message
 	for (int i = 0; i < s_requestCount; ++i)
 		if (s_requests[i].userId == speakerId)
 			return; // already queued this frame
+	if (speakerIndex > 0 && speakerIndex <= RCBOT_MAXPLAYERS)
+		s_lastRequestTime[speakerIndex] = now + 0.5f;
 	if (s_requestCount < static_cast<int>(sizeof(s_requests) / sizeof(s_requests[0])))
 		s_requests[s_requestCount++] = {speakerId, test};
 	RCBOT_DIAG("[RCBOT2] engibot request speaker=%d test=%d queued=%d\n", speakerId, test ? 1 : 0, s_requestCount);

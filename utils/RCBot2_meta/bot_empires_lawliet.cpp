@@ -746,6 +746,22 @@ struct EmpiresLawlietImpl
 					if (!IsEligibleBot(reader, dEdict, team, dBot, dInfo, dCls))
 						continue;
 				}
+				else
+				{
+					const Vector apcAt = CBotGlobals::entityOrigin(e);
+					bool humanNear = false;
+					for (int p = 1; p <= gpGlobals->maxClients && !humanNear; ++p)
+					{
+						edict_t* pe = engine->PEntityOfEntIndex(p);
+						IPlayerInfo* pi = pe != nullptr && !pe->IsFree() && playerinfomanager != nullptr ?
+							playerinfomanager->GetPlayerInfo(pe) : nullptr;
+						humanNear = pi != nullptr && pi->IsConnected() && !pi->IsFakeClient() &&
+							!pi->IsDead() && pi->GetTeamIndex() == team &&
+							Dist2D(CBotGlobals::entityOrigin(pe), apcAt) < 300.0f;
+					}
+					if (humanNear)
+						continue;
+				}
 				existingApc = e;
 				existingApcIndex = i;
 				existingApcDriver = driver > 0 ? driver : -1;

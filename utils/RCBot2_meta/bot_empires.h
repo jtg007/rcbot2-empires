@@ -898,6 +898,7 @@ private:
 	bool handleEmpiresTurretUpgrade();
 	bool handleEmpiresGrenadierTurretAttack();
 	bool handleEmpiresBuildingAttack();
+	void abortEmpiresBuildingAction(const char* reason);
 	bool armEmpiresSeismicThrow(float now, int userId, int team);
 	void tickEmpiresSeismicTrack();
 	bool handleEmpiresDoorButton();

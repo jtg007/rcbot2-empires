@@ -77,6 +77,7 @@ public:
 
 	static void doNextCommand ();
 	static void executeCommands ();
+	static void queueCommands ();
 
 private:
 	static std::vector<char *> m_Commands;

@@ -85,7 +85,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
 | ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer who can search before that window closes. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
-| ✅ | **Heal teammates** | Engineers out of combat heal a visible hurt teammate within 700 units with the kit (clears the deployable selection, keeps a revive charge with the Revive skill); a hurt bot waits up to 8 seconds for the engineer. Seen in a 10-bot match (25 → 100 HP in 6 s) |
+| ✅ | **Heal teammates** | Engineers out of combat heal a visible hurt teammate within 700 units with the kit (clears the deployable selection, keeps a revive charge with the Revive skill); a hurt bot waits up to 8 seconds for the engineer unless busy with commander duty, Lawliet, revive, building, or ammo crates. Seen in 10-bot matches (25 → 100 HP in 6 s; 37 → 100 HP in 3.5 s) |
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
 | 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
@@ -183,7 +183,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 - **Base duty:** Builds and repairs unfinished/damaged buildings and friendly vehicles within 2500 units of the CV (including human-placed structures).
 - **Idle behavior:** Waits ~900 units from the CV so building spots stay clear.
 - **Orders:** *Attack location* builds an MG turret at the target; *Guard* on a building builds or repairs it.
-- **Strict scope:** Never captures flags, roams, enters vehicles, takes command, or chases enemies. Automatically leaves on map change and is ignored by bot quota.
+- **Strict scope:** Never captures flags, roams, enters vehicles, takes command, or chases enemies. Automatically leaves on map change and is ignored by both `bot_quota` and `min_bots`/`max_bots`. Chat `/buildengibot` and `!buildengibot` are also handled before chat-trigger plugins can swallow them, with properly formatted Empires `HintText`/`SayText` replies.
 
 > [!NOTE]
 > EngiBots have so far only been tested with the bot commander (`scripts/dev_engibot.sh`), not yet with a human commander.

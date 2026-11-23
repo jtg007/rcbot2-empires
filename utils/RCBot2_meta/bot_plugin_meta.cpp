@@ -349,7 +349,10 @@ void RCBotPluginMeta::HudTextMessage(const edict_t* pEntity, const char* szMessa
 
 	if (hint > 0) {
 		buf = engine->UserMessageBegin(&filter, hint);
-		buf->WriteString(szMessage);
+		if (buf != nullptr) {
+			buf->WriteByte(1);
+			buf->WriteString(szMessage);
+		}
 		engine->MessageEnd();
 	}
 
@@ -358,7 +361,11 @@ void RCBotPluginMeta::HudTextMessage(const edict_t* pEntity, const char* szMessa
 		snprintf(chatline, sizeof(chatline), "\x01\x04[RCBot2]\x01 %s\n", szMessage);
 
 		buf = engine->UserMessageBegin(&filter, say);
-		buf->WriteString(chatline);
+		if (buf != nullptr) {
+			buf->WriteByte(0);
+			buf->WriteString(chatline);
+			buf->WriteByte(1);
+		}
 		engine->MessageEnd();
 	}
 }
@@ -395,7 +402,11 @@ void RCBotPluginMeta::BroadcastTextMessage(const char* szMessage)
 		snprintf(chatline, sizeof(chatline), "\x01\x04[RCBot2]\x01 %s\n", szMessage);
 
 		bf_write* buf = engine->UserMessageBegin(&filter, say);
-		buf->WriteString(chatline);
+		if (buf != nullptr) {
+			buf->WriteByte(0);
+			buf->WriteString(chatline);
+			buf->WriteByte(1);
+		}
 		engine->MessageEnd();
 	}
 }
@@ -953,6 +964,10 @@ void RCBotPluginMeta::Hook_ServerActivate(edict_t *pEdictList, const int edictCo
 	CAccessClients::load();
 
 	CBotGlobals::setClientMax(clientMax);
+
+	// Queue config.ini at map activation so server.cfg / runtime overrides are never
+	// overwritten several seconds later by the staggered GameFrame executor.
+	CBotConfigFile::queueCommands();
 }
 
 void RCBotPluginMeta::AllPluginsLoaded()
@@ -1016,12 +1031,19 @@ void RCBotPluginMeta::Hook_ClientCommand(edict_t *pEntity)
 
 	CClient *pClient = CClients::get(pEntity);
 
-	// EngiBot purchase from the client console ("buildengibot", also for a key bind): works even
-	// where a chat plugin hides or swallows "/buildengibot". Queued like the chat command.
+	// EngiBot purchase from the client console ("buildengibot", also for a key bind), plus
+	// chat "say /buildengibot" / "say_team /buildengibot" before SourceMod's SilentChatTrigger
+	// can swallow the "/" prefix before player_say fires.
 	if ( pcmd != nullptr && std::strcmp(pcmd, "buildengibot") == 0 )
 	{
 		EmpiresHandleEngibotChat(pEntity, "/buildengibot");
 		RETURN_META(MRES_SUPERCEDE);
+	}
+	if ( pcmd != nullptr && (std::strcmp(pcmd, "say") == 0 || std::strcmp(pcmd, "say_team") == 0) &&
+		args.ArgC() >= 2 && CBotGlobals::getCurrentMod() != nullptr &&
+		CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES )
+	{
+		EmpiresHandleEngibotChat(pEntity, args.ArgS());
 	}
 
 	// is bot command?
