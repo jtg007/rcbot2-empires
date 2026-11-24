@@ -443,7 +443,10 @@ When the following cases recur, compare the relevant trace and route.
   enemy and spot far enemies with the binoculars (`m_VisibilityState` 0 -> 3 in a short test), grenadiers keep an
   RPG stand-off of 550-1300 HU to vehicles and at least 400 HU to soldiers, engineers stay behind the front
   teammate. Match pair on/off (`165502`/`165522`): kills 17/19, no crashes; only 9 infantry fights, so the roles
-  rarely triggered. Open: natural effect of the class roles (grenadier vs. vehicle not seen in a match yet),
+  rarely triggered. Grenadiers now fire the RPG at an enemy vehicle in sight within 300-2600 HU before any commander
+  order (`_grenadier_rpg_vehicle_priority`); before, an order walked them into an APC without a shot. Forced 5 vs 5
+  APC rush at 1x: 0 RPG shots at vehicles before, 14 and 32 shots with 13 and 30 hits after; 10-bot Crossroads
+  match: 7 shots, 7 hits. The calm look is verified (level turns at most 30 degrees). Open:
   grenades against groups or cover (no frag grenade in the loadouts), effect with human players. Recovery of the previous objective,
   class spacing, Scout hide and Grenadier road mines remain open.
 - Shared team economy: commander and bots should share one view of team resources, income

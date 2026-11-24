@@ -52,7 +52,6 @@ two paired matches (all on vs. all off) with no new stalls, kills 28 vs. 24.
 |---|---|
 | 1.6 | Commander returns to the CV too late after a refinery turret (turret left at 25/100 HP) |
 | 1.5a / 3.5 / 5.8d | Refinery turret fails silently / first rainbowroad attempt fails / sporadic refinery rejection on Palmbay (`REJECTED type=0`) |
-| 1.5b | Commander CV stops on the way to the factory (`drive-stuck`, second attempt worked) |
 | 3.2 / 3.2b | Bot inside barracks hull after leaving the CV (`start_solid=1`); turret job hangs after a map change |
 | 3.4 / 3.4d | Rainbowroad `start-area-not-found` and `goal-roam fail`; navmesh islands (revive on separate area, retreat without reachable spot; door button reach verified 2026-11-24) |
 | 3.16 | Vehicle as obstacle for infantry (soft 15 s penalty built; recheck in long match) |
@@ -108,7 +107,7 @@ match with the feature off; compare new vs. old with cvar values `2`/`3` (NF onl
 | 3 Use cover actively | `rcbot_empires_fight_cover`: reloading, < 35 % HP or outnumbered -> short move to a spot out of the enemy's sight, back once ready; keeps firing (generic hurt-hide schedule suppressed in a skirmish) | Done, default on |
 | 4 Targeted grenades | Throw at >= 2 enemies within 250 HU or one who vanished behind cover | Open: bot loadouts have no frag grenade against infantry |
 | 5 Callouts | `rcbot_empires_callouts`: spot quick command only for a group or an enemy within 800 HU, once per team per minute and per bot every 3 minutes. Medic call open (location text format of `emp_menu_command 31` unknown) | Spot callout done |
-| 6 Classes in combat | Scout flanks and spots with binoculars (`rcbot_empires_scout_flank`, `_scout_binoculars`); Grenadier keeps distance: mortar from 900 HU, at least 400 HU from soldiers, RPG stand-off 550-1300 HU against vehicles (`_grenadier_rpg`); Engineer stays behind teammates (`_engineer_rear`) and heals | Done, default on (10-bot match check pending) |
+| 6 Classes in combat | Scout flanks and spots with binoculars (`rcbot_empires_scout_flank`, `_scout_binoculars`); Grenadier keeps distance: mortar from 900 HU, at least 400 HU from soldiers, RPG stand-off 550-1300 HU against vehicles (`_grenadier_rpg`), RPG shots at enemy vehicles take priority over orders (`_grenadier_rpg_vehicle_priority`); Engineer stays behind teammates (`_engineer_rear`) and heals | Done, default on, verified in a 10-bot match |
 
 Measured (two paired matches, all on vs. all off): kills 13/17 and 15/7, together 28 vs. 24; no new stalls, 0 crashes. Fixed during the work: the hull trace started inside
 `emp_resource_point` volumes, so every step was rejected exactly where bots fight most.

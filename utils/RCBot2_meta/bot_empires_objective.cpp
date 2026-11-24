@@ -31,6 +31,7 @@
 
 extern IServerGameEnts* servergameents;
 int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player);
+bool EmpiresVehicleDamageTotal(const edict_t* e, float& out); // bot_empires_vehicle.cpp
 
 namespace
 {
@@ -1249,13 +1250,22 @@ void CBotEmpires::tickEmpiresTurretRocket()
 	const bool isVehicle = std::strcmp(targetClass, "emp_vehicle") == 0 ||
 		std::strcmp(targetClass, "emp_nf_commander") == 0 || std::strcmp(targetClass, "emp_imp_commander") == 0;
 	int health = 0;
-	const bool hasHealth = !isVehicle && target != nullptr && !target->IsFree() &&
-		readEmpiresEntityIntProperty(target, "m_iHealth", health);
+	float vehicleTotal = 0.0f;
+	// Vehicles: hull plus armor sides (m_iHealth alone reads 0 here and misses armor hits).
+	const bool hasHealth = target != nullptr && !target->IsFree() &&
+		(isVehicle ? EmpiresVehicleDamageTotal(target, vehicleTotal) :
+			readEmpiresEntityIntProperty(target, "m_iHealth", health));
+	if (isVehicle)
+		health = static_cast<int>(vehicleTotal);
 	const bool targetAlive = isVehicle ? EmpiresVehicleAlive(this, target) : (hasHealth && health > 0);
 	const bool hit = m_bEmpiresTurretRocketFired && hasHealth && m_iEmpiresTurretRocketHealth > 0 &&
 		health < m_iEmpiresTurretRocketHealth;
+	// Against a vehicle only an enemy close by breaks the shot off: the crew next to an APC kept
+	// interrupting it (crossroads 185827: 3 of 5 armed shots ended with enemy-interrupt).
+	const bool vehicleFocus = isVehicle && rcbot_empires_grenadier_rpg_vehicle_priority.GetBool();
 	const bool enemyInterrupt = !threatMode && hasSomeConditions(CONDITION_SEE_CUR_ENEMY) &&
-		m_pEnemy.get() != nullptr;
+		m_pEnemy.get() != nullptr &&
+		(!vehicleFocus || (CBotGlobals::entityOrigin(m_pEnemy.get()) - getOrigin()).Length2D() < 500.0f);
 	if (hit || !targetAlive || weapon == nullptr || enemyInterrupt ||
 		(threatMode && m_hEmpiresTurretHitBy.get() != target) ||
 		now >= m_flEmpiresTurretRocketUntil)
@@ -1789,6 +1799,124 @@ void CBotEmpires::abortEmpiresBuildingAction(const char* reason)
 	m_flEmpiresSeismicHoldUntil = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_flEmpiresBuildingAttackNext = now + 1.5f;
+}
+
+void CBotEmpires::armEmpiresRocket(edict_t* target, edict_t* launcher, int ammoType, const QAngle& aim, int health,
+	const char* rpgName)
+{
+	cancelNavigationAttempt("building-rpg");
+	m_pSchedules->freeMemory();
+	if (m_bEmpiresNavGoalActive)
+		endEmpiresNavmeshGoal("drop", "building-rpg", 0.0f);
+	stopMoving();
+	m_pButtons->letGo(IN_ATTACK);
+	m_pButtons->letGo(IN_ATTACK2);
+	m_pButtons->letGo(IN_RELOAD);
+	m_iButtons = 0;
+	m_hEmpiresTurretRocketTarget = target;
+	m_hEmpiresTurretRocketWeapon = launcher;
+	m_qEmpiresTurretRocketAim = aim;
+	m_iEmpiresTurretRocketAmmoType = ammoType;
+	m_iEmpiresTurretRocketAmmo = getAmmo(ammoType);
+	m_iEmpiresTurretRocketHealth = health;
+	{
+		float total = 0.0f;
+		const char* cls = target != nullptr ? target->GetClassName() : nullptr;
+		if (cls != nullptr && (std::strcmp(cls, "emp_vehicle") == 0 ||
+			std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0) &&
+			EmpiresVehicleDamageTotal(target, total))
+			m_iEmpiresTurretRocketHealth = static_cast<int>(total);
+	}
+	m_bEmpiresTurretRocketFired = false;
+	m_bEmpiresTurretRocketApproach = false;
+	m_bEmpiresTurretRocketIsThreat = false;
+	m_flEmpiresTurretRocketUntil = gpGlobals->curtime + 10.0f;
+	selectWeaponName(rpgName);
+}
+
+// Commander orders and roam goals ran before the RPG path: a grenadier sent to a spotted APC walked up
+// to it and died to its gun without a shot (crossroads 194708, 5v5 APC rush). Scan twice a second.
+bool CBotEmpires::handleEmpiresRocketVehicle()
+{
+	if (m_bEmpiresRocketVehicleActive)
+	{
+		if (m_flEmpiresTurretRocketUntil > 0.0f)
+			return true;
+		m_bEmpiresRocketVehicleActive = false;
+	}
+	if (!rcbot_empires_grenadier_rpg_vehicle_priority.GetBool() || gpGlobals == nullptr || engine == nullptr ||
+		m_pSchedules == nullptr || m_pEdict == nullptr || m_pEdict->IsFree() || !isAlive())
+		return false;
+	const float now = gpGlobals->curtime;
+	if (now < m_flEmpiresRocketVehicleNext || now < m_flEmpiresBuildingAttackNext ||
+		m_flEmpiresTurretRocketUntil > 0.0f || isEmpiresMortarActionActive() || m_iEmpiresBuildingActionMode != 0)
+		return false;
+	m_flEmpiresRocketVehicleNext = now + 0.5f;
+	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+		return false;
+	int classId = -1;
+	bool desired = false, desiredKnown = false;
+	const char* prop = nullptr;
+	if (!readEmpiresClass(m_pEdict, classId, desired, desiredKnown, prop) || classId != EMP_CLASS_GRENADIER)
+		return false;
+	const int team = getTeam();
+	const int enemyTeam = team == EMP_TEAM_NF ? EMP_TEAM_BE : EMP_TEAM_NF;
+	const char* rpgName = team == EMP_TEAM_BE ? "weapon_emp_imp_rpg" : "weapon_emp_nf_rpg";
+	edict_t* launcher = nullptr;
+	int ammoType = -1;
+	if (const CBaseHandle* weapons = CClassInterface::getWeaponList(m_pEdict))
+		for (int slot = 0; slot < MAX_WEAPONS && launcher == nullptr; ++slot)
+		{
+			edict_t* weapon = EmpiresCarriedWeapon(weapons[slot]);
+			if (weapon != nullptr && std::strcmp(weapon->GetClassName(), rpgName) == 0)
+			{
+				launcher = weapon;
+				int secondary = -1;
+				CClassInterface::getAmmoTypes(launcher, &ammoType, &secondary);
+			}
+		}
+	if (launcher == nullptr || ammoType < 0 || getAmmo(ammoType) <= 0)
+		return false;
+	const Vector origin = getOrigin();
+	const Vector eye = getEyePosition();
+	edict_t* best = nullptr;
+	QAngle bestAim;
+	float bestDist = 2600.0f;
+	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+	{
+		edict_t* e = INDEXENT(index);
+		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr ||
+			std::strcmp(e->GetClassName(), "emp_vehicle") != 0)
+			continue;
+		int vTeam = -1;
+		if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", vTeam) || vTeam != enemyTeam || !EmpiresVehicleAlive(this, e))
+			continue;
+		const float dist = empiresNavGoalDistance2D(origin, CBotGlobals::entityOrigin(e));
+		if (dist < 300.0f || dist >= bestDist)
+			continue;
+		QAngle aim;
+		if (!empiresTurretRocketAim(eye, m_pEdict, e, aim, true))
+			continue;
+		best = e;
+		bestAim = aim;
+		bestDist = dist;
+	}
+	if (best == nullptr)
+		return false;
+	if (m_bEmpiresCommanderMoveRouteIssued && !m_bEmpiresCommanderMoveFinished && !m_bEmpiresCommanderMoveFailed)
+	{
+		// Keep the order: marked stuck, the existing retry plans it again from here after the shot.
+		cancelNavigationAttempt("rocket-vehicle");
+		m_bEmpiresCommanderMoveFailed = true;
+		m_bEmpiresCommanderMoveStuck = true;
+		m_fEmpiresCommanderMoveRetryAt = engine->Time() + 3.0f;
+	}
+	armEmpiresRocket(best, launcher, ammoType, bestAim, 0, rpgName);
+	m_bEmpiresRocketVehicleActive = true;
+	RCBOT_DIAG("[RCBOT2] rocket-vehicle armed userid=%d target=%d dist=%.0f health=%d ammo=%d\n",
+		engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(best), bestDist, m_iEmpiresTurretRocketHealth,
+		m_iEmpiresTurretRocketAmmo);
+	return true;
 }
 
 bool CBotEmpires::handleEmpiresBuildingAttack()
@@ -2480,26 +2608,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			QAngle aim;
 			if (!empiresTurretRocketAim(eye, m_pEdict, c.edict, aim, true))
 				continue;
-			cancelNavigationAttempt("building-rpg");
-			m_pSchedules->freeMemory();
-			if (m_bEmpiresNavGoalActive)
-				endEmpiresNavmeshGoal("drop", "building-rpg", 0.0f);
-			stopMoving();
-			m_pButtons->letGo(IN_ATTACK);
-			m_pButtons->letGo(IN_ATTACK2);
-			m_pButtons->letGo(IN_RELOAD);
-			m_iButtons = 0;
-			m_hEmpiresTurretRocketTarget = c.edict;
-			m_hEmpiresTurretRocketWeapon = launcher;
-			m_qEmpiresTurretRocketAim = aim;
-			m_iEmpiresTurretRocketAmmoType = rpgAmmoType;
-			m_iEmpiresTurretRocketAmmo = getAmmo(rpgAmmoType);
-			m_iEmpiresTurretRocketHealth = c.health;
-			m_bEmpiresTurretRocketFired = false;
-			m_bEmpiresTurretRocketApproach = false;
-			m_bEmpiresTurretRocketIsThreat = false;
-			m_flEmpiresTurretRocketUntil = now + 10.0f;
-			selectWeaponName(rpgName);
+			armEmpiresRocket(c.edict, launcher, rpgAmmoType, aim, c.health, rpgName);
 			if (c.isApc)
 				RCBOT_DIAG("[RCBOT2] anti-apc-priority who=grenadier-rpg userid=%d apc=%d chassis=%d dist=%.0f\n",
 					userId, engine->IndexOfEdict(c.edict), c.chassis, c.dist);

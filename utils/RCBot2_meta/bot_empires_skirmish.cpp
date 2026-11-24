@@ -25,6 +25,9 @@
 #include <cmath>
 #include <cstring>
 
+int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player); // bot_empires_vehicle.cpp
+bool EmpiresVehicleDamageTotal(const edict_t* e, float& out);                  // bot_empires_vehicle.cpp
+
 extern IServerGameEnts* servergameents;
 
 namespace
@@ -193,6 +196,7 @@ bool CBotEmpires::handleEmpiresSkirmish()
 		return false;
 	}
 	const float now = gpGlobals->curtime;
+	trackEmpiresRocketShot(now);
 	// Not run for a moment (vehicle, commander, action took the bot): the fight state is stale.
 	if (m_bSkirmishActive && now - m_flSkirmishTick > 0.5f)
 		endEmpiresSkirmish("not-ticked");
@@ -884,6 +888,52 @@ bool CBotEmpires::findEmpiresFrontAlly(edict_t* enemy, const Vector& enemyPos, V
 	return found;
 }
 
+void CBotEmpires::trackEmpiresRocketShot(float now)
+{
+	if (m_iRpgShotVehicle > 0 && now >= m_flRpgShotCheck)
+	{
+		edict_t* v = INDEXENT(m_iRpgShotVehicle);
+		float after = -1.0f;
+		const bool read = v != nullptr && !v->IsFree() && EmpiresVehicleDamageTotal(v, after);
+		RCBOT_DIAG("[RCBOT2] rpg-shot userid=%d vehicle=%d dist=%.0f before=%.0f after=%.0f gone=%d hit=%d\n",
+			engine->GetPlayerUserId(m_pEdict), m_iRpgShotVehicle, m_flRpgShotDist, m_flRpgShotBefore, after,
+			read ? 0 : 1, (!read || after < m_flRpgShotBefore - 1.0f) ? 1 : 0);
+		m_iRpgShotVehicle = 0;
+	}
+	CBotWeapon* w = getCurrentWeapon();
+	if (w == nullptr || (w->getID() != 13 && w->getID() != 27))
+	{
+		m_iRpgLastCount = -1;
+		return;
+	}
+	const int count = (std::max)(0, w->getClip1(this)) + (std::max)(0, w->getAmmo(this));
+	const bool fired = m_iRpgLastCount >= 0 && count < m_iRpgLastCount;
+	m_iRpgLastCount = count;
+	if (!fired || m_iRpgShotVehicle > 0)
+		return;
+	edict_t* enemy = m_pEnemy.get();
+	if (enemy == nullptr || !CBotGlobals::entityIsValid(enemy))
+		return;
+	const int enemyIndex = engine->IndexOfEdict(enemy);
+	int vehicle = -1;
+	if (enemyIndex > 0 && enemyIndex <= gpGlobals->maxClients)
+		vehicle = EmpiresVehiclePlayerVehicle(this, enemy);
+	else
+		vehicle = enemyIndex;
+	edict_t* v = vehicle > 0 ? INDEXENT(vehicle) : nullptr;
+	float before = 0.0f;
+	if (v == nullptr || !EmpiresVehicleDamageTotal(v, before))
+		return;
+	// Beyond the RPG range (3200) the drop is no aimed shot at it (respawn, weapon swap).
+	const float dist = (CBotGlobals::entityOrigin(v) - getOrigin()).Length2D();
+	if (dist > 3500.0f)
+		return;
+	m_iRpgShotVehicle = vehicle;
+	m_flRpgShotBefore = before;
+	m_flRpgShotDist = dist;
+	m_flRpgShotCheck = now + 3.0f;
+}
+
 bool CBotEmpires::empiresHasRocket() const
 {
 	if (m_pWeapons == nullptr)
@@ -1005,6 +1055,21 @@ void CBotEmpires::getLookAtVector()
 			m_vLookAroundOffset = eye + forward * 512.0f;
 		}
 		m_fLookAroundTime = now + randomFloat(3.0f, 5.0f);
+		++m_iCalmLookPicks;
+		const Vector to = m_vLookAroundOffset - eye;
+		const float turn = std::fabs(AngleNormalize(RAD2DEG(std::atan2(to.y, to.x)) - m_vViewAngles.y));
+		if (m_pLastEnemy.get() != nullptr && now - m_fLastSeeEnemy < 20.0f)
+			++m_iCalmLookEnemy;
+		else
+			m_flCalmLookMaxTurn = (std::max)(m_flCalmLookMaxTurn, turn);
+		if (now >= m_flCalmLookLogAt)
+		{
+			RCBOT_DIAG("[RCBOT2] calm-look userid=%d picks=%d enemy=%d max_level_turn=%.0f\n",
+				engine->GetPlayerUserId(m_pEdict), m_iCalmLookPicks, m_iCalmLookEnemy, m_flCalmLookMaxTurn);
+			m_iCalmLookPicks = m_iCalmLookEnemy = 0;
+			m_flCalmLookMaxTurn = 0.0f;
+			m_flCalmLookLogAt = now + 30.0f;
+		}
 	}
 	setLookAt(m_vLookAroundOffset);
 }

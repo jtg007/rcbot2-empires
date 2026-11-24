@@ -863,6 +863,18 @@ private:
 	int m_iSkirmishRearHolds = 0;
 	bool findEmpiresFrontAlly(edict_t* enemy, const Vector& enemyPos, Vector& allyPos, float& allyDist) const;
 	bool empiresHasRocket() const;
+	// Diagnosis: an RPG shot at a vehicle and whether its hull+armor dropped 3 s later.
+	void trackEmpiresRocketShot(float now);
+	int m_iRpgLastCount = -1;
+	int m_iRpgShotVehicle = 0;
+	float m_flRpgShotCheck = 0.0f;
+	float m_flRpgShotBefore = 0.0f;
+	float m_flRpgShotDist = 0.0f;
+	// Diagnosis for the calm idle look: picks, picks toward the last enemy, largest level turn.
+	int m_iCalmLookPicks = 0;
+	int m_iCalmLookEnemy = 0;
+	float m_flCalmLookMaxTurn = 0.0f;
+	float m_flCalmLookLogAt = 0.0f;
 	bool handleEmpiresScoutBinoculars();
 	float m_flNextBinocularSpot = 0.0f;
 	void countEmpiresFightOdds(const Vector& origin, int& allies, int& enemies);
@@ -1022,6 +1034,13 @@ private:
 	} m_deploy;
 	bool handleEmpiresGrenadierTurretAttack();
 	bool handleEmpiresBuildingAttack();
+	// A grenadier with rockets breaks off any task, commander orders included, for an RPG shot at an
+	// enemy vehicle in range and sight (bot_empires_objective.cpp).
+	bool handleEmpiresRocketVehicle();
+	void armEmpiresRocket(edict_t* target, edict_t* launcher, int ammoType, const QAngle& aim, int health,
+		const char* rpgName);
+	bool m_bEmpiresRocketVehicleActive = false;
+	float m_flEmpiresRocketVehicleNext = 0.0f;
 	void abortEmpiresBuildingAction(const char* reason);
 	bool armEmpiresSeismicThrow(float now, int userId, int team);
 	void tickEmpiresSeismicTrack();

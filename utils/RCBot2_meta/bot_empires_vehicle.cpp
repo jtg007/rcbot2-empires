@@ -741,6 +741,16 @@ EmpiresAmmoRequest s_ammoRequest[4][kEmpiresAmmoRequestSlots];
 
 } // namespace
 
+// Hull plus all armor sides; used to see whether a rocket hit (bot_empires_skirmish.cpp).
+bool EmpiresVehicleDamageTotal(const edict_t* e, float& out)
+{
+	if (!ReadVehicleHealth(e, out))
+		return false;
+	for (int k = 0; k < 4; ++k)
+		out += static_cast<float>((std::max)(0, ReadArmorSide(e, k)));
+	return true;
+}
+
 EmpiresAmmoRequest* EmpiresAmmoRequests(int team)
 {
 	return s_ammoRequest[team >= 0 && team <= 3 ? team : 0];

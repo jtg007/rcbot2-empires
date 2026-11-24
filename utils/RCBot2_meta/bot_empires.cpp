@@ -5401,6 +5401,8 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	// A real Commander MOVE (or the test hook that drives this same consumer)
 	// owns the objective until provider-neutral navigation reaches it, replaces
 	// it, or reports a terminal failure. Normal bot navigation remains unchanged.
+	if (handleEmpiresRocketVehicle())
+		return;
 	if (handleEmpiresCommanderMoveProviderNeutral())
 	{
 		logEmpiresCommanderMoveDiagnostic("getTasks-commander-return", nullptr, false);

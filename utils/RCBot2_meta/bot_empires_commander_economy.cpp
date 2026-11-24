@@ -1292,7 +1292,12 @@ void CBotEmpires::tickCommanderEconomy()
 				const float awayLen = away.Length();
 				const float baseYaw = awayLen > 1.0f ? RAD2DEG(std::atan2(away.y, away.x)) : 0.0f;
 				static const float kOffsets[] = {0.0f, 30.0f, -30.0f, 60.0f, -60.0f, 90.0f, -90.0f, 120.0f, -120.0f};
-				float bestScore = -1.0f;
+				// Candidates sorted by distance from the threat; only one with a real vehicle route
+				// counts. Player-mesh reachability alone picked spots past the Crossroads NF deck edge
+				// (y -13625, 80 below the deck): no-path or a 3.8k detour, CV stalled 25 s against
+				// the base pipes (runs 20261122-213339, 20261124-154855).
+				struct RetreatCandidate { float score; Vector at; };
+				std::vector<RetreatCandidate> candidates;
 				for (float dist : {1800.0f, 1200.0f, 800.0f})
 				{
 					for (float off : kOffsets)
@@ -1312,13 +1317,40 @@ void CBotEmpires::tickCommanderEconomy()
 							(mesh - threatOrigin).Length2D() : (mesh - vehicleOrigin).Length2D();
 						if (nearestThreatDist < 1.0e8f && threatAfter < nearestThreatDist + 150.0f)
 							continue;
-						if (threatAfter > bestScore)
-						{
-							bestScore = threatAfter;
-							retreatGoal = mesh;
-							haveRetreat = true;
-						}
+						candidates.push_back({threatAfter, mesh});
 					}
+				}
+				std::sort(candidates.begin(), candidates.end(),
+					[](const RetreatCandidate& a, const RetreatCandidate& b) { return a.score > b.score; });
+				float cvWidth = 284.0f;
+				if (vehicle->GetCollideable() != nullptr)
+				{
+					const Vector size = vehicle->GetCollideable()->OBBMaxs() - vehicle->GetCollideable()->OBBMins();
+					if (size.x > 40.0f && size.x < 400.0f)
+						cvWidth = size.x;
+				}
+				int routeChecks = 0;
+				for (const RetreatCandidate& c : candidates)
+				{
+					if (routeChecks >= 6)
+						break;
+					++routeChecks;
+					RCBotNavMesh::Path path;
+					const RCBotNavMesh::PathResult result =
+						RCBotNavMesh::BuildVehiclePath(vehicleOrigin, c.at, path, cvWidth, false, 32.0f, vehicle);
+					const float straight = (c.at - vehicleOrigin).Length2D();
+					const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2 &&
+						path.length <= (std::max)(straight * 1.8f, straight + 600.0f);
+					if (!ok)
+					{
+						RCBOT_DIAG("[RCBOT2] commander-cv retreat-reject userid=%d to=(%.0f %.0f %.0f) result=%s length=%.0f straight=%.0f\n",
+							engine->GetPlayerUserId(m_pEdict), c.at.x, c.at.y, c.at.z,
+							RCBotNavMesh::PathResultName(result), path.length, straight);
+						continue;
+					}
+					retreatGoal = c.at;
+					haveRetreat = true;
+					break;
 				}
 			}
 			if (haveRetreat)
