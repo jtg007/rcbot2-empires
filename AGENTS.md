@@ -203,6 +203,7 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 | Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2; test hook, bypasses the game's order path) |
 | Order like a human | `rcbotd empires_test_unit_order <commander_userid> <type> <unit_userid> x y z [target_userid\|b\|bd]`: the seated commander bot selects the unit (`emp_unit_order_list`) and sends `emp_unit_order` (0 abort, 1 move, 2 attack location, 3 attack target, 4 guard); `b` = nearest own building below full health, `bd` = nearest full one, damaged to 100 |
 | Kill zone test | `rcbotd empires_test_kill_zone x y z radius [team]`: every bot (of that team) on foot entering the circle is killed once per life and counted for hot zones (`director death`, `director hot-zone`); radius 0 disarms |
+| Near death test | `rcbotd empires_test_near_death <bot_userid> [deaths=2] [threat_dist=800]`: records teammate deaths beside the bot, killed from ahead of its facing; the bot falls back for 5 s (`shaken start`, `shaken fall-back`, `shaken end`) |
 | Place a building | `rcbotd empires_commander_build <type> spot` (valid spot near the CV, no engineer assigned) |
 | Game binary | `nm -C --defined-only`, `objdump -d -C --start-address=…`; float constants from `.rodata` with Python `struct.unpack('<f', …)` |
 | Notes on game internals | `reverse-engineering/` |
