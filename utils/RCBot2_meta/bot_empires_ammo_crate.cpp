@@ -131,6 +131,7 @@ EmpiresAmmoRequest* OpenRequest(CBotEmpires* bot, int team, int userId, const Ve
 {
 	EmpiresAmmoRequest* slots = EmpiresAmmoRequests(team);
 	EmpiresAmmoRequest* best = nullptr;
+	float bestRank = 1.0e9f;
 	dist = 1.0e9f;
 	for (int i = 0; i < kEmpiresAmmoRequestSlots; ++i)
 	{
@@ -142,8 +143,12 @@ EmpiresAmmoRequest* OpenRequest(CBotEmpires* bot, int team, int userId, const Ve
 				(EmpiresIsEngibot(bot->getEdict()) && !EmpiresEngibotWithinLeash(bot->getEdict(), CBotGlobals::entityOrigin(e)))))
 			continue;
 		const float d = Dist2D(from, CBotGlobals::entityOrigin(e));
-		if (d < dist)
+		// TODO 8.3: humans first; dist stays the real distance for the caller.
+		const bool human = rcbot_empires_humans_first.GetBool() && (r.infantry || EmpiresIsHumanUserId(r.driverUserId));
+		const float rank = human ? d - 8000.0f : d;
+		if (best == nullptr || rank < bestRank)
 		{
+			bestRank = rank;
 			dist = d;
 			best = &r;
 		}

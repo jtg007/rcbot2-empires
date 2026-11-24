@@ -61,6 +61,8 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_hot_zones` | 1 | Three deaths of a team on foot within 30 s and 700 HU make the spot hot for 90 s (renewed by each death there); that team's routes pay 1500 to enter and 3x per unit inside. | `bot_empires_team_director.cpp`, `bot_navmesh_api.cpp` |
 | `rcbot_empires_self_preservation` | 1 | Two teammates killed by the enemy within 8 s and 600 HU of a bot make it fall back 300-450 HU from the killer (preferably out of sight) or back off out of the fight for 5 s; 20 s cooldown. |
 | `rcbot_empires_buddy_repair` | 1 | A free engineer bot repairs a damaged, standing own vehicle within 1200 HU unasked when a human drives it or it is parked empty (hull below 90 % or an armor side below 85 %); 2 also includes bot-driven vehicles (test). |
+| `rcbot_empires_humans_first` | 1 | Engineers heal hurt humans before bots (a bot patient is left for a hurt human in reach), serve human ammo calls first; a bot's repair call does not take over the request of a human-driven vehicle, and a damaged human-driven vehicle nearby replaces a bot call. |
+| `rcbot_empires_test_human_userid` | 0 | Test only: the bot with this userid counts as a human for `rcbot_empires_humans_first` and `rcbot_empires_buddy_repair`. |
 | `rcbot_empires_kill_spawn` | 1 | A defender on a base alert or a far vehicle buyer may respawn (via `kill`) at a spawn at least 3800 HU closer to its goal (no combat for 6 s, tickets > 20 and > 25 %, 90 s per bot). | `bot_empires_team_director.cpp` |
 
 ## Diagnostics and platform

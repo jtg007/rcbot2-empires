@@ -284,6 +284,9 @@ void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
 // TODO 8.2: player_death of any player (bot_events.cpp); remembers teammates killed by the enemy.
 void EmpiresNoteFriendlyDeath(edict_t* victim, edict_t* attacker);
+// TODO 8.3: a connected human player (not a bot) with this userid / edict (bot_empires_heal.cpp).
+bool EmpiresIsHumanUserId(int userId);
+bool EmpiresIsHuman(edict_t* player);
 // Test only (rcbotd empires_test_near_death): a death of `team` at `at`, killed from `threat`.
 void EmpiresInjectNearDeath(int team, const Vector& at, const Vector& threat);
 void EmpiresCommanderOrdersLevelReset(); // bot_empires_commander_orders.cpp
@@ -909,6 +912,7 @@ private:
 	void lookEmpiresHealTarget(const Vector& at);
 	float m_flHealNextLog = 0.0f;
 	int m_iHealTarget = 0;
+	float m_flHealHumanCheck = 0.0f;
 	int m_iHealTargetUserId = -1;
 	int m_iHealStartHealth = 0;
 	int m_iHealLastHealth = 0;

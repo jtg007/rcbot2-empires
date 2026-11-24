@@ -173,8 +173,14 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   repairs a damaged own vehicle that stands within 1200 units, unasked, when a human drives it or it is parked
   empty; it uses the normal repair walk and works until hull and armor are full. Scripted test (empty damaged tank
   next to the engineer): repaired to full. A bot-only 10-bot match had no trigger and no change in building.
-  Open: repair from behind cover, bots waiting while a human heals them, APC drivers waiting for a human to board,
-  humans first for heal, ammo and repair.
+  Open: repair from behind cover, bots waiting while a human heals them, APC drivers waiting for a human to board.
+- [ ] **Humans first (built, measuring, 8.3, `rcbot_empires_humans_first`):** engineers prefer hurt humans and leave
+  a bot patient for a hurt human in reach, serve human ammo calls before bot calls, and a damaged human-driven
+  vehicle nearby replaces a bot's repair call (a bot call waits while a human vehicle is repaired). Scripted heal
+  test with a bot counted as human (`rcbot_empires_test_human_userid`): the engineer left the bot, healed the
+  "human" from 42 to 100 and went back. The ammo and repair order is not tested in a scenario yet.
+- [ ] **Refinery walls:** while clicking the first wall point the engineer can walk away from it (eye distance
+  244 -> 1048, `wall-start-lost` three times); seen in the pad test, which now runs without walls.
 - [x] **Low steep edges (8.1a):** a stuck at world geometry that blocks the feet with a face steeper than
   45 degrees but is free 20 higher blocks every mesh link within 32 units at once (`navmesh-steep-block`).
   Crossroads west bridge (-3800 -5087), same scenario: 45 stucks in 8 runs -> 5 in 6 runs, 0 plan failures.

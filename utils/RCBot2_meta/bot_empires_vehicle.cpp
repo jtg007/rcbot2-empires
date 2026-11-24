@@ -732,6 +732,7 @@ struct RepairRequest
 	int side = -1; // weakest armor side: 0 front, 1 rear, 2 left, 3 right
 	bool armorDamaged = false;
 	bool baseScan = false; // found by an EngiBot in base / on a repair pad (e.g. human vehicle)
+	bool human = false;    // TODO 8.3: a human drives it; bot calls do not take the slot over
 };
 RepairRequest s_repairRequest[4];
 EmpiresAmmoRequest s_ammoRequest[4][kEmpiresAmmoRequestSlots];
@@ -5381,18 +5382,28 @@ void CBotEmpires::tickEmpiresVehicle()
 		{
 			v.nextRepairCall = now + 25.0f;
 			RepairRequest& r = s_repairRequest[team];
-			if (r.vehicle != v.vehicleIndex)
-				r = RepairRequest();
-			r.vehicle = v.vehicleIndex;
-			r.driverUserId = userId;
-			r.origin = origin;
-			r.until = now + 30.0f;
-			r.side = v.worstSide;
-			if (helpers != nullptr)
-				helpers->ClientCommand(m_pEdict, "emp_menu_command 30 base\n");
-			RCBOT_DIAG("[RCBOT2] vehicle repair-call userid=%d veh=%d hp=%.0f/%.0f station=%d pos=(%.0f %.0f %.0f)\n",
-				userId, v.vehicleIndex, health, v.maxHealth,
-				station != nullptr ? engine->IndexOfEdict(station) : -1, origin.x, origin.y, origin.z);
+			if (r.vehicle != v.vehicleIndex && r.human && RepairRequestVehicle(team) != nullptr &&
+				rcbot_empires_humans_first.GetBool())
+			{
+				// TODO 8.3: a human vehicle is being repaired; call again a bit later.
+				v.nextRepairCall = now + 8.0f;
+				RCBOT_DIAG("[RCBOT2] vehicle repair-call-wait userid=%d veh=%d human_veh=%d\n", userId, v.vehicleIndex, r.vehicle);
+			}
+			else
+			{
+				if (r.vehicle != v.vehicleIndex)
+					r = RepairRequest();
+				r.vehicle = v.vehicleIndex;
+				r.driverUserId = userId;
+				r.origin = origin;
+				r.until = now + 30.0f;
+				r.side = v.worstSide;
+				if (helpers != nullptr)
+					helpers->ClientCommand(m_pEdict, "emp_menu_command 30 base\n");
+				RCBOT_DIAG("[RCBOT2] vehicle repair-call userid=%d veh=%d hp=%.0f/%.0f station=%d pos=(%.0f %.0f %.0f)\n",
+					userId, v.vehicleIndex, health, v.maxHealth,
+					station != nullptr ? engine->IndexOfEdict(station) : -1, origin.x, origin.y, origin.z);
+			}
 		}
 		if (arrived && s_repairRequest[team].vehicle == v.vehicleIndex)
 		{
@@ -6719,7 +6730,7 @@ edict_t* CBotEmpires::findEmpiresBuddyRepairVehicle(int& worstSide, bool& armorD
 		{
 			edict_t* p = engine->PEntityOfEntIndex(driver);
 			IPlayerInfo* info = p != nullptr ? playerinfomanager->GetPlayerInfo(p) : nullptr;
-			if (info == nullptr || (info->IsFakeClient() && mode < 2))
+			if (info == nullptr || (!EmpiresIsHuman(p) && mode < 2))
 			{
 				continue;
 			}
@@ -6756,15 +6767,25 @@ bool CBotEmpires::handleEmpiresVehicleRepairRequest()
 	const int team = getTeam();
 	// TODO 8.3: no call standing -> look for a damaged human or parked vehicle nearby and help unasked
 	// (EngiBots have their own base scan). Uses the bot repair call, so the walk and REPAIR_ASSIST stay the same.
-	if (RepairRequestVehicle(team) == nullptr && !EmpiresIsEngibot(m_pEdict) && gpGlobals->curtime >= m_flBuddyRepairScan &&
-		team >= 0 && team < 4)
+	// A standing bot call gives way to a damaged human-driven vehicle nearby (humans first).
+	const bool botCallStands = team >= 0 && team < 4 && RepairRequestVehicle(team) != nullptr &&
+		!s_repairRequest[team].human && rcbot_empires_humans_first.GetBool();
+	if ((RepairRequestVehicle(team) == nullptr || botCallStands) && !EmpiresIsEngibot(m_pEdict) &&
+		gpGlobals->curtime >= m_flBuddyRepairScan && team >= 0 && team < 4)
 	{
 		m_flBuddyRepairScan = gpGlobals->curtime + 2.0f;
 		int side = -1, driverUid = -1;
 		bool armorDamaged = false;
-		if (edict_t* buddy = findEmpiresBuddyRepairVehicle(side, armorDamaged, driverUid); buddy != nullptr)
+		edict_t* buddy = findEmpiresBuddyRepairVehicle(side, armorDamaged, driverUid);
+		const bool humanDriver = buddy != nullptr && EmpiresIsHumanUserId(driverUid);
+		if (buddy != nullptr && botCallStands && (!humanDriver || engine->IndexOfEdict(buddy) == s_repairRequest[team].vehicle))
+			buddy = nullptr;
+		if (buddy != nullptr)
 		{
 			RepairRequest& r = s_repairRequest[team];
+			if (botCallStands)
+				RCBOT_DIAG("[RCBOT2] buddy-repair human-first userid=%d bot_veh=%d human_veh=%d\n",
+					engine->GetPlayerUserId(m_pEdict), r.vehicle, engine->IndexOfEdict(buddy));
 			r = RepairRequest();
 			r.vehicle = engine->IndexOfEdict(buddy);
 			r.driverUserId = driverUid;
@@ -6773,6 +6794,7 @@ bool CBotEmpires::handleEmpiresVehicleRepairRequest()
 			r.side = side;
 			r.armorDamaged = armorDamaged;
 			r.baseScan = true; // repair until full, like the EngiBot scan
+			r.human = humanDriver;
 			RCBOT_DIAG("[RCBOT2] buddy-repair start userid=%d veh=%d driver=%d dist=%.0f side=%d armor=%d\n",
 				engine->GetPlayerUserId(m_pEdict), r.vehicle, driverUid, Dist2D(getOrigin(), r.origin), side,
 				armorDamaged ? 1 : 0);

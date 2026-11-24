@@ -9,6 +9,7 @@
 #include "bot_empires_binary.h"
 #include "bot_empires_lawliet.h"
 #include "bot_globals.h"
+#include "bot_cvars.h"
 #include "bot_getprop.h"
 #include "bot_navmesh_api.h"
 #include "bot_schedule.h"
@@ -82,6 +83,22 @@ void CBotEmpires::lookEmpiresHealTarget(const Vector& at)
 	setLookVector(at);
 	setLookAtTask(LOOK_VECTOR, 0.25f);
 	setMoveLookPriority(saved);
+}
+
+bool EmpiresIsHuman(edict_t* player)
+{
+	if (player == nullptr || player->IsFree() || playerinfomanager == nullptr)
+		return false;
+	IPlayerInfo* info = playerinfomanager->GetPlayerInfo(player);
+	if (info == nullptr || !info->IsConnected() || info->IsHLTV())
+		return false;
+	const int testUid = rcbot_empires_test_human_userid.GetInt();
+	return !info->IsFakeClient() || (testUid > 0 && engine != nullptr && engine->GetPlayerUserId(player) == testUid);
+}
+
+bool EmpiresIsHumanUserId(int userId)
+{
+	return userId > 0 && EmpiresIsHuman(CBotGlobals::playerByUserId(userId));
 }
 
 void CBotEmpires::endEmpiresHeal(const char* reason, const float skipFor)
@@ -197,7 +214,10 @@ bool CBotEmpires::handleEmpiresHeal()
 				}
 				continue;
 			}
-			const float score = distance - static_cast<float>(maxHealth - health) * 4.0f;
+			float score = distance - static_cast<float>(maxHealth - health) * 4.0f;
+			// TODO 8.3: humans first (a human 700 away beats a bot next to us).
+			if (rcbot_empires_humans_first.GetBool() && EmpiresIsHuman(player))
+				score -= 1000.0f;
 			if (score < bestScore)
 			{
 				bestScore = score;
@@ -249,6 +269,34 @@ bool CBotEmpires::handleEmpiresHeal()
 			m_iHealTargetUserId);
 		endEmpiresHeal("timeout", kHealSkip);
 		return false;
+	}
+	// TODO 8.3: healing a bot while a hurt human waits in reach -> the human first.
+	if (rcbot_empires_humans_first.GetBool() && now >= m_flHealHumanCheck && !EmpiresIsHuman(target))
+	{
+		m_flHealHumanCheck = now + 1.0f;
+		const Vector eyeNow = getEyePosition();
+		for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; ++i)
+		{
+			edict_t* player = engine->PEntityOfEntIndex(i);
+			if (player == nullptr || player == target || player == m_pEdict || !EmpiresIsHuman(player))
+				continue;
+			IPlayerInfo* hi = playerinfomanager->GetPlayerInfo(player);
+			if (hi == nullptr || hi->IsDead() || hi->IsInAVehicle() || hi->GetTeamIndex() != team ||
+				hi->GetMaxHealth() <= 0 || hi->GetHealth() <= 0 || hi->GetHealth() * 100 >= hi->GetMaxHealth() * 85)
+				continue;
+			const HealClaim& other = s_healClaim[i];
+			if (other.engineerUserId >= 0 && other.engineerUserId != userId && other.until > now)
+				continue;
+			const Vector hc = Chest(player);
+			if ((hc - eyeNow).Length() > kHealSearchRange || std::fabs(hc.z - eyeNow.z) > 150.0f ||
+				!CBotGlobals::isVisible(m_pEdict, eyeNow, hc))
+				continue;
+			RCBOT_DIAG("[RCBOT2] heal human-first userid=%d bot_userid=%d human_userid=%d hp=%d\n", userId,
+				m_iHealTargetUserId, engine->GetPlayerUserId(player), hi->GetHealth());
+			endEmpiresHeal("human-first", 0.0f);
+			m_flHealNextSearch = 0.0f;
+			return false;
+		}
 	}
 	HealClaim& claim = s_healClaim[m_iHealTarget];
 	if (claim.engineerUserId != userId)

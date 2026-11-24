@@ -108,6 +108,8 @@ extern ConVar rcbot_empires_engineer_rear;
 extern ConVar rcbot_empires_calm_look;
 extern ConVar rcbot_empires_self_preservation;
 extern ConVar rcbot_empires_buddy_repair;
+extern ConVar rcbot_empires_humans_first;
+extern ConVar rcbot_empires_test_human_userid;
 extern ConVar rcbot_empires_engibot_leash;
 extern ConVar rcbot_empires_engineer_help_human;
 extern ConVar rcbot_empires_vehicle_drivers;
