@@ -1959,7 +1959,8 @@ void CBotEmpires::handleWeapons()
 
 	// The ammo-crate action (3.10b step 3) owns the kit attack while it aims and observes;
 	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
-	if (m_iAmmoCrateStage >= 3 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons() ||
+	// Same for engineer deployables (camera/radar/walls, expert 24.11.).
+	if (m_iAmmoCrateStage >= 3 || m_deploy.stage >= 2 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons() ||
 		m_bHealAttacking)
 		return;
 
@@ -6250,6 +6251,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			return;
 		}
 
+		// A deployable being aimed/placed/built finishes first (a few seconds; a path schedule would take the view).
+		if (m_deploy.stage >= 2 && handleEmpiresEngineerDeployables())
+			return;
+
 		if (handleEmpiresRevive())
 			return;
 
@@ -6267,6 +6272,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			return;
 
 		if (handleEmpiresRefineryTurret())
+			return;
+
+		if (handleEmpiresEngineerDeployables())
 			return;
 
 		if (handleEmpiresDoorButton())
@@ -6641,8 +6649,8 @@ void CBotEmpires::modThink()
 			handleEmpiresRevive();
 		if (m_iReviveTarget == 0)
 			handleEmpiresHeal();
-		if (!handleEmpiresAmmoRequest() && !engibot)
-			handleEmpiresRefineryTurret();
+		if (!handleEmpiresAmmoRequest() && !engibot && !handleEmpiresRefineryTurret())
+			handleEmpiresEngineerDeployables();
 		tickEmpiresHealPatient();
 		tickEmpiresSeismicTrack();
 	}
@@ -7587,6 +7595,10 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 		return false;
 	// So does a taken ammo call (3.10b step 3): the crate takes seconds once there.
 	if (m_iAmmoCrateStage != 0)
+		return false;
+	// And a refinery wall/radar job that is at work or nearly there (match 20261124-124106: 17 jobs taken
+	// away on the way, no wall finished); a far walk still yields to the dispatcher.
+	if (m_deploy.stage >= 2 || (m_deploy.stage == 1 && (getOrigin() - m_deploy.stand).Length2D() < 800.0f))
 		return false;
 	if (m_iBuildAssignStage != 0 || building == nullptr || building->IsFree() ||
 		building->GetUnknown() == nullptr || m_pSchedules == nullptr || !isAlive() ||

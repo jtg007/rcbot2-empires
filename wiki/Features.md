@@ -52,7 +52,8 @@ Numbers like `3.25` are stable item IDs used in commits, logs and [docs/OPEN_WOR
 | Turret upgrade (5.6) | Built | Rank 30+ engineers raise own turrets 1 to 3 (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); not seen in a full match. |
 | Ammo crates (3.10b, 3.10c) | Built | Answers a vehicle "I need ammo" call and a human infantry ammo call by placing a supply crate (`engSelect 7`). Two simultaneous calls unreliable; autonomous infantry requests open. |
 | EngiBots (7.1) | Built | Buyable base-engineer bots for human commanders (`/buildengibot`); only tested with the bot commander. See below. |
-| ML turret, cameras, radar, walls (5.31.3, 5.9) | Open | Not implemented. |
+| Refinery walls, radar, cameras (5.9, 5.31.4) | Built | Three-part wall on the refinery side facing the enemy CV (kit item 6, one chained line of four clicks), then radar/camera behind it (items 4/5), each built up to full health; one refinery per engineer (`bot_empires_deployables.cpp`, `scripts/dev_deploy.sh`). |
+| ML turret (5.31.3) | Open | Not implemented. |
 
 ### EngiBots
 

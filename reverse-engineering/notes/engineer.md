@@ -145,3 +145,37 @@ Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830. Ru
 - Own grenades landing ~130-170 from the thrower cost it ~1 HP each (100 -> 80 over 23 throws).
 - With no player left on the enemy team, destroying its barracks ends the round: every player gets
   flag 0x40 and freezes in place (looked like a bot stall in the 1-bot test).
+
+## Walls (item 6): placement conditions (expert, 2026-11-24)
+
+Static analysis; not measured. Also covers camera/radar (items 4/5).
+
+- `PrimaryAttack` 0x3cf110 dispatch on `m_iEngineerBuildItem` (+0x128c) at 0x3cfb6e..0x3cfb9e: 1 MG, 2 ML, 4 camera
+  (0x3d0588), 5 radar (0x3d08e0), 6 walls (0x3d0b75 -> `BuildWalls`), 7 crate. Common gates before it: not commander,
+  clip > 0, not in vehicle, `+0x1cf4` (1 + item 6 -> `#eng_restriction_walls`; 2 -> restriction all), `+0x1cfc == 3`.
+- Items 4/5: only gate is `m_iEngineerDetectionBuilt` (+0x12a4) < `...Allotted` (+0x12a0), else "maximum allotted number
+  of surveillance devices". `BuildCamera` 0x3ceb00 / `BuildRadar` 0x3cebe0 create `emp_eng_camera` / `emp_eng_radar`,
+  ChangeTeam, `GetBuildLocation` (same non-wall path as MG/crate), then Spawn; on success item -> 0 and `AddDetection`.
+  No research, rank, cooldown or resource check. Nothing gates 4/5/6 that does not also gate 1.
+- `BuildWalls` 0x3cecc0: `GetBuildLocation(NULL, ...)` (item 6 takes its own branch 0x3ce388; no player box, no
+  vehicle-factory 625 rule, 500 instead); a zero vector is ignored. Point count at kit +0x5c4, points at +0x5c8 / +0x5d4.
+  Count 0 -> store first point, count 1. Count 1 -> store second point, `CompleteWalls(p0, p1, owner)`.
+  On success p0 = p1 and count stays 1 (walls chain: the next click extends from the last end). On failure nothing is
+  reset; the next click is again a second point against the old p0. Count is reset to 0 only by `Holster` (0x3cc25c),
+  `SecondaryAttack` (0x3cc330) and the constructor. No time window, no item reset (item stays 6 after success).
+- `CompleteWalls` 0x397fc0 (player path; commander path differs):
+  1. p0 or p1 zero, or p0 == p1 -> fail. Yaw from atan(|dx|/|dy|).
+  2. Creates `emp_eng_walls` (0x9599c8), spawns it to read its OBB; piece width = OBBmaxs.y - 2.
+     Pieces n = max(1, int(len2D / width)); remainder >= 0.75 -> n+1.
+  3. Allotment: 3*n + f(remainder*3) > `m_iEngineerWallsAllotted` (+0x1294) - `...Built` (+0x1290) -> "maximum allotted
+     number of walls" (0x959ce8). 30 allotted -> at most about 10 pieces.
+  4. Per piece: two ground traces (+-300 z, mask 0x400b) at both ends must hit world BSP with normal.z >= 0.7, else fail
+     silently; box trace over the piece with mask 0x200400b (includes CONTENTS_MONSTER): any non-world entity (players,
+     buildings, turrets) -> fail. `CanBuildAt` 0x397af0 is only called in the commander branch.
+  5. Team wall limit (`GetWallLimit`, `#comm_reached_wall_limit`), then built += cost.
+- Bot finding (run 20261124-115412 and radar run 115517): `bot_empires_deployables.cpp` presses `primaryAttack(true, 0.35)`
+  but `CBotEmpires::handleWeapons` (bot_empires.cpp ~1962) has no early return for `m_deploy`, so the no-enemy branch
+  calls `letGo(IN_ATTACK)` before `doButtons`, the same bug as the crate (2026-11-15). The MG works because it runs
+  through the build action (`isEmpiresEngineerBuildActionActive`). The bot's "first-point" log line is only a timer.
+- Holding attack across several refires calls `BuildWalls` repeatedly; a jittered second aim point would complete a
+  one-piece wall next to p0 (n >= 1). A single short press per endpoint is safer.

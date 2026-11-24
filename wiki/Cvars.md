@@ -22,6 +22,7 @@ this page lists all of them, including test and development switches. Set them o
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
 | `rcbot_empires_engineer_turrets` | 1 | Repair-role engineers build an MG turret on the front side of own refineries. | `bot_empires_turret_build.cpp`, `bot_empires_commander_economy.cpp` |
+| `rcbot_empires_engineer_deployables` | 3 | Bits: 1 radar/camera behind the refinery wall, 2 three-part wall on the refinery's enemy side. | `bot_empires_deployables.cpp` |
 | `rcbot_empires_engineer_help_human` | 2 | With a human commander, up to this many engineer bots per team build/repair unfinished or damaged buildings near the CV on their own (0 = only on the commander's guard order). | `bot_empires_engibot.cpp`, `bot_commands.cpp`, `bot_empires.h` |
 | `rcbot_empires_engibot` | 1 | Commanders can buy base engineer bots with `/buildengibot`. | `bot_empires_engibot.cpp` |
 | `rcbot_empires_engibot_cost` | 100 | Team resources per EngiBot. | `bot_empires_engibot.cpp` |

@@ -38,6 +38,7 @@ Synergy, FF ... files that Empires does not use). `scripts/` and `tools/` are co
 | `bot_empires_engineer.cpp` | Engineer support targets, repair/build/resupply actions, interruption for combat. |
 | `bot_empires_engibot.cpp` | EngiBot purchase via chat, limit/leash, cleanup; team resource ledger read/write. |
 | `bot_empires_turret_build.cpp` | Refinery MG turret placement (front side heading). |
+| `bot_empires_deployables.cpp` | Refinery three-part wall and radar/camera behind it (engineer kit items 4/5/6). |
 | `bot_empires_ammo_crate.cpp` | Answers vehicle ammo calls with a supply crate (`engSelect 7`). |
 | `bot_empires_heal.cpp` | Engineer heals hurt teammates with the kit (5.31.1). |
 | `bot_empires_revive.cpp`, `bot_empires_vacancy_revive.h` | Individual revive (`emp_revive`) and vacancy Mass Revive policy. |

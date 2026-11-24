@@ -399,6 +399,7 @@ void CEmpiresMod::mapInit()
 {
 	CBotMod::mapInit();
 	EmpiresTurretBuildLevelReset();
+	EmpiresDeployablesLevelReset();
 	EmpiresReviveLevelReset();
 	EmpiresVehicleLevelReset();
 	EmpiresCommanderEconomyLevelReset();

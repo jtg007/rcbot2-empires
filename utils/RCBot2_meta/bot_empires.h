@@ -274,6 +274,7 @@ int EmpiresVehicleDebugScaleHealth(float factor, const float* sideFactors);
 
 // Called on map change: expiry times count in curtime and entries are keyed by entity index.
 void EmpiresTurretBuildLevelReset();
+void EmpiresDeployablesLevelReset();
 int EmpiresPlayerTurretRestrict(edict_t* player);
 void EmpiresReviveLevelReset();
 void EmpiresVehicleLevelReset();
@@ -951,6 +952,44 @@ private:
 	float m_flTurretUpgradeAimSince = 0.0f;
 	float m_flTurretUpgradeNextSend = 0.0f;
 	bool handleEmpiresTurretUpgrade();
+	// Engineer deployables (bot_empires_deployables.cpp): camera/radar (kit items 4/5) at own refineries,
+	// a three-part wall (item 6) on a refinery's enemy side.
+	bool handleEmpiresEngineerDeployables();
+	struct EmpiresDeployJob
+	{
+		int stage = 0;          // 0 idle, 1 walk, 2 select, 3 aim, 4 observe, 5 build up
+		int item = 0;           // 4 camera, 5 radar, 6 walls
+		int refinery = 0;
+		int segment = 0;        // walls: next point 0..3 of the chained line
+		int click = 0;          // walls: new pieces so far
+		int tries = 0;
+		int built = 0;          // entity being built up
+		Vector stand;
+		Vector aim[2];
+		std::vector<int> before;
+		std::vector<int> skip;  // wall pieces whose build-up timed out
+		std::vector<std::pair<int, int>> pieceSeg; // wall piece key -> segment (1..3) it was placed with
+		float stageAt = 0.0f;
+		float until = 0.0f;
+		float nextNav = 0.0f;
+		float nextSearch = 0.0f;
+		float bestDist = 0.0f;
+		float radius = 0.0f;    // walls: middle piece distance from the refinery
+		float progressAt = 0.0f;
+		float radarBlockedUntil = 0.0f;
+		float nextLog = 0.0f;
+		float lastTick = 0.0f;
+		bool resetChain = false; // walls: clear the kit point counter before the first point
+		bool sideFlip = false;
+		bool aimAlt = false;     // build-up: aim at the piece box center instead of the segment middle
+		int lastHealth = -1;
+		int progressHealth = -1;
+		int progressPiece = -1;
+		float buildAt = 0.0f;
+		float reachAt = 0.0f;
+		float healthAt = 0.0f;   // build-up: work from the far side of the piece
+		bool firstPoint = false; // walls: the next click starts a chain (creates no piece)
+	} m_deploy;
 	bool handleEmpiresGrenadierTurretAttack();
 	bool handleEmpiresBuildingAttack();
 	void abortEmpiresBuildingAction(const char* reason);

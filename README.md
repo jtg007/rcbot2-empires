@@ -30,7 +30,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 |---|---|
 | **Navigation** | Waypoint-free navmesh routing that dynamically detours around match-built structures and recovers from stalls. |
 | **Commander** | Takes the CV when vacant, builds the base & vehicle factory, assigns engineers, researches tech, and directs infantry squads. |
-| **Engineers** | Build and repair structures & damaged vehicle armor, revive teammates, deploy refinery turrets, or serve as buyable **EngiBots**. |
+| **Engineers** | Build and repair structures & damaged vehicle armor, revive teammates, deploy refinery turrets, wall refineries off and put a radar/camera behind the wall, or serve as buyable **EngiBots**. |
 | **Infantry** | All four classes with loadouts & skills; capture flags, pick tactical spawns, counter turrets, and attack buildings or vehicles. |
 | **Vehicles** | Purchase upgraded chassis/weapons/armor as tech unlocks, drive with three-point turns, retreat to repair/rearm, and field mobile APC spawns. |
 
@@ -76,7 +76,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🔧 Engineers</strong> — <code>4 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🔧 Engineers</strong> — <code>5 ✅</code> · <code>3 🟡</code></summary>
 
 <br>
 
@@ -89,7 +89,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
 | 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
-| ⬜ | **Walls, cameras, radar** | Not implemented yet |
+| ✅ | **Walls, radar, cameras** | At each own refinery (nearest first, a second engineer takes the next one) an engineer builds a three-part wall on the side facing the enemy CV — a middle piece across the line to the enemy and two wings bent back — then places a radar (first) or camera behind it and builds everything up to full health. Walls only at refineries and only with at least 300 team resources; points the game rejects are retried shorter, and the standing pieces are kept (`rcbot_empires_engineer_deployables`) |
 
 </details>
 
@@ -214,6 +214,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | Cvar | Default | Description |
 |---|---:|---|
 | `rcbot_empires_engineer_turrets` | `1` | Engineers build MG turrets at friendly refineries |
+| `rcbot_empires_engineer_deployables` | `3` | Refinery fortification (bits): `1` radar and camera behind the wall, `2` three-part wall on the enemy side |
 | `rcbot_empires_engineer_help_human` | `2` | Engineer bots per team that autonomously build/repair near a human commander's CV |
 | `rcbot_empires_engibot` | `1` | Allow commanders to purchase EngiBots |
 | `rcbot_empires_engibot_cost` | `100` | Team resources per EngiBot |
@@ -310,6 +311,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
+| `scripts/dev_deploy.sh [map] [timescale]` | Three-part refinery wall, then radar/camera behind it (`DEPLOY_MODE=1` radar/camera only, `2` walls only) |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server with all available CPUs eligible by default (set `RCBOT_CPUS` to restrict affinity). Each sample shares its vertical clearance trace across four corners. Area merges use indexed incoming ground links and report elapsed time and candidate counts. |
 | `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |

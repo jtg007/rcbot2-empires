@@ -143,6 +143,7 @@ ConVar rcbot_empires_commander_drive_from("rcbot_empires_commander_drive_from", 
 ConVar rcbot_empires_force_offsets("rcbot_empires_force_offsets", "0", 0, "Use the fixed game-object offsets even when the game binary (server_srv.so) is not a known build: 0 off, 1 on");
 ConVar rcbot_empires_commander_boomtank("rcbot_empires_commander_boomtank", "1", 0, "Commander bot drives the CV over enemy infantry inside the base zone: 0 off, 1 on except rainbowroad maps, 2 on everywhere");
 ConVar rcbot_empires_engineer_turrets("rcbot_empires_engineer_turrets", "1", 0, "Engineer bots build an MG turret on the front side of own refineries");
+ConVar rcbot_empires_engineer_deployables("rcbot_empires_engineer_deployables", "3", 0, "Engineer deployables at own refineries (bits): 1 = radar and camera, 2 = three-part wall on the enemy side");
 ConVar rcbot_empires_vacancy_revive("rcbot_empires_vacancy_revive", "1", 0, "if 1, bots may run the death-vacancy Engineer Mass Revive transaction (promote/revive/restore) on a consumed per-vacancy-epoch basis");
 ConVar rcbot_empires_lawliet("rcbot_empires_lawliet", "1", 0, "Lawliet mode (desperation APC rush on the enemy CV): 0 = off, 1 = auto when losing in research & map control, 2 = force NF, 3 = force BE");
 ConVar rcbot_listen_dist("rcbot_listen_dist", "512", 0, "the distance for bots to hear things");

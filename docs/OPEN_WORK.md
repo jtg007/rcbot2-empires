@@ -449,7 +449,15 @@ When the following cases recur, compare the relevant trace and route.
   projectile gravity measured ~320 (not 800), so a standing throw reaches ~1750 flat
   (`scripts/dev_seismic.sh`; numbers in `reverse-engineering/notes/engineer.md`). Open: a run-up throw at
   a firing turret from outside its 2000-unit range (the turret retreat keeps engineers out today),
-  map barricades, damage on turrets/cameras, walls and cameras as builds.
+  map barricades, damage on turrets/cameras.
+- Refinery fortification (5.9, built; `bot_empires_deployables.cpp`, cvar `rcbot_empires_engineer_deployables`):
+  per own refinery one engineer builds a three-part wall facing the enemy CV (kit item 6; the game chains
+  wall points, so it is one line of four clicks), then a radar or camera behind it (items 4/5), and builds
+  every piece up (`scripts/dev_deploy.sh`). 10-bot crossroads match `20261124-131109`: walls at 3 refineries,
+  8/9 pieces full, 1 radar. Pitfalls: `checkStuck()` locks the view on LOOK_WAYPOINT while the move target is
+  valid; a player in a piece's line makes `CompleteWalls` reject it. Open: cameras on flanks/ladders, one
+  detection device per engineer, full repair of front buildings after an attack, walls may narrow own
+  vehicle lanes at refineries.
   Turret upgrade (5.6) is done: an engineer with the upgrade skill raises its own finished
   turrets 1 -> 2 -> 3 with `emp_eng_upgrade` (only up to the map's turret restriction) and rebuilds them
   (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); whether engineers reach rank 30 in a match is open.

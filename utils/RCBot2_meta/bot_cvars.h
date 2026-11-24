@@ -118,6 +118,7 @@ extern ConVar rcbot_empires_debug_log;
 #define RCBOT_DIAG(...) do { if (rcbot_empires_debug_log.GetBool()) Msg(__VA_ARGS__); } while (0)
 extern ConVar rcbot_empires_billnye;
 extern ConVar rcbot_empires_engineer_turrets;
+extern ConVar rcbot_empires_engineer_deployables;
 extern ConVar rcbot_empires_commander_engineer;
 extern ConVar rcbot_empires_force_offsets;
 extern ConVar rcbot_empires_commander_boomtank;
