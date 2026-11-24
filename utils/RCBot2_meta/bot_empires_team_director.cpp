@@ -73,6 +73,7 @@ struct TeamState
 	std::unordered_map<int, FlagPushProgress> flagProgress;
 	std::unordered_map<int, float> pushAvoid;   // flag entity -> avoided until
 	int lastRole[kMaxClients] = {};
+	DeathMemory deaths;        // TODO 8.1 hot zones
 	float roleSince[kMaxClients] = {};          // game time the current role was given
 	std::unordered_map<int, int> flagOwner;     // flag entity -> last known owner (gain/loss log)
 };
@@ -255,6 +256,101 @@ void EmpiresTeamDirectorLevelReset()
 		state = TeamState();
 }
 
+namespace
+{
+// Hands the team's active hot zones to the route cost (TODO 8.1).
+void PushHotZones(int team, const DeathMemory& memory, float now)
+{
+	Vector centers[kMaxHotZones];
+	float radii[kMaxHotZones];
+	int count = 0;
+	for (const HotZone& zone : memory.zone)
+		if (zone.active(now))
+		{
+			centers[count] = Vector(zone.center[0], zone.center[1], zone.center[2]);
+			radii[count] = zone.radius;
+			++count;
+		}
+	RCBotNavMesh::SetTeamHotZones(team, centers, radii, count);
+}
+
+void ExpireHotZones(int team, float now)
+{
+	DeathMemory& memory = s_team[team].deaths;
+	bool changed = false;
+	for (int z = 0; z < kMaxHotZones; ++z)
+	{
+		HotZone& zone = memory.zone[z];
+		if (zone.radius <= 0.0f || zone.active(now))
+			continue;
+		RCBOT_DIAG("[RCBOT2] director hot-zone end team=%d zone=%d pos=(%.0f %.0f %.0f) deaths=%d\n", team, z,
+			zone.center[0], zone.center[1], zone.center[2], zone.deaths);
+		zone = HotZone();
+		changed = true;
+	}
+	if (changed)
+		PushHotZones(team, memory, now);
+}
+} // namespace
+
+namespace
+{
+Vector g_testKillAt;
+float g_testKillRadius = 0.0f;
+int g_testKillTeam = 0;
+bool g_testKillMark[kMaxClients] = {};
+} // namespace
+
+void EmpiresTestKillZoneArm(float x, float y, float z, float radius, int team)
+{
+	g_testKillAt = Vector(x, y, z);
+	g_testKillRadius = radius;
+	g_testKillTeam = team;
+	RCBOT_DIAG("[RCBOT2] test-kill-zone armed pos=(%.0f %.0f %.0f) radius=%.0f team=%d\n", x, y, z, radius, team);
+}
+
+bool EmpiresTestKillZoneHit(edict_t* bot, int team, const Vector& at)
+{
+	if (g_testKillRadius <= 0.0f || bot == nullptr || engine == nullptr || (g_testKillTeam != 0 && team != g_testKillTeam))
+		return false;
+	const int client = engine->IndexOfEdict(bot);
+	if (client <= 0 || client >= kMaxClients || g_testKillMark[client] || Dist2D(at, g_testKillAt) > g_testKillRadius ||
+		std::fabs(at.z - g_testKillAt.z) > 200.0f)
+		return false;
+	g_testKillMark[client] = true;
+	return true;
+}
+
+bool EmpiresTestKillZoneTake(int client)
+{
+	if (client <= 0 || client >= kMaxClients || !g_testKillMark[client])
+		return false;
+	g_testKillMark[client] = false;
+	return true;
+}
+
+void EmpiresTeamDirectorRecordDeath(int team, float x, float y, float z, int userId, const char* how)
+{
+	if (gpGlobals == nullptr || team < 2 || team > 3 || !rcbot_empires_hot_zones.GetBool())
+		return;
+	const float now = gpGlobals->curtime;
+	DeathMemory& memory = s_team[team].deaths;
+	const float at[3] = { x, y, z };
+	int zoneIndex = -1;
+	const HotResult result = RecordDeath(memory, at, now, zoneIndex);
+	RCBOT_DIAG("[RCBOT2] director death team=%d userid=%d how=%s pos=(%.0f %.0f %.0f) hot=%s zone=%d\n", team, userId,
+		how != nullptr ? how : "", x, y, z, result == HOT_NEW ? "new" : (result == HOT_EXTEND ? "extend" : "none"),
+		zoneIndex);
+	if (result == HOT_NONE)
+		return;
+	const HotZone& zone = memory.zone[zoneIndex];
+	if (result == HOT_NEW)
+		RCBOT_DIAG("[RCBOT2] director hot-zone team=%d zone=%d pos=(%.0f %.0f %.0f) radius=%.0f deaths=%d window=%.0f secs=%.0f\n",
+			team, zoneIndex, zone.center[0], zone.center[1], zone.center[2], zone.radius, zone.deaths,
+			kHotDeathWindow, kHotZoneSeconds);
+	PushHotZones(team, memory, now);
+}
+
 void CBotEmpires::tickTeamDirector()
 {
 	if (gpGlobals == nullptr || engine == nullptr || playerinfomanager == nullptr || m_pEdict == nullptr)
@@ -267,6 +363,7 @@ void CBotEmpires::tickTeamDirector()
 	if (now < state.nextUpdate)
 		return;
 	state.nextUpdate = now + kUpdateSeconds;
+	ExpireHotZones(team, now);
 	const CEmpiresMod* mod = static_cast<const CEmpiresMod*>(CBotGlobals::getCurrentMod());
 	if (mod == nullptr)
 		return;

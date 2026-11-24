@@ -212,6 +212,29 @@ int main()
 	Check(AlertTakesOver(true, false, true, 1001, 1004, 2.0f), "damage takes over");
 	Check(AlertTakesOver(true, false, false, 303, 413, 12.0f), "quiet alert building is replaced");
 
+	// Hot zones (TODO 8.1).
+	{
+		DeathMemory m;
+		int z = -1;
+		const float a[3] = { 0, 0, 0 }, b[3] = { 300, 0, 0 }, far[3] = { 3000, 0, 0 }, c[3] = { 0, 400, 0 };
+		Check(RecordDeath(m, a, 10, z) == HOT_NONE, "one death is not hot");
+		Check(RecordDeath(m, far, 12, z) == HOT_NONE, "far death does not count");
+		Check(RecordDeath(m, b, 20, z) == HOT_NONE, "two deaths are not hot");
+		Check(RecordDeath(m, c, 50, z) == HOT_NONE, "third death after the window is not hot");
+		DeathMemory n;
+		RecordDeath(n, a, 10, z);
+		RecordDeath(n, b, 20, z);
+		Check(RecordDeath(n, c, 35, z) == HOT_NEW && z >= 0, "three deaths in 30 s make a hot zone");
+		const HotZone& hz = n.zone[z];
+		Check(hz.radius >= kHotZoneMinRadius && hz.radius <= kHotZoneMaxRadius, "radius clamped");
+		Check(hz.center[0] > 0 && hz.center[0] < 300 && hz.center[1] > 0, "centre between the deaths");
+		Check(hz.active(100) && !hz.active(35 + kHotZoneSeconds + 1), "zone runs out");
+		Check(RecordDeath(n, a, 100, z) == HOT_EXTEND && n.zone[z].until == 100 + kHotZoneSeconds, "death inside renews");
+		Check(n.zone[z].deaths == 4, "death counted");
+		// Deaths used for a zone do not make a second zone next to it once it ran out.
+		Check(RecordDeath(n, far, 300, z) == HOT_NONE, "old cluster deaths used up");
+	}
+
 	if (g_failures == 0)
 		std::printf("team director tests PASS\n");
 	return g_failures == 0 ? 0 : 1;

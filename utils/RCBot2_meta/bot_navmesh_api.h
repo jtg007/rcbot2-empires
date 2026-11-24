@@ -86,14 +86,19 @@ bool BlockInfantryEdgeNearestOnPath(const Vector &position, const std::vector<un
 	unsigned &fromAreaId, unsigned &toAreaId, float seconds = 15.0f);
 // Blocks every area link whose line between the area centres passes through the box
 // (a closed door covers several links). Returns how many links were blocked.
+// keepFromArea >= 0: links leaving that area stay open (the bot stands in it, TODO 8.1a).
 int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, float seconds, bool learned = true,
-	const Vector *keepEscapeFrom = nullptr);
+	const Vector *keepEscapeFrom = nullptr, int keepFromArea = -1);
 // Links of areas under the box whose shared edge lies behind it, seen from 'from'.
 int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &maxs, float seconds);
 // Team-only no-go circle (2D), e.g. a hostile turret's range: routes of that team's
 // bots never enter an area whose centre lies inside it (leaving it stays allowed).
 // radius <= 0 clears it. Cleared with the map.
 void SetTeamDangerCircle(int team, const Vector &center, float radius);
+// Team hot zones (TODO 8.1, team director): soft cost, entering costs kHotZoneEnter and every unit inside
+// kHotZoneFactor more, so routes detour or cross on the shortest way. count 0 clears. Cleared with the map.
+constexpr int kMaxTeamHotZones = 4;
+void SetTeamHotZones(int team, const Vector *centers, const float *radii, int count);
 // A drop link ends under solid floor: forbid every link from areas on this floor
 // (within radius of floorPoint) down to areas under the same spot. Returns the count.
 int BlockDropsUnderFloor(const Vector &floorPoint, float radius);

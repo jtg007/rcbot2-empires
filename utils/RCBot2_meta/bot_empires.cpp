@@ -2512,6 +2512,19 @@ void CBotEmpires::killed(edict_t* pVictim, char* weapon)
 
 void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
+	// Hot zones (TODO 8.1): only real kills on foot; kill-spawn / void suicides are the bot's own "kill".
+	if (engine != nullptr && m_pEdict != nullptr)
+	{
+		const int client = engine->IndexOfEdict(m_pEdict);
+		const bool testKill = EmpiresTestKillZoneTake(client);
+		const bool realKill = pKiller != nullptr && pKiller != m_pEdict && engine->IndexOfEdict(pKiller) > 0;
+		if ((testKill || realKill) && EmpiresVehiclePlayerVehicle(this, m_pEdict) < 0)
+		{
+			const Vector at = getOrigin();
+			EmpiresTeamDirectorRecordDeath(getTeam(), at.x, at.y, at.z, engine->GetPlayerUserId(m_pEdict),
+				testKill ? "test-zone" : (pszWeapon != nullptr ? pszWeapon : "?"));
+		}
+	}
 	if (engine != nullptr && m_pEdict != nullptr)
 		EmpiresLawlietOnBotReset(engine->IndexOfEdict(m_pEdict));
 	if (m_iHealTarget != 0)
@@ -6634,6 +6647,13 @@ void CBotEmpires::modThink()
 		abortEmpiresBuildingAction("enemy");
 	}
 	tickTeamDirector();
+	if (EmpiresTestKillZoneHit(m_pEdict, getTeam(), getOrigin()) && EmpiresVehiclePlayerVehicle(this, m_pEdict) < 0)
+	{
+		const Vector at = getOrigin();
+		RCBOT_DIAG("[RCBOT2] test-kill-zone kill userid=%d pos=(%.0f %.0f %.0f)\n", engine->GetPlayerUserId(m_pEdict),
+			at.x, at.y, at.z);
+		helpers->ClientCommand(m_pEdict, "kill\n");
+	}
 	tickEmpiresLawliet();
 	tickEmpiresVehicle();
 	tickEmpiresVoidSuicide();

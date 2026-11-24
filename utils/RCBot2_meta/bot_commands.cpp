@@ -36,6 +36,7 @@
 #include "bot_client.h"
 #include "bot_cvars.h"
 #include "bot_empires.h"
+#include "bot_empires_team_director.h"
 #include "bot_empires_barracks_execution.h"
 #include "bot_commander_move_test_fixture.h"
 #include "bot_empires_telemetry.h"
@@ -1663,6 +1664,19 @@ CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_
 		Msg("[RCBOT2] botcmd userid=%s repeat=%ld cmd=%s", args[0], repeat, command.c_str());
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_botcmd <bot_userid> <repeat> <command> [args]" : test-only, the bot runs a client command)");
+
+CBotCommandInline EmpiresKillZoneTestCommand("empires_test_kill_zone", CMD_ACCESS_CONSOLE_ONLY,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		for (int i = 0; i < 4; ++i)
+			if (args[i] == nullptr || *args[i] == '\0')
+				return COMMAND_ERROR;
+		const int team = args[4] != nullptr && *args[4] != '\0' ? std::atoi(args[4]) : 0;
+		EmpiresTestKillZoneArm(static_cast<float>(std::atof(args[0])), static_cast<float>(std::atof(args[1])),
+			static_cast<float>(std::atof(args[2])), static_cast<float>(std::atof(args[3])), team);
+		Msg("[RCBOT2] test-kill-zone armed\n");
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_kill_zone <x> <y> <z> <radius> [team]" : test-only (TODO 8.1), every bot (of team 2/3, 0 = all) on foot that enters the circle (2D, +-200 height) is killed once per life by 'kill' and counted as a death for the hot zones; radius 0 disarms)");
 
 extern int g_exitBlockUserId; // bot_empires_vehicle.cpp
 extern bool g_exitBlockPassenger;
@@ -3660,6 +3674,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,
 	&EmpiresExitBlockTestCommand,
+	&EmpiresKillZoneTestCommand,
 	&EmpiresRecoveryCaptureAcceptanceCommand,
 	&EmpiresRecoverySquadAcceptanceCommand,
 	&EmpiresScoutBuildingVisibilityScanCommand,

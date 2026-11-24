@@ -110,6 +110,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
 | ✅ | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
 | 🟡 | **Fewer idle guards** | Small teams (3–4 free infantry) keep no standing defender at the base without an alert, and a bot holding a defend or sector spot walks to the next spot around it every 12 s instead of standing 30 s (`rcbot_empires_lean_defense`, `rcbot_empires_defend_patrol`) *(crossroads 15-min pair: idle 1154 s vs 1422 s)* |
+| 🟡 | **Learns from losses** | Three deaths of a team on foot within 30 s and 700 units mark the spot as hot for 90 s; the next wave's routes avoid it (`rcbot_empires_hot_zones`) *(test kill zone at the NF base exit, 5 on/off pairs: 41 vs 84 deaths there)* |
 | 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
@@ -231,6 +232,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
 | `rcbot_empires_lean_defense` | `1` | Standing base defender (no alert) only from 5 free infantry bots; 0 = from 3 |
 | `rcbot_empires_defend_patrol` | `1` | Defend/sector spot held 12 s, then the next spot around it (arrive within 100); 0 = 30 s hold, 250 radius |
+| `rcbot_empires_hot_zones` | `1` | Hot zones: 3 deaths on foot within 30 s / 700 units make the spot hot for 90 s (renewed by each death there); routes pay to enter and per unit inside |
 | `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
 
 ### Infantry Combat
@@ -331,6 +333,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 **Diagnostic console commands (`rcbotd …`):**
 - `empires_nav_scan x y z x2 y2 z2` — route and hull checks between two points *(requires at least one bot on the server, otherwise `navmesh-not-loaded`)*.
 - `empires_test_commander_move bot <userid> x y z` — send a move order to a single bot.
+- `empires_test_kill_zone <x> <y> <z> <radius> [team]` — kill every bot (of that team) on foot that walks into the circle, to test hot zones; radius 0 disarms.
 - `empires_test_exit_block <userid> [passenger]` — box in a vehicle to test blocked exits.
 - `empires_vehicle_obstacle [ahead] [lateral] [speed] [model]` — place a prop on a driver's route.
 

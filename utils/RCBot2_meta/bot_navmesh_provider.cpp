@@ -670,6 +670,8 @@ void Frame()
 				bool buildingBlocked = false;
 				edict_t* closedDoor = nullptr;
 				edict_t* blockingBuilding = nullptr;
+				bool steepLow = false;
+				Vector steepAt(0, 0, 0);
 				// What blocks the bot: sweep its hull toward the target at two heights.
 				if (enginetrace != nullptr && bot->getEdict() != nullptr)
 				{
@@ -705,10 +707,19 @@ void Frame()
 							const IHandleEntity* m_self;
 						} skip(bot->getEdict()->GetIServerEntity());
 						enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &skip, &hit);
-						if (!hit.startsolid && hit.fraction < 1.0f && hit.m_pEnt != nullptr &&
+						const bool worldHit = !hit.startsolid && hit.fraction < 1.0f && hit.m_pEnt != nullptr &&
 							servergameents != nullptr &&
-							engine->IndexOfEdict(servergameents->BaseEntityToEdict(hit.m_pEnt)) == 0)
+							engine->IndexOfEdict(servergameents->BaseEntityToEdict(hit.m_pEnt)) == 0;
+						if (worldHit)
 							worldBlocked = true;
+						// Low face too steep to stand on (TODO 8.1a): blocked at the feet, free 20 higher.
+						if (lift == 2.0f)
+						{
+							steepLow = worldHit && hit.plane.normal.z > 0.05f && hit.plane.normal.z < 0.7f;
+							steepAt = hit.endpos;
+						}
+						else if (steepLow && (hit.startsolid || hit.fraction < 1.0f))
+							steepLow = false;
 						edict_t* e = hit.m_pEnt != nullptr && servergameents != nullptr ?
 							servergameents->BaseEntityToEdict(hit.m_pEnt) : nullptr;
 						// A door still shut after we pressed use (as_escort BE gate 228 opens
@@ -875,6 +886,19 @@ void Frame()
 						if (RCBotNavMesh::BlockInfantryEdgeNearestOnPath(here, route.path.areaIds, fromId, toId, 15.0f))
 							RCBOT_DIAG("[RCBOT2] navmesh-vehicle-edge-blocked from=%u to=%u (nearest)\n", fromId, toId);
 					}
+				}
+				// A low steep face the mesh walks along or over (TODO 8.1a, crossroads west bridge
+				// (-3800 -5087): ~16 high block with 63 degree faces beside a 25 wide strip). On the face
+				// the player has no ground and cannot jump; one stuck per link learned it link by link
+				// (29 stucks in 4 runs). Forbid every link through the spot at once.
+				if (steepLow)
+				{
+					// 32 around the hit; 96 along the face blocked too much (crossroads: 7 bridge stucks
+					// and 17/30 plan failures in 6 runs against 5 and 0 with 32).
+					const Vector pad(32.0f, 32.0f, 0.0f);
+					const int links = RCBotNavMesh::BlockEdgesThroughBox(steepAt - pad - Vector(0, 0, 24),
+						steepAt + pad + Vector(0, 0, 48), 0.0f, true, &here, RCBotNavMesh::GetNearestAreaId(here));
+					RCBOT_DIAG("[RCBOT2] navmesh-steep-block at=(%.0f %.0f %.0f) links=%d\n", steepAt.x, steepAt.y, steepAt.z, links);
 				}
 				if (worldBlocked)
 				{

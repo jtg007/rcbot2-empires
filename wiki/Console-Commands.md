@@ -45,6 +45,7 @@ Bot quota: `rcbot_bot_quota_interval`, `config/bot_quota.ini`, `min_bots`/`max_b
 | Command | Arguments | Purpose |
 |---|---|---|
 | `empires_vehicle_obstacle` | `[ahead] [lateral] [entry_speed] [model]` | The next NF Light / BE AFV driver at entry speed gets a solid prop (default `models/props/concretebarrier.mdl`) on its route; logs `vehicle obstacle placed/passed/timeout/abort`. |
+| `empires_test_kill_zone` | `<x> <y> <z> <radius> [team]` | Kills every bot (of that team) on foot that enters the circle, once per life, and counts it for hot zones; radius 0 disarms. |
 | `empires_test_exit_block` | `<bot_userid\|0> [passenger]` | Boxes a driving vehicle in with barriers to test blocked exits (`stall-escalate who=vehicle-exit`). |
 | `empires_vehicle_setammo` | `<magazine> <reserve>` | Set all vehicles' ammo (ammo scenarios). |
 | `empires_vehicle_crate` | `<distance>` | Put a team supply crate beside the first vehicle. |

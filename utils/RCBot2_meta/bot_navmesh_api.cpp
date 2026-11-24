@@ -331,7 +331,7 @@ int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &ma
 }
 
 int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float seconds, const bool learned,
-	const Vector *keepEscapeFrom)
+	const Vector *keepEscapeFrom, const int keepFromArea)
 {
 	if (!IsLoaded())
 		return 0;
@@ -358,7 +358,8 @@ int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float sec
 	FOR_EACH_VEC(TheNavAreas, i)
 	{
 		CNavArea *area = TheNavAreas[i];
-		if ((area->GetCenter() - middle).Length() > reach)
+		if ((area->GetCenter() - middle).Length() > reach ||
+			(keepFromArea >= 0 && area->GetID() == static_cast<unsigned>(keepFromArea)))
 			continue;
 		for (int dir = 0; dir < NUM_DIRECTIONS; ++dir)
 			for (int k = 0; k < area->GetAdjacentCount(static_cast<NavDirType>(dir)); ++k)
@@ -435,8 +436,37 @@ void SetTeamDangerCircle(const int team, const Vector &center, const float radiu
 		++s_blockGeneration;
 }
 
+struct HotZones
+{
+	Vector center[kMaxTeamHotZones];
+	float radius[kMaxTeamHotZones] = {};
+	int count = 0;
+};
+HotZones s_teamHot[4];
+constexpr float kHotZoneEnter = 1500.0f;
+constexpr float kHotZoneFactor = 3.0f;
+
+void SetTeamHotZones(const int team, const Vector *centers, const float *radii, int count)
+{
+	if (team < 0 || team >= 4)
+		return;
+	if (count > kMaxTeamHotZones)
+		count = kMaxTeamHotZones;
+	HotZones zones;
+	for (int i = 0; i < count; ++i)
+	{
+		zones.center[i] = centers[i];
+		zones.radius[i] = radii[i];
+	}
+	zones.count = count < 0 ? 0 : count;
+	s_teamHot[team] = zones;
+	++s_blockGeneration;
+}
+
 void ClearBlockedEdges()
 {
+	for (HotZones &zones : s_teamHot)
+		zones.count = 0;
 	s_blockedEdges.clear();
 	s_timedBlockedEdges.clear();
 	s_infantryBlockedEdges.clear();
@@ -711,6 +741,8 @@ public:
 			m_dangerCenter = s_teamDanger[team].center;
 			m_dangerRadius = s_teamDanger[team].radius;
 		}
+		if (team >= 0 && team < 4)
+			m_hot = s_teamHot[team];
 	}
 
 	float operator()(CNavArea* area, CNavArea* fromArea,
@@ -741,6 +773,17 @@ public:
 			(area->GetCenter() - m_dangerCenter).Length2D() < m_dangerRadius &&
 			(fromArea->GetCenter() - m_dangerCenter).Length2D() >= m_dangerRadius)
 			dangerPenalty = 30000.0f;
+		// Hot zone (team director, TODO 8.1): entering costs, every unit inside costs more.
+		float hotPenalty = 0.0f;
+		for (int i = 0; i < m_hot.count; ++i)
+		{
+			if ((area->GetCenter() - m_hot.center[i]).Length2D() >= m_hot.radius[i])
+				continue;
+			const float dist = length > 0.0f ? length : (area->GetCenter() - fromArea->GetCenter()).Length();
+			hotPenalty += dist * kHotZoneFactor;
+			if ((fromArea->GetCenter() - m_hot.center[i]).Length2D() >= m_hot.radius[i])
+				hotPenalty += kHotZoneEnter;
+		}
 		if (ladder == nullptr && elevator == nullptr)
 		{
 			const float heightChange = fromArea->ComputeAdjacentConnectionHeightChange(area);
@@ -767,7 +810,7 @@ public:
 			const float dist = length > 0.0f ? length : (area->GetCenter() - fromArea->GetCenter()).Length();
 			waterPenalty = dist * (AreaDeepWater(area) ? 9.0f : 0.5f);
 		}
-		const float effectiveCost = baseCost + waterPenalty + dangerPenalty + vehiclePenalty +
+		const float effectiveCost = baseCost + waterPenalty + dangerPenalty + hotPenalty + vehiclePenalty +
 			static_cast<float>(learned.penalty);
 		if (learned.penalty > 0.0 && m_observer != nullptr)
 			EmpiresAnalysis::RecordLearnedNavigationEdgeConsidered(m_observer,
@@ -781,6 +824,7 @@ private:
 	CBot* m_observer = nullptr;
 	Vector m_dangerCenter;
 	float m_dangerRadius = 0.0f;
+	HotZones m_hot;
 };
 }
 

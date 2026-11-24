@@ -9,6 +9,8 @@
 #ifndef BOT_EMPIRES_TEAM_DIRECTOR_H
 #define BOT_EMPIRES_TEAM_DIRECTOR_H
 
+#include <cmath>
+
 namespace EmpiresTeamDirector
 {
 constexpr int kMaxClients = 65; // client indices 1..64
@@ -343,8 +345,135 @@ inline const Goal* RoleGoal(const Board& board, int client)
 }
 } // namespace EmpiresTeamDirector
 
+namespace EmpiresTeamDirector
+{
+// Hot zones (TODO 8.1, short-term memory against the meat grinder): kHotDeathCount deaths of one team within
+// kHotDeathWindow seconds and kHotDeathRadius of each other make that spot hot for kHotZoneSeconds; another
+// death inside keeps it hot. Routes pay for every unit inside a hot zone (RCBotNavMesh::SetTeamHotZones), so
+// the next wave takes a detour or the shortest way through. Only real kills count (no kill-spawn / void
+// suicide, no deaths in vehicles). Bot-vs-bot matches have almost no such clusters (15 crossroads matches
+// 23./24.11.: 1x), the target are human or turret positions.
+constexpr float kHotDeathWindow = 30.0f;
+constexpr float kHotDeathRadius = 700.0f;
+constexpr int kHotDeathCount = 3;
+constexpr float kHotZoneSeconds = 90.0f;
+constexpr float kHotZoneMinRadius = 500.0f;
+constexpr float kHotZoneMaxRadius = 1200.0f;
+constexpr float kHotZoneMargin = 350.0f;   // around the farthest death of the cluster
+constexpr int kMaxDeaths = 16;
+constexpr int kMaxHotZones = 4;
+
+enum HotResult
+{
+	HOT_NONE = 0,
+	HOT_NEW,
+	HOT_EXTEND
+};
+
+struct HotZone
+{
+	float center[3] = { 0.0f, 0.0f, 0.0f };
+	float radius = 0.0f;
+	float until = -1.0f;
+	int deaths = 0;
+	bool active(float now) const { return radius > 0.0f && now < until; }
+};
+
+struct DeathMemory
+{
+	float pos[kMaxDeaths][3] = {};
+	float time[kMaxDeaths] = {};
+	int next = 0;
+	HotZone zone[kMaxHotZones];
+
+	DeathMemory()
+	{
+		for (float& t : time)
+			t = -1.0e9f;
+	}
+};
+
+inline float HotDist2D(const float a[3], const float b[3])
+{
+	const float dx = a[0] - b[0];
+	const float dy = a[1] - b[1];
+	return std::sqrt(dx * dx + dy * dy);
+}
+
+// Records one death; zoneIndex gets the zone it made or extended.
+inline HotResult RecordDeath(DeathMemory& m, const float at[3], float now, int& zoneIndex)
+{
+	zoneIndex = -1;
+	for (int z = 0; z < kMaxHotZones; ++z)
+		if (m.zone[z].active(now) && HotDist2D(m.zone[z].center, at) <= m.zone[z].radius)
+		{
+			m.zone[z].until = now + kHotZoneSeconds;
+			++m.zone[z].deaths;
+			zoneIndex = z;
+			return HOT_EXTEND;
+		}
+	const int slot = m.next;
+	m.next = (m.next + 1) % kMaxDeaths;
+	for (int k = 0; k < 3; ++k)
+		m.pos[slot][k] = at[k];
+	m.time[slot] = now;
+
+	int members[kMaxDeaths];
+	int count = 0;
+	for (int i = 0; i < kMaxDeaths; ++i)
+		if (now - m.time[i] <= kHotDeathWindow && HotDist2D(m.pos[i], at) <= kHotDeathRadius)
+			members[count++] = i;
+	if (count < kHotDeathCount)
+		return HOT_NONE;
+
+	HotZone zone;
+	for (int i = 0; i < count; ++i)
+		for (int k = 0; k < 3; ++k)
+			zone.center[k] += m.pos[members[i]][k] / static_cast<float>(count);
+	float spread = 0.0f;
+	for (int i = 0; i < count; ++i)
+	{
+		const float d = HotDist2D(zone.center, m.pos[members[i]]);
+		if (d > spread)
+			spread = d;
+		m.time[members[i]] = -1.0e9f; // used up: the next cluster needs new deaths
+	}
+	zone.radius = spread + kHotZoneMargin;
+	if (zone.radius < kHotZoneMinRadius)
+		zone.radius = kHotZoneMinRadius;
+	if (zone.radius > kHotZoneMaxRadius)
+		zone.radius = kHotZoneMaxRadius;
+	zone.until = now + kHotZoneSeconds;
+	zone.deaths = count;
+	// Free slot, else the one that runs out first.
+	int target = 0;
+	for (int z = 0; z < kMaxHotZones; ++z)
+	{
+		if (!m.zone[z].active(now))
+		{
+			target = z;
+			break;
+		}
+		if (m.zone[z].until < m.zone[target].until)
+			target = z;
+	}
+	m.zone[target] = zone;
+	zoneIndex = target;
+	return HOT_NEW;
+}
+} // namespace EmpiresTeamDirector
+
 // Runtime (bot_empires_team_director.cpp). Board of team 2/3 or nullptr before the first update.
 const EmpiresTeamDirector::Board* EmpiresTeamDirectorBoard(int team);
 void EmpiresTeamDirectorLevelReset();
+// TODO 8.1: a team member on foot was killed at pos (rcbot_empires_hot_zones).
+void EmpiresTeamDirectorRecordDeath(int team, float x, float y, float z, int userId, const char* how);
+// Test only (rcbotd empires_test_kill_zone): a living bot of the armed team inside the zone is killed once
+// (Hit marks it, Take reads the mark back in died()).
+struct edict_t;
+class Vector;
+bool EmpiresTestKillZoneHit(edict_t* bot, int team, const Vector& at);
+bool EmpiresTestKillZoneTake(int client);
+void EmpiresTestKillZoneArm(float x, float y, float z, float radius, int team);
 
 #endif

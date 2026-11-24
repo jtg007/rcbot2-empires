@@ -157,6 +157,16 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   alert lasts 40 s after its last trigger and moves to another building only for a clearly stronger threat, and a
   bot stalled at a building forbids that mesh link for 60 s (palmbay 1x: swaps 11 -> 8, max per bot 9 -> 3, a 4 min
   stall at the own barracks -> 68 s). How the roles feel needs a human test.
+- [ ] **Hot zones (built, measuring, 8.1, `rcbot_empires_hot_zones`):** three deaths of a team on foot within
+  30 s and 700 units make the spot hot for 90 s (each further death there renews it); that team's routes pay to
+  enter and per unit inside, so the next wave detours. Only real kills count. Test kill zone at the NF base exit on
+  Crossroads (9 bots, 4x, 5 on/off pairs): 41 vs 84 deaths in the zone. Recorder data of 15 bot-only 10-bot
+  matches showed such clusters about once in 15 matches, so the effect is meant for human or turret positions
+  and still needs a human test. Open: bots already on a route do not replan; waiting for armour, seismic or
+  mortar on the spot.
+- [x] **Low steep edges (8.1a):** a stuck at world geometry that blocks the feet with a face steeper than
+  45 degrees but is free 20 higher blocks every mesh link within 32 units at once (`navmesh-steep-block`).
+  Crossroads west bridge (-3800 -5087), same scenario: 45 stucks in 8 runs -> 5 in 6 runs, 0 plan failures.
 - [x] **Water:** bots surface after 5 s with the head under water and avoid deep water when land is possible;
   vehicles ford only as deep as their body centre stays dry (the game stops the engine after 1 s and deals
   20 HP/s once the centre is wet). Palmbay boat flags are captured by swimming to the boat ladder, climbing
@@ -364,6 +374,12 @@ When the following cases recur, compare the relevant trace and route.
 - Navmesh islands (3.4d): refinery turret jobs check the route endpoint before claiming a stand. Rainbowroad run `122756` recorded five path failures for the same stand; follow-up `150857` recorded none. Revive and door-button claims now check the route endpoint against their interaction range. Vehicles require a full route for parking beside the CV and wait locally if all parking spots fail. These three changes await gameplay verification. `GetNearestAreaId` supplies telemetry keys and helps select an edge on an existing route.
 
 ## 4. Missing features
+
+- Bots that react to the match and to people (8.2-8.6): fall back when two teammates die right next to
+  them; wait while a human heals them, repair a human's tank unasked, stop an APC for a human on foot;
+  an engineer escorting a friendly tank, APCs parking behind cover as spawn points; recognisable
+  personalities per bot name (base builder, saboteur, tank hunter) as weights on existing decisions;
+  rare, precise call-outs and visible answers to player commands.
 
 - Commander research pause/resume (measured): the research tick used to sit behind the "wait for
   unfinished buildings" and "check last emp_build" early returns, so it ran only once in a while

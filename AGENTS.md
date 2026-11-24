@@ -202,6 +202,7 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 | Navmesh at a spot | console `rcbotd empires_nav_scan x y z x2 y2 z2`: route, areas, hull grid (`.` free, `#` world, `E` entity); needs at least one bot on the server, otherwise `navmesh-not-loaded` |
 | Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2; test hook, bypasses the game's order path) |
 | Order like a human | `rcbotd empires_test_unit_order <commander_userid> <type> <unit_userid> x y z [target_userid\|b\|bd]`: the seated commander bot selects the unit (`emp_unit_order_list`) and sends `emp_unit_order` (0 abort, 1 move, 2 attack location, 3 attack target, 4 guard); `b` = nearest own building below full health, `bd` = nearest full one, damaged to 100 |
+| Kill zone test | `rcbotd empires_test_kill_zone x y z radius [team]`: every bot (of that team) on foot entering the circle is killed once per life and counted for hot zones (`director death`, `director hot-zone`); radius 0 disarms |
 | Place a building | `rcbotd empires_commander_build <type> spot` (valid spot near the CV, no engineer assigned) |
 | Game binary | `nm -C --defined-only`, `objdump -d -C --start-address=…`; float constants from `.rodata` with Python `struct.unpack('<f', …)` |
 | Notes on game internals | `reverse-engineering/` |
