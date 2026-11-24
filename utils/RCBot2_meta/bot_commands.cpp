@@ -2801,9 +2801,10 @@ CBotCommandInline EmpiresNavScanCommand("empires_nav_scan", CMD_ACCESS_CONSOLE_O
 	{
 		(void)pClient;
 		RCBotNavMesh::DebugNavScan(Vector(std::atof(args[0]), std::atof(args[1]), std::atof(args[2])),
-			Vector(std::atof(args[3]), std::atof(args[4]), std::atof(args[5])), 256.0f, 16.0f);
+			Vector(std::atof(args[3]), std::atof(args[4]), std::atof(args[5])), 256.0f, 16.0f,
+			args[6] != nullptr ? std::atof(args[6]) : 0.0f);
 		return COMMAND_ACCESSED;
-	}, "dev scan");
+	}, "dev scan x y z x2 y2 z2 [vehicle-width]");
 
 CBotCommandInline EmpiresCommanderEntryCommand("empires_commander_entry_once", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)

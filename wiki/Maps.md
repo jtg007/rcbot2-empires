@@ -1,12 +1,11 @@
 # Maps
 
 Sources: [README.md](../README.md) (map coverage, known issues), [docs/OPEN_WORK.md](../docs/OPEN_WORK.md) (items 5.11, 5.12, 5.16, 5.17, 3.9, 3.9a, 3.15, 5.8c, 5.8e), `reverse-engineering/notes/maps.md`, `scripts/dev_navgen.sh`, `scripts/dev_maps.sh`, `tools/`.
-Snapshot 2026-11-23. Run IDs name test runs (folders under `dev-runs/` of the test server).
+Snapshot 2026-11-24. Run IDs name test runs (folders under `dev-runs/` of the test server).
 
 ## Coverage
 
-21 of 22 multiplayer maps have a generated navmesh (`empires/maps/<map>.nav`) and completed a short run without a crash (5.11). Maps without flags cannot
-test capturing. Sources name 21 maps; the 22nd is not named anywhere (open).
+All 22 multiplayer maps in the test inventory have a generated navmesh (`empires/maps/<map>.nav`). On `emp_mvalley`, the new mesh loads and infantry on both teams can stall below the buildable dam ramps on the way to the dam resource point.
 
 | Map | Navmesh / run state | Notes |
 |---|---|---|
@@ -18,8 +17,8 @@ test capturing. Sources name 21 maps; the 22nd is not named anywhere (open).
 | `emp_cyclopean` | yes | Part of the default sweep list; fords not measured. |
 | `emp_dmz_b1` | yes (18,101 areas) | Gates open by player count (thresholds 16/20/28/32); closed-gate mesh has 44 components. Turret danger circle used to cut the only corridor (now very expensive instead of forbidden). Flag rock `northflag` has no upward link (needs a crouch-jump link of about 52-56 HU; 5.16). Under 20 players only one flag free. |
 | `emp_slaughtered` | yes | Flag 130 has no ground point; nearest nav area is 743 below the origin (skipped; access unclear, 5.17). CV stalled at the radar in `20261115-175843` (fixed detour). |
-| `emp_mvalley` | **no** | Generation hit the 20-minute timeout; retry with a larger timeout (`dev_navgen.sh`, `-nowatchdog`). |
-| `con_district402`, `con_glycencity` | yes | Conquest: PASS 0 crashes (`20261122-130618`, `20261122-130917`). Round end (tickets 0, sudden death) untested. |
+| `emp_mvalley` | yes (65,621 areas) | Completing either dam ramp sends a Disable input to its vehicle clip. Vehicle route scan `20261124-165211` rejected the clipped dam crossing and accepted a local route on the ramp platform. NF and BE infantry stalled below the ramps (`20261124-163007`, `20261124-163107`). Vehicle behavior in matches and routing after engineer construction remain open. |
+| `con_district402`, `con_glycencity` | yes | Conquest smoke runs passed with 0 crashes (`20261122-130618`, `20261122-130917`). District changed maps after NF ticket depletion (`20261124-160100`). Sudden death remains open. |
 | `con_eastborough`, `emp_arid`, `emp_bush`, `emp_canyon`, `emp_chain`, `emp_duststorm`, `emp_isle`, `emp_midbridge`, `emp_money` | generated 22.11. | Started cleanly without crash/plan flood; not otherwise evaluated. |
 | `as_escort` | yes | PASS `20261122-130632`; pillar tunnel (`func_movelinear` plus button) unsupported (3.9a). |
 | Training maps (`emp_tutorial_*`, `emp_vehicletraining_*`, `mm_crossroads`) | open | Not generated/run yet. |
@@ -53,5 +52,4 @@ Python 3 (+ Pillow); read `.nav`/`.bsp` only, never need the game; library in `t
 | `python3 tools/check_nav.py <map>.nav [--bsp <map>.bsp]` | Area/component counts; spawn, commander, barracks, refinery, resource entities located on the mesh; exit 1 if a point is off the main component (default `--reach-hu 384`). |
 | `python3 -I tools/test_nav_tools.py [maps_dir]` | Smoke test that displacement heights match the navmesh (skips without `emp_palmbay`). |
 
-Screenshots of the game scene: `../rcbot2-clean/scripts/capture_empires_demo.py` (delete own demos afterwards). `empires_nav_scan` (in game) uses the player hull; an overview
-does not prove vehicle clearance. Further map-specific measurements: `reverse-engineering/notes/maps.md` ([Reverse engineering](Reverse-Engineering.md)).
+The in-game `empires_nav_scan` command checks the infantry hull by default. Supply a vehicle width to check a vehicle route and test the direct segment for active vehicle clips. Use in-game traces to verify clearance. Further map measurements are in [Reverse Engineering](Reverse-Engineering.md).

@@ -553,7 +553,6 @@ When the following cases recur, compare the relevant trace and route.
   and one driver gave up after four reverses. The single-crate and pad checks passed.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
   resupply for every class; an engineer can now respond to a human infantry caller. Actual ammunition gain and autonomous requests from ordinary infantry bots remain open.
-- Test-server inventory: 21 of 22 multiplayer maps have a navmesh and ran briefly without a crash (22.11.). `con_district402`, `con_glycencity` and `as_escort` loaded and ran without a crash or stuck bot. Still open: `emp_mvalley` (navmesh generation hit the 20-minute timeout) and the training maps.
 - Fairness: vehicle and objective targets are picked from the full entity list; limit to
   what a player could know.
 - Full pad refit (5.10) is covered by the `dev_check` pad test; bot-bought loadouts never trigger
@@ -561,8 +560,8 @@ When the following cases recur, compare the relevant trace and route.
 
 ## 5. Coverage
 
-- Generate the `emp_mvalley` navmesh with a longer timeout.
-- End of round on Conquest and escort maps (tickets 0, sudden death).
+- All 22 multiplayer maps in the test inventory have a navmesh. On `emp_mvalley`, the 65,621-area mesh loads and a vehicle route scan rejects the clipped dam crossing. Verify vehicle behavior in matches and infantry routing after engineers finish the ramps. Training maps remain open.
+- District changed maps after NF ticket depletion. Sudden death and the remaining Conquest and escort round-end cases still need verification.
 - Long run done (22.11., `20261122-131813`): 18 bots, 32 minutes at 1x on Crossroads, then `changelevel emp_coast`, 0 crashes. Quota bots (`min_bots`/`max_bots`) that join after a map change now get a class and spawn.
 - Generated maps: the NF command vehicle entry failure was fixed in the map export by
   raising the NF vehicle origin. With a 90-unit height, both commanders entered and

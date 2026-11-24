@@ -39,7 +39,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 > **Legend:** `✅` works in matches · `🟡` partial / not yet reliable · `⬜` planned
 
 <details>
-<summary><strong>🧭 Movement & Navigation</strong> — <code>4 ✅</code> · <code>2 🟡</code></summary>
+<summary><strong>🧭 Movement & Navigation</strong> — <code>5 ✅</code> · <code>1 🟡</code></summary>
 
 <br>
 
@@ -49,13 +49,13 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Stuck recovery** | Detects stalls (including flush building contacts), backs off, and tries another route; avoids blocked links near buildings for 60 s and applies a soft 15 s infantry-only edge penalty for vehicles without blocking vehicle routing |
 | ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
 | 🟡 | **Doors and gates** | Bots reserve a door button only if the route ends within 72 horizontal units of it; Crossroads base gates and ramps remain problematic |
-| 🟡 | **Map coverage** | 21 of 22 multiplayer maps have a generated navmesh and completed a short run without a crash, including Conquest (`con_district402`, `con_glycencity`) and `as_escort`; `emp_mvalley` still lacks a navmesh, and round end (tickets 0, sudden death) is untested |
+| ✅ | **Navmesh coverage** | All 22 multiplayer maps in the test inventory have a generated navmesh. `emp_mvalley` loads its 65,621-area mesh. A route scan rejects the clipped dam crossing for vehicles. Infantry can stall below the buildable ramps on the way to the dam resource point. Routing after engineer construction remains open. District completed a map change after the NF ticket depletion test. Sudden death remains unverified |
 | ✅ | **Water** | Surfaces for air and avoids deep water when a land route exists. Swims to ladders that end in water, climbs onto boat decks to capture (`emp_palmbay`), and jumps back into the water afterwards |
 
 </details>
 
 <details>
-<summary><strong>🎖️ Commander</strong> — <code>8 ✅</code> · <code>3 🟡</code></summary>
+<summary><strong>🎖️ Commander</strong> — <code>9 ✅</code> · <code>2 🟡</code></summary>
 
 <br>
 
@@ -70,7 +70,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Expansion & defense** | Forward barracks near remote factories and the front (own half only), plus up to two MG and two ML base turrets |
 | 🟡 | **Human handover** | Yields the seat when a human enters or uses the CV *(not yet tested with a real player)* |
 | 🟡 | **Driving the CV** | Drives to distant build sites and slows to about 250 u/s in the last 800 units, so it no longer overshoots the site onto slopes; gives up after 25 s without progress and builds from its current spot |
-| 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner |
+| ✅ | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders. All three roles received orders in 10-bot Crossroads matches. Human orders take priority. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner |
 | ✅ | **Strategic adaptation** | Weighs refinery income against distance, accounts for the engineer’s walk when sending an escort, and replans construction when buildings are lost |
 
 </details>
@@ -83,10 +83,10 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | Status | Feature | Notes |
 |:---:|---|---|
 | ✅ | **Build and repair** | Constructs and repairs buildings and vehicles (targeting the damaged armor side) |
-| ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer who can search before that window closes. An active revive can delay normal respawn until ten game seconds after death. These timing changes await gameplay verification |
+| ✅ | **Revive** | Beyond immediate revive range, engineers require a route ending within 120 units of the body before claiming it. After six game seconds without progress they replan, then release the target after another six stalled seconds. Downed bots wait up to three game seconds for a nearby engineer who can search before that window closes. An active revive can delay normal respawn until ten game seconds after death. A short test confirmed the respawn hold followed by a successful revive. The full route retry and timeout sequence still needs gameplay verification |
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
 | ✅ | **Heal teammates** | Engineers out of combat heal a visible hurt teammate within 700 units with the kit (clears the deployable selection, keeps a revive charge with the Revive skill); a hurt bot waits up to 8 seconds for the engineer unless busy with commander duty, Lawliet, revive, building, or ammo crates. Seen in 10-bot matches (25 → 100 HP in 6 s; 37 → 100 HP in 3.5 s) |
-| 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
+| 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit. A scripted rank-up test observed levels 1 → 2 → 3 on Crossroads. Natural rank gain followed by an upgrade in a full match remains open |
 | 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand; with a second turret slot (rank) a refinery gets a second turret on the side away from the enemy, refineries without a turret first. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
 | ✅ | **Walls, radar, cameras** | At each own refinery (nearest first, a second engineer takes the next one) an engineer builds a three-part wall on the side facing the enemy CV — a middle piece across the line to the enemy and two wings bent back — then places a camera behind it — and a radar too once its rank gives a second detection slot — and builds everything up to full health. Walls only at refineries (engineer walls cost no resources); points the game rejects are retried shorter, and the standing pieces are kept (`rcbot_empires_engineer_deployables`) |
@@ -94,7 +94,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🪖 Infantry</strong> — <code>6 ✅</code> · <code>7 🟡</code></summary>
+<summary><strong>🪖 Infantry</strong> — <code>11 ✅</code> · <code>8 🟡</code></summary>
 
 <br>
 
@@ -102,23 +102,23 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 |:---:|---|---|
 | ✅ | **All four classes** | Scout, Rifleman, Grenadier, and Engineer with multiple loadouts and class skills |
 | ✅ | **Combat** | Picks targets and engages at weapon range (pistols ~1000 up to snipers 4500); navmesh cover under fire awaits match verification, and class spacing remains open |
-| 🟡 | **Skirmish movement** | Inside its weapon's effective band (max ~900 units; beyond that it keeps advancing) a bot side-steps away from the enemy's aim in short irregular bursts, backs off when too close, reloading, badly hurt or outnumbered, presses in when its side is ahead, and breaks line of sight to a close safe spot to reload. Every step is snapped to the navmesh and hull-traced; blocked steps escalate to standing, then to the old approach (`rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`) *(two paired 10-bot matches: no new stalls)* |
-| 🟡 | **Joining fights & callouts** | Free infantry walks to a teammate's fight within 2000 units (max 2 helpers per fight); bots spot a group of enemies or a close enemy for the team, at most once per team per minute (`rcbot_empires_join_fight`, `rcbot_empires_callouts`) |
-| 🟡 | **Classes in combat & calm look** | Scouts circle to the other side of an enemy a teammate fights and spot far enemies (1000–4000 units) with the binoculars; Grenadiers with rockets keep 550–1300 units from an enemy vehicle and fire the RPG from there, and at least 400 units from soldiers; Engineers stay behind the teammate closest to the enemy. A bot standing without a route looks toward the last enemy or calmly around its facing instead of at random points (`rcbot_empires_scout_flank`, `_scout_binoculars`, `_grenadier_rpg`, `_engineer_rear`, `_calm_look`) *(short tests; 10-bot match pending)* |
+| ✅ | **Skirmish movement** | Inside its weapon's effective band (max ~900 units; beyond that it keeps advancing) a bot side-steps away from the enemy's aim in short irregular bursts, backs off when too close, reloading, badly hurt or outnumbered, presses in when its side is ahead, and breaks line of sight to a close safe spot to reload. Every step is snapped to the navmesh and hull-traced; blocked steps escalate to standing, then to the old approach (`rcbot_empires_skirmish`, `_fight_odds`, `_fight_cover`) *(39 movement steps in one 10-bot Crossroads match at 1×, with no skirmish stall escalation. Later matches also logged cover selection while reloading or hurt)* |
+| ✅ | **Joining fights & callouts** | Free infantry walks to a teammate's fight within 2000 units (max 2 helpers per fight); bots spot a group of enemies or a close enemy for the team, at most once per team per minute (`rcbot_empires_join_fight`, `rcbot_empires_callouts`). In two 10-bot Crossroads matches at 1×, helpers reached the reported fight once and twice, and bots issued four and eight enemy callouts, respectively |
+| 🟡 | **Classes in combat & calm look** | Scouts circle to the other side of an enemy a teammate fights and spot far enemies (1000–4000 units) with the binoculars; Grenadiers with rockets keep 550–1300 units from an enemy vehicle and fire the RPG from there, and at least 400 units from soldiers; Engineers stay behind the teammate closest to the enemy. A bot standing without a route looks toward the last enemy or calmly around its facing instead of at random points (`rcbot_empires_scout_flank`, `_scout_binoculars`, `_grenadier_rpg`, `_engineer_rear`, `_calm_look`) *(10-bot Crossroads logs show scout flanking, binocular spotting, engineers holding back, and grenadiers engaging vehicle targets in the 550–1300 unit band. RPG hits and calm look during idle periods still need verification)* |
 | ✅ | **Flag capture** | Captures objectives on maps with capture points |
 | ✅ | **Turret avoidance** | Retreats out of enemy turret firing range |
 | ✅ | **Smart spawning** | Spawns near threatened buildings on base alerts, at the VF for drivers, or at friendly APCs / forward barracks; exits blocked APCs |
 | ✅ | **Anti-structure** | Grenadiers use RPG/mortar, riflemen throw sticky grenades *(confirmed on enemy refinery)*, scouts sabotage *(confirmed)* |
-| 🟡 | **Fewer idle guards** | Small teams (3–4 free infantry) keep no standing defender at the base without an alert, and a bot holding a defend or sector spot walks to the next spot around it every 12 s instead of standing 30 s (`rcbot_empires_lean_defense`, `rcbot_empires_defend_patrol`) *(crossroads 15-min pair: idle 1154 s vs 1422 s)* |
+| ✅ | **Fewer idle guards** | Small teams (3–4 free infantry) keep no standing defender at the base without an alert, and a bot holding a defend or sector spot walks to the next spot around it every 12 s instead of standing 30 s (`rcbot_empires_lean_defense`, `rcbot_empires_defend_patrol`) Two 15-minute Crossroads pairs at 1× recorded 1,154 vs 1,422 bot-seconds idle and 859 vs 2,860 with the settings on vs off. The second pair also recorded 48 vs 0 bot-seconds stuck |
 | 🟡 | **Learns from losses** | Three deaths of a team on foot within 30 s and 700 units mark the spot as hot for 90 s; the next wave's routes avoid it (`rcbot_empires_hot_zones`) *(test kill zone at the NF base exit, 5 on/off pairs: 41 vs 84 deaths there)* |
 | 🟡 | **Self-preservation** | When two teammates are killed by the enemy within 8 s and 600 units of a bot, it falls back 300-450 units from the killer (preferably out of his sight) or backs off out of the fight for 5 s instead of walking on (`rcbot_empires_self_preservation`) *(scripted test: 316 units back; no natural trigger in a bot-only match yet)* |
 | 🟡 | **Helps human tanks** | A free engineer bot repairs a damaged, standing own vehicle within 1200 units unasked when a human drives it or it is parked empty (`rcbot_empires_buddy_repair`) *(scripted test: empty damaged tank repaired to full; no trigger in a bot-only match yet)* |
 | 🟡 | **Humans first** | Engineers heal hurt humans before bots (and leave a bot patient for a hurt human in reach), serve human ammo calls first, and a damaged human-driven vehicle nearby takes over a bot's repair call (`rcbot_empires_humans_first`) *(scripted test with a bot marked as human: switched from the bot, healed the human 42 -> 100, then went back)* |
-| 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
+| ✅ | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`). In two Palmbay matches, factory buyers selected respawn locations calculated to save about 4,900 and 6,400 units. In a Crossroads base-alert test, the defender respawned about 670 units from the CV after dying about 11,360 units away. The tactical search recognizes barracks spawn points regardless of classname capitalization |
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
-| 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
+| 🟡 | **Guard & attack orders** | Infantry follow guarded units. In a bot-commander test using the game’s order commands, an infantry bot accepted an attack order and an engineer restored a guarded refinery from 100 to 150 HP. Orders issued through the human commander UI still need verification |
 | 🟡 | **Squads, mines, binoculars** | Implemented, rarely used |
-| 🟡 | **Seismic grenades** | Engineers lob seismics at enemy buildings up to ~1400 units away (turrets first, then cameras/radar, large buildings, walls last), aiming in front of the building's vehicle collision box; they stand still for the throw, give up after five throws without damage, and put the grenade away afterwards. 20 damage per hit on a barracks *(verified in tests; throwing at a firing turret from outside its range still open)* |
+| ✅ | **Seismic grenades** | Engineers lob seismics at enemy buildings up to ~1400 units away (turrets first, then cameras/radar, large buildings, walls last), aiming in front of the building's vehicle collision box; they stand still for the throw, give up after five throws without damage, and put the grenade away afterwards. Barracks took 20 damage per hit in short tests. Seismics damaged enemy refineries in three 10-bot Crossroads matches. Throwing at a firing turret from outside its range remains open |
 
 </details>
 
@@ -131,12 +131,12 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 |:---:|---|---|
 | ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay after observing an empty driver seat for five seconds. Movement over 100 units from the start of that interval restarts the timer. A nearby human teammate within 250 units keeps priority in the bay even after 30 seconds. Engine-reported bots from other plugins do not reserve the vehicle. The updated timer and human priority await a handover check |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
-| ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings, building vehicle physboxes, and solid map props (trees, roadblocks) for all vehicle classes, and avoids drop-offs or water too deep for the chassis |
+| ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings, building vehicle physboxes, and solid map props (trees, roadblocks) for all vehicle classes, and avoids drop-offs or water too deep for the chassis. Vehicle routes check active map vehicle clips and reject partial routes whose continuation is blocked by a clip |
 | ✅ | **Retreat & repair** | Returns to the repair pad when damaged. A tank that moves less than 96 units from its last progress mark in eight seconds on the approach tries to free itself, even when rocking registers as speed. If repairs finish during a refit, it finishes sending the commands while it remains on the pad. Where the route ends at the navmesh edge in front of the pad ramp, it drives straight onto the pad instead of stopping there. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
 | ✅ | **Roadkills** | Runs over enemy infantry |
 | ✅ | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
 | 🟡 | **Target priority** | Defend base (immediate CV threats first) → hunt spotted tanks → support front → push enemy buildings → enemy CV *(CV-threat override over APCs awaits match verification)* |
-| 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo; Light/AFV, Medium, and Heavy tanks can retreat to refit/rearm *(Medium/Heavy and simultaneous calls pending verification)* |
+| 🟡 | **Rearming** | Drives to an ammo crate or repair pad, or calls an engineer for ammo; Light/AFV, Medium, and Heavy tanks can retreat to refit and rearm. A heavy tank refilled its cannon from 0 to 40 rounds at a crate in a 10-bot Crossroads match. In a two-tank test, both heavy tanks called for ammo and one resupplied. A medium tank recovered cannon ammo after a pad refit in a separate 10-bot match. The retreat hit its timeout. Two callers refilling in the same run remains open |
 | 🟡 | **Lawliet mode** | When a team falls clearly behind, a crewed APC (Scout, Rifleman, Engineer) waits for a confirmed crew driver before it rushes the enemy CV: Scouts re-stun it about every 10 s, Riflemen throw sticky grenades, the Engineer drops an ammo crate (observed in one of four forced Crossroads runs; Scouts and Riflemen can seek resupply after the last grenade disappears from inventory; a refill remains unconfirmed) *(distant crew bots respawn at base; disconnected bots leave the crew before their slot is reused; boarding aims at the vehicle center and closes in until in use range; forced mode at 1× boards cleanly and damages/destroys the CV; auto trigger boarding awaits match verification)* |
 | 🟡 | **Bill Nye mode** | Scout jeeps ram enemy vehicles off the road on `emp_rainbowroad` *(occasionally falls off itself)* |
 
@@ -338,7 +338,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 - `tools/check_nav.py` — verifies that spawns, buildings, and resource points sit on the main mesh component.
 
 **Diagnostic console commands (`rcbotd …`):**
-- `empires_nav_scan x y z x2 y2 z2` — route and hull checks between two points *(requires at least one bot on the server, otherwise `navmesh-not-loaded`)*.
+- `empires_nav_scan x y z x2 y2 z2 [vehicle-width]` — route and hull checks between two points. Supply a width in map units to check vehicle routing and whether an active vehicle clip blocks the direct segment. Requires at least one bot on the server to load the mesh.
 - `empires_test_commander_move bot <userid> x y z` — send a move order to a single bot.
 - `empires_test_kill_zone <x> <y> <z> <radius> [team]` — kill every bot (of that team) on foot that walks into the circle, to test hot zones; radius 0 disarms.
 - `empires_test_near_death <bot_userid> [deaths=2] [threat_dist=800]` — record teammate deaths beside a bot, killed from ahead of its facing, to test self-preservation.

@@ -491,6 +491,8 @@ const char *PathResultName(const PathResult result)
 		return "goal-area-not-found";
 	case PathResult::NO_PATH:
 		return "no-path";
+	case PathResult::VEHICLE_CLIP_BLOCKED:
+		return "vehicle-clip-blocked";
 	}
 	return "unknown";
 }
@@ -1652,14 +1654,72 @@ bool AreaVehicleNarrow(const CNavArea* area, float width)
 	return narrow;
 }
 
+bool ActiveVehicleClip(edict_t* edict)
+{
+	if (edict == nullptr || edict->IsFree())
+		return false;
+	const char* name = edict->GetClassName();
+	if (name == nullptr || std::strcmp(name, "func_vehicleclip") != 0)
+		return false;
+	const ICollideable* clip = edict->GetCollideable();
+	return clip != nullptr && clip->GetCollisionGroup() == COLLISION_GROUP_VEHICLE_CLIP &&
+		clip->GetSolid() != SOLID_NONE && (clip->GetSolidFlags() & FSOLID_NOT_SOLID) == 0;
+}
+
+void InitVehicleClipSweep(Ray_t& ray, const Vector& from, const Vector& to, float width)
+{
+	const float half = width * 0.5f;
+	ray.Init(from, to, Vector(-half, -half, 20.0f), Vector(half, half, 92.0f));
+}
+
+std::vector<BuildingBox> CollectVehicleClips()
+{
+	std::vector<BuildingBox> clips;
+	if (engine == nullptr || gpGlobals == nullptr || enginetrace == nullptr)
+		return clips;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* edict = engine->PEntityOfEntIndex(i);
+		if (!ActiveVehicleClip(edict) || edict->GetIServerEntity() == nullptr)
+			continue;
+		BuildingBox bounds;
+		bounds.handle = edict->GetIServerEntity();
+		bounds.className = edict->GetClassName();
+		edict->GetCollideable()->WorldSpaceSurroundingBounds(&bounds.mins, &bounds.maxs);
+		clips.push_back(bounds);
+	}
+	return clips;
+}
+
+bool ClipsBlockSegment(const std::vector<BuildingBox>& clips, const Vector& from, const Vector& to, float width)
+{
+	const float half = width * 0.5f;
+	const Vector lowerPad(half, half, 92.0f);
+	const Vector upperPad(half, half, -20.0f);
+	for (const BuildingBox& clip : clips)
+	{
+		if (!SegmentCrossesBox(from, to, clip.mins - lowerPad, clip.maxs + upperPad))
+			continue;
+		Ray_t ray;
+		InitVehicleClipSweep(ray, from, to, width);
+		trace_t hit;
+		enginetrace->ClipRayToEntity(ray, MASK_SOLID, clip.handle, &hit);
+		// A vehicle overlapping a re-enabled clip may still move out.
+		if (hit.DidHit() && (!hit.startsolid || hit.allsolid))
+			return true;
+	}
+	return false;
+}
+
 // Vehicles: no ladders, no jump steps, no crouch holes, no deep drops; narrow
 // links cost extra; links a vehicle got stuck on are closed for vehicles only.
 class VehicleNavMeshCost
 {
 public:
-	VehicleNavMeshCost(float width, float maxWaterDepth, const std::unordered_set<unsigned>* occupied = nullptr,
+	VehicleNavMeshCost(float width, float maxWaterDepth, const std::vector<BuildingBox>& clips,
+		const std::unordered_set<unsigned>* occupied,
 		const CNavArea* startArea = nullptr, const std::unordered_set<unsigned>* blockedStartExits = nullptr)
-		: m_width(width), m_maxWaterDepth(maxWaterDepth), m_occupied(occupied), m_startArea(startArea),
+		: m_width(width), m_maxWaterDepth(maxWaterDepth), m_clips(clips), m_occupied(occupied), m_startArea(startArea),
 		m_blockedStartExits(blockedStartExits) {}
 	float operator()(CNavArea* area, CNavArea* fromArea, const CNavLadder* ladder,
 		const CFuncElevator* elevator, const float length) const
@@ -1702,6 +1762,10 @@ public:
 			Vector center;
 			float halfWidth = 0.0f;
 			fromArea->ComputePortal(area, dir, &center, &halfWidth);
+			if (!m_clips.empty() &&
+				(ClipsBlockSegment(m_clips, fromArea->GetCenter(), center, m_width) ||
+				 ClipsBlockSegment(m_clips, center, area->GetCenter(), m_width)))
+				return -1.0f;
 			if (2.0f * halfWidth < m_width)
 				cost += dist * 4.0f;
 		}
@@ -1721,6 +1785,7 @@ private:
 	static constexpr float kVehicleMaxDrop = 160.0f;
 	float m_width;
 	float m_maxWaterDepth;
+	const std::vector<BuildingBox>& m_clips;
 	const std::unordered_set<unsigned>* m_occupied;
 	const CNavArea* m_startArea;
 	const std::unordered_set<unsigned>* m_blockedStartExits;
@@ -2042,6 +2107,28 @@ int ApplyStaticPropDetours(Path& path, float halfWidth)
 }
 }
 
+bool VehicleClipBlocks(const Vector& from, const Vector& to, float width)
+{
+	if (enginetrace == nullptr)
+		return false;
+	class ClipFilter : public CTraceFilter
+	{
+	public:
+		TraceType_t GetTraceType() const override { return TRACE_ENTITIES_ONLY; }
+		bool ShouldHitEntity(IHandleEntity* handle, int) override
+		{
+			IServerUnknown* unknown = static_cast<IServerUnknown*>(handle);
+			IServerNetworkable* networkable = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
+			return networkable != nullptr && ActiveVehicleClip(networkable->GetEdict());
+		}
+	} filter;
+	Ray_t ray;
+	InitVehicleClipSweep(ray, from, to, width);
+	trace_t hit;
+	enginetrace->TraceRay(ray, MASK_SOLID, &filter, &hit);
+	return hit.DidHit() && (!hit.startsolid || hit.allsolid);
+}
+
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial,
 	float maxWaterDepth, const edict_t* drivenVehicle)
 {
@@ -2061,6 +2148,7 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 		return PathResult::GOAL_AREA_NOT_FOUND;
 	path.goalAreaId = static_cast<int>(goalArea->GetID());
 
+	const std::vector<BuildingBox> clips = CollectVehicleClips();
 	CNavArea *closestArea = nullptr;
 	const auto occupiedStarted = std::chrono::steady_clock::now();
 	const std::unordered_set<unsigned> occupied = AreasUnderBuildings(drivenVehicle, from, to, startArea,
@@ -2074,13 +2162,13 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	bool full = false;
 	if (!blockedStartExits.empty())
 	{
-		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, &occupied,
+		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, clips, &occupied,
 			startArea, &blockedStartExits), &closestArea) && closestArea == goalArea;
 		RCBOT_DIAG("[RCBOT2] vehicle-nav start-exits-blocked=%zu full=%d\n", blockedStartExits.size(), full ? 1 : 0);
 	}
 	// Every free exit failed: plan as before (the detour planner may still find a way).
 	if (!full)
-		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, &occupied), &closestArea) &&
+		full = NavAreaBuildPath(startArea, goalArea, &to, VehicleNavMeshCost(width, maxWaterDepth, clips, &occupied), &closestArea) &&
 			closestArea == goalArea;
 	Vector goal = to;
 	if (!full)
@@ -2088,10 +2176,17 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 		// Rainbowroad: base to enemy CV had no full vehicle path, the vehicles drove
 		// the straight line and hung at edges (run 20261112-163322). Take the way
 		// to the nearest reachable area instead and plan again from there.
+		Vector walkGoal;
+		goalArea->GetClosestPointOnArea(to, &walkGoal);
+		Vector near = from;
+		if (closestArea != nullptr)
+			closestArea->GetClosestPointOnArea(to, &near);
+		// A partial route that ends before a vehicle-only barrier can take
+		// the driver up a ramp to a dead end while appearing to make progress.
+		if (ClipsBlockSegment(clips, near, walkGoal, width))
+			return PathResult::VEHICLE_CLIP_BLOCKED;
 		if (!allowPartial || closestArea == nullptr || closestArea == startArea)
 			return PathResult::NO_PATH;
-		Vector near;
-		closestArea->GetClosestPointOnArea(to, &near);
 		if ((near - to).Length2D() > (from - to).Length2D() - 800.0f)
 			return PathResult::NO_PATH;
 		goalArea = closestArea;
@@ -2145,7 +2240,14 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 			RCBOT_DIAG("[RCBOT2] vehicle-nav prop-detours=%d\n", propDetours);
 	}
 	for (std::size_t i = 1; i < path.points.size(); ++i)
+	{
+		if (ClipsBlockSegment(clips, path.points[i - 1], path.points[i], width))
+		{
+			path.clear();
+			return PathResult::VEHICLE_CLIP_BLOCKED;
+		}
 		path.length += (path.points[i] - path.points[i - 1]).Length();
+	}
 	return PathResult::SUCCESS;
 }
 
@@ -2186,8 +2288,17 @@ int BlockVehicleEdgeAt(const Vector &position, const std::vector<unsigned int> &
 
 namespace { class ScanFilter : public CTraceFilter {
 public: bool ShouldHitEntity(IHandleEntity*, int) override { return true; } }; }
-void DebugNavScan(const Vector& from, const Vector& to, float half, float step)
+void DebugNavScan(const Vector& from, const Vector& to, float half, float step, float vehicleWidth)
 {
+	if (vehicleWidth > 0.0f)
+	{
+		Path path;
+		const PathResult result = BuildVehiclePath(from, to, path, vehicleWidth, true);
+		Msg("[RCBOT2] scan vehicle-route=%s partial=%d points=%zu direct-clip=%d\n",
+			PathResultName(result), path.partial ? 1 : 0, path.points.size(),
+			VehicleClipBlocks(from, to, vehicleWidth) ? 1 : 0);
+		return;
+	}
 	Path path;
 	const PathResult result = BuildPath(from, to, path, nullptr);
 	Msg("[RCBOT2] scan route=%s points=%zu areas=%zu\n", PathResultName(result), path.points.size(), path.areaIds.size());

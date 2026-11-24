@@ -5537,6 +5537,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		(target != nullptr && Dist2D(origin, driveTo) < 900.0f &&
 			DriveLineClear(origin, driveTo, v.width * 0.5f));
 	bool onRoute = false;
+	bool clipBlockedRoute = false;
 	Vector maneuverFrom = origin; // start of the route line the local planner scores against
 	Vector maneuverNext = origin; // route point after the lookahead point
 	float curveSpeed = 0.0f;
@@ -5569,6 +5570,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.routeAreas = ok ? path.areaIds : std::vector<unsigned int>();
 			v.routeIndex = 1;
 		}
+		clipBlockedRoute = v.routeResult == static_cast<int>(RCBotNavMesh::PathResult::VEHICLE_CLIP_BLOCKED);
 		if (!v.route.empty())
 		{
 			// Advance past points we reached or passed.
@@ -5610,6 +5612,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			{
 				along += Dist2D(v.route[k - 1], v.route[k]);
 				if (along > look || std::fabs(v.route[k].z - origin.z) > 200.0f ||
+					RCBotNavMesh::VehicleClipBlocks(origin, v.route[k], v.width) ||
 					!DriveLineClear(origin, v.route[k], v.width * 0.5f, sightVehicle))
 					break;
 				pick = k;
@@ -6612,6 +6615,14 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 	}
 
+	const float clipLook = (std::min)(goalDistance, lookAhead);
+	const bool clipAhead = forward > 0.0f && RCBotNavMesh::VehicleClipBlocks(origin,
+		origin + YawDir(chosen) * clipLook, v.width);
+	if (clipBlockedRoute || clipAhead)
+	{
+		forward = side = 0.0f;
+		buttons |= 0x08000000;
+	}
 	v.forward = forward;
 	v.side = side;
 	v.buttons = buttons;

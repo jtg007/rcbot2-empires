@@ -18,6 +18,7 @@ enum class PathResult
 	START_AREA_NOT_FOUND,
 	GOAL_AREA_NOT_FOUND,
 	NO_PATH,
+	VEHICLE_CLIP_BLOCKED,
 };
 
 struct Path
@@ -140,7 +141,8 @@ struct LocalGroundSamples
 // Ground points on the areas nearest `origin`. Keeps at most maxAreas areas.
 LocalGroundSamples CollectLocalGroundSamples(const Vector& origin, float radius,
 	unsigned maxCells, unsigned maxEntries, unsigned maxAreas);
-void DebugNavScan(const Vector& from, const Vector& to, float half, float step);
+bool VehicleClipBlocks(const Vector& from, const Vector& to, float width);
+void DebugNavScan(const Vector& from, const Vector& to, float half, float step, float vehicleWidth = 0.0f);
 }
 
 #endif

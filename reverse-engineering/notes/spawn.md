@@ -111,3 +111,11 @@ Static analysis of `CEmpTank::AddSpawnPoint()` (0x69d910):
 ## Spawning at an APC seats the player (runtime, 2026-11-21)
 
 Runtime observation, not traced in the binary: a player that respawns at an APC spawn point is placed in a passenger seat of the APC (`EmpiresVehiclePlayerVehicle` >= 0, run 20261121-133146 userid 6/8 in APC 574). While seated, the player origin is vehicle-local (always about (90 -60 -17) / (56 -86 9)), so on-foot planning, stall checks and stand-spot searches based on `getOrigin()` are meaningless until the player presses USE to leave. The bot now leaves the seat when the vehicle has no driver or moves slower than 150 u/s.
+
+### Barracks spawn class names (2026-11-24)
+
+In the tested Linux binary, `CBarracks::SetHealth(int)` creates NF spawn points as
+`emp_info_player_NF` (reference at 0x614be0) and BE spawn points as
+`emp_info_player_Imp` (reference at 0x61497b). `CEmpTank::AddSpawnPoint` uses
+lowercase class names. Bot spawn searches compare class names case-insensitively
+so both dynamic variants are found.

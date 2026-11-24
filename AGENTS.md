@@ -199,7 +199,7 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 
 | What | How |
 |---|---|
-| Navmesh at a spot | console `rcbotd empires_nav_scan x y z x2 y2 z2`: route, areas, hull grid (`.` free, `#` world, `E` entity); needs at least one bot on the server, otherwise `navmesh-not-loaded` |
+| Navmesh at a spot | Console `rcbotd empires_nav_scan x y z x2 y2 z2 [vehicle-width]`. Without a width, shows the infantry route, areas and hull grid (`.` free, `#` world, `E` entity). With a width, checks vehicle routing and active vehicle clips. Requires at least one bot to load the mesh. |
 | Move order test | `rcbotd empires_test_commander_move bot <userid> x y z` (first bot has userid 2; test hook, bypasses the game's order path) |
 | Order like a human | `rcbotd empires_test_unit_order <commander_userid> <type> <unit_userid> x y z [target_userid\|b\|bd]`: the seated commander bot selects the unit (`emp_unit_order_list`) and sends `emp_unit_order` (0 abort, 1 move, 2 attack location, 3 attack target, 4 guard); `b` = nearest own building below full health, `bd` = nearest full one, damaged to 100 |
 | Kill zone test | `rcbotd empires_test_kill_zone x y z radius [team]`: every bot (of that team) on foot entering the circle is killed once per life and counted for hot zones (`director death`, `director hot-zone`); radius 0 disarms |
@@ -238,4 +238,4 @@ e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;e
 - Sandboxes: test runs need write access to the test server and `~/.cache/rcbot2-dev-build`,
   a PTY, a netlink socket and a local UDP port. Without that, only edit and build.
 
-For spatial problems, look at a picture first: `python3 -I tools/nav_overview.py <map>.nav --bsp <map>.bsp --terrain --props --vehicle-width 284 --log <run>/server.log --userid <uid> --crop x0,y0,x1,y1 --output out.png` draws navmesh, terrain slope, static props, the driven lane and stall marks (vehicle bottlenecks highlighted); `tools/check_nav.py` checks components. Maps like Palmbay use displacement terrain, so cliffs are steep triangles, not brushes. Confirm with in-game scans and hull traces (`empires_nav_scan` uses the player hull, not the vehicle). An overview does not prove vehicle clearance or account for dynamic building obstacles. No external tool is a bot build dependency.
+For spatial problems, start with a map image. `python3 -I tools/nav_overview.py <map>.nav --bsp <map>.bsp --terrain --props --vehicle-width 284 --log <run>/server.log --userid <uid> --crop x0,y0,x1,y1 --output out.png` draws the navmesh, terrain slope, static props, the driven lane and stall marks, with vehicle bottlenecks highlighted. `tools/check_nav.py` checks components. Maps like Palmbay use displacement terrain, so steep triangles can form cliffs. Verify vehicle clearance and dynamic building obstacles in game. These tools are optional for bot builds.

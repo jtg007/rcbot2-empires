@@ -14,6 +14,7 @@
 #include "bot_navmesh_api.h"
 #include "server_class.h"
 #include "iplayerinfo.h"
+#include "tier1/strtools.h"
 #include "toolframework/itoolentity.h"
 
 #include <algorithm>
@@ -931,7 +932,8 @@ bool CBotEmpires::findNearestEmpiresSpawn(int team, const Vector& to, int& spawn
 		IServerNetworkable* net = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
 		edict_t* e = net != nullptr ? net->GetEdict() : nullptr;
 		const char* cls = net != nullptr ? net->GetClassName() : nullptr;
-		if (e == nullptr || e->IsFree() || cls == nullptr || std::strcmp(cls, classname) != 0)
+		// Barracks spawn points use NF/Imp, while APC spawns use lowercase classnames.
+		if (e == nullptr || e->IsFree() || cls == nullptr || V_stricmp(cls, classname) != 0)
 			continue;
 		char raw[32] = {};
 		if (!servertools->GetKeyValue(entity, "pointNumber", raw, sizeof(raw)) || raw[0] < '0' || raw[0] > '9')

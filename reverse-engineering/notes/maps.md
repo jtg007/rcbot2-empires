@@ -132,3 +132,8 @@ links while the gates are closed (otherwise routes run into closed gates and cru
 - User (2026-11-20): the centre capture point sits inside a bunker. Vehicles cannot reach it; a tank's flag
   goal there must be a vehicle-reachable support spot outside the bunker, not the flag origin or the
   infantry ground approach.
+
+
+## District ticket test (2026-11-24)
+
+The map BSP contains an `emp_info_params` entity. The game FGD lists `SetNFTickets`, and the Linux binary's `CEmpParams::InputSetNFTickets` writes the team ticket balance at +0x3cc. The Linux `ent_fire` handler returns early if `UTIL_GetCommandClient()` returns null. The dedicated console attempts did not change District's ticket count. Sending the command through an RCBot test client and passing the reinforcement multiplier before `+map` also left the starting count unchanged in these runs. The built-in kill-zone fixture consumed tickets through ordinary respawns.
