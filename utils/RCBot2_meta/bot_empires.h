@@ -374,6 +374,9 @@ struct EmpiresVehicleBrain
 	bool goalValid = false;
 	// Navmesh route to the drive goal (vehicle path search).
 	std::vector<Vector> route;
+	std::vector<Vector> routePrecise; // tight-lane approach/entry points (reach closely, no lookahead past)
+	float preciseSince = 0.0f;
+	std::size_t preciseIndex = static_cast<std::size_t>(-1);
 	std::vector<unsigned int> routeAreas;
 	std::size_t routeIndex = 0;
 	Vector routeGoal = Vector(0, 0, 0);

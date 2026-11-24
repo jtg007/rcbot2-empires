@@ -271,6 +271,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset and grenadiers mortaring an enemy APC now require a driver/grenadier or teammate sightline *(pending match verification)*.
+- **Vehicle jam at Crossroads BE gates:** with many vehicles (22-bot match) BE vehicles can still queue at `be_gate1`; lane entry is improved (`scripts/dev_gate.sh`), the match effect is unmeasured.
 - **Vehicle stuck spots:** Near repair pads, inside the BE base, at a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
 - **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
@@ -321,6 +322,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
 | `scripts/dev_deploy.sh [map] [timescale]` | Three-part refinery wall, then a camera behind it (`DEPLOY_MODE=1` camera/radar only, `2` walls only; `DEPLOY_RANK=1` ranks the engineer up: two turrets, camera and radar) |
+| `scripts/dev_gate.sh [east\|west] [runs] ["B cvars"]` | Two BE vehicles drive through a Crossroads BE base exit at once, 4×, ~1.5 min per batch; A/B with cvars for every second run |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server with all available CPUs eligible by default (set `RCBOT_CPUS` to restrict affinity). Each sample shares its vertical clearance trace across four corners. Area merges use indexed incoming ground links and report elapsed time and candidate counts. |
 | `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |
@@ -347,6 +349,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 
 **Test-only cvars & internals:**
 - `rcbot_empires_vehicle_debug_team 2|3` (restrict vehicle purchases to one team).
+- `rcbot_empires_vehicle_wall_clearance` (default `1`): vehicle route points keep half the vehicle width off world walls running along the route (a wall ahead hit at an angle does not count), are centred in lanes barely wider than the vehicle, and get a straight approach point before such a lane; the driver must reach these points within 90 HU and does not look past them (8 s fallback). `rcbot_empires_vehicle_narrow_cost` (default `1500`): fixed route cost per navmesh area too narrow for the vehicle, so short pillar gaps are no longer cheaper than the wide lane.
 - `rcbot_empires_vehicle_maneuvers`, `rcbot_empires_vehicle_curve_speed`, `rcbot_empires_vehicle_turn_test` (experimental driving, default `0`; measurements in [docs/OPEN_WORK.md](docs/OPEN_WORK.md)).
 - `rcbot_analysis_start` records bot telemetry ([EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md)).
 - Game-server internals: [reverse-engineering/](reverse-engineering/).

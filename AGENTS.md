@@ -85,6 +85,7 @@ APIs (`dlfcn.h`, ELF) under `#ifdef __linux__`.
 
 Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [timescale]`.
 Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [map] [minutes]`; success ends the run at `lawliet end team=2 reason=cv-destroyed`.
+Gate passage (~1.5 min per batch, 4x): `scripts/dev_gate.sh [east|west] [runs] ["B cvars"]` spawns two BE vehicles north of a Crossroads BE base exit (east: one behind the other) and prints passes, reversals and give-ups per run; every second run gets the B cvars, so a lane or queue change is compared in one batch instead of a 20-minute match.
 Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
 `scripts/dev_team_match.sh [map] [minutes]`. To read the same metrics from a saved match, use
 `scripts/dev_team_match.sh --summarize RUN_DIR`. It reads the log and any saved recorder table.

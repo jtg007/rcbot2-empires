@@ -5587,12 +5587,37 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.routeResult = static_cast<int>(result);
 			v.routeFailed = !ok;
 			v.route = ok ? path.points : std::vector<Vector>();
+			v.routePrecise = ok ? path.precisePoints : std::vector<Vector>();
+			v.preciseIndex = static_cast<std::size_t>(-1);
 			v.routeAreas = ok ? path.areaIds : std::vector<unsigned int>();
 			v.routeIndex = 1;
 		}
 		clipBlockedRoute = v.routeResult == static_cast<int>(RCBotNavMesh::PathResult::VEHICLE_CLIP_BLOCKED);
 		if (!v.route.empty())
 		{
+			// Tight-lane points (rcbot_empires_vehicle_wall_clearance): reached within 90, no lookahead past them;
+			// after 8 s on one of them the normal rules apply again so a missed point cannot trap the driver.
+			auto isPrecise = [&](std::size_t index) {
+				if (index >= v.route.size())
+					return false;
+				for (const Vector& point : v.routePrecise)
+					if (Dist2D(point, v.route[index]) < 2.0f)
+						return true;
+				return false;
+			};
+			// Only the current target ages; a point ahead keeps its full time.
+			auto precisePoint = [&](std::size_t index) {
+				if (!isPrecise(index))
+					return false;
+				if (index != v.routeIndex)
+					return true;
+				if (v.preciseIndex != index)
+				{
+					v.preciseIndex = index;
+					v.preciseSince = now;
+				}
+				return now - v.preciseSince < 8.0f;
+			};
 			// Advance past points we reached or passed.
 			while (v.routeIndex + 1 < v.route.size())
 			{
@@ -5603,8 +5628,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				Vector toP = p - origin;
 				toP.z = 0.0f;
 				const float distToP = Dist2D(origin, p);
-				const bool reached = distToP < (std::max)(160.0f, v.width) ||
-					(DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f);
+				const bool reached = precisePoint(v.routeIndex) ? distToP < 90.0f :
+					(distToP < (std::max)(160.0f, v.width) ||
+					 (DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f));
 				trace_t blocked;
 				// Non-CV vehicles also check line-of-sight before advancing early (distToP >= 120),
 				// so they do not skip the gate-entry waypoint and clip Crossroads gate center pillars.
@@ -5636,6 +5662,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			float along = Dist2D(origin, v.route[v.routeIndex]);
 			for (std::size_t k = v.routeIndex + 1; k < v.route.size(); ++k)
 			{
+				if (!v.routePrecise.empty() && precisePoint(k - 1))
+					break;
 				along += Dist2D(v.route[k - 1], v.route[k]);
 				if (along > look || std::fabs(v.route[k].z - origin.z) > 200.0f ||
 					RCBotNavMesh::VehicleClipBlocks(origin, v.route[k], v.width) ||

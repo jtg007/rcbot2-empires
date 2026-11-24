@@ -36,10 +36,13 @@ struct Path
 	// Points reached by climbing a ladder (dismount at the top or foot at the
 	// bottom); the follower looks at them so forward movement climbs.
 	std::vector<Vector> ladderPoints;
+	// Vehicle routes: tight-lane approach and entry points the driver must reach closely, without lookahead past them.
+	std::vector<Vector> precisePoints;
 
 	void clear()
 	{
 		ladderPoints.clear();
+		precisePoints.clear();
 		points.clear();
 		areaIds.clear();
 		startAreaId = -1;

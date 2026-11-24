@@ -55,6 +55,8 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 |---|---:|---|---|
 | `rcbot_empires_vehicles` | 1 | Bots buy vehicles at their team's VF (or anywhere with `emp_sv_debug_build_vehicles 1`), drive, fight and run over enemies. | `bot_empires_vehicle.cpp`, `bot_empires_lawliet.cpp` |
 | `rcbot_empires_vehicle_drivers` | -1 | Maximum bots per team using a vehicle at once (Bill Nye not counted); -1 = 40 % of the team bots, at least 2. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_wall_clearance` | 1 | Vehicle route points keep half a width off walls running along the route, are centred in lanes barely wider than the vehicle and get a straight approach point (axis over one vehicle width) before such a lane; the driver reaches these within 90 HU (8 s fallback). | `bot_navmesh_api.cpp`, `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_narrow_cost` | 1500 | Fixed route cost per navmesh area too narrow for the vehicle, so short pillar gaps are not cheaper than the wide lane. | `bot_navmesh_api.cpp` |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: one Scout takes a jeep, rams enemy vehicles off the map, stuns them when stuck, runs over infantry. -1 = NF on maps named `*rainbowroad*`, 0 off, 2 NF, 3 BE. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_lawliet` | 1 | Lawliet mode (desperation APC rush on the enemy CV): 0 off, 1 auto when behind in research and map control (or tickets), 2 force NF, 3 force BE. | `bot_empires_lawliet.cpp/.h` |
 | `rcbot_empires_lean_defense` | 1 | The team director keeps a standing defender at the base (no alert) only from 5 free infantry bots (floor 20 %; minima from 8/12 team bots stay). 0 = round 20 %, so 3 free bots become push/hold/defense. | `bot_empires_team_director.h` |

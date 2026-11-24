@@ -21,6 +21,14 @@
 #include "edict.h"
 #include "engine/IEngineTrace.h"
 #include "engine/ICollideable.h"
+#include "convar.h"
+
+// Fixed extra cost per vehicle-narrow area: the per-distance factor alone made short gaps (gate pillars,
+// emp_crossroads be_gate1 east/centre lanes, 20261124-205837) cheaper than the wide lane next to them.
+ConVar rcbot_empires_vehicle_wall_clearance("rcbot_empires_vehicle_wall_clearance", "1", 0,
+	"Shift vehicle route points sideways away from world walls closer than half the vehicle width");
+ConVar rcbot_empires_vehicle_narrow_cost("rcbot_empires_vehicle_narrow_cost", "1500", 0,
+	"Fixed route cost per navmesh area too narrow for the vehicle (0 = old per-distance penalty only)");
 #include "engine/IStaticPropMgr.h"
 #include "collisionutils.h"
 #include "cmodel.h"
@@ -1059,6 +1067,94 @@ bool HullClearOfBuilding(const Vector& a, const Vector& b, const BuildingBox& bo
 	return !hit.startsolid && hit.fraction >= 1.0f;
 }
 
+// Portal points ignore walls: a portal shorter than the vehicle leaves its point at the portal centre, which can
+// sit 50 HU from a lane wall (emp_crossroads be_gate1 west lane, 20261124-211547: route point (3771 4900), concrete
+// wall at x 3720, half width 105). Measure world walls left and right of the travel direction and move the point
+// so both sides keep half the vehicle width, or to the middle of a corridor narrower than the vehicle.
+bool VehicleLaneTight(const Vector& point, const Vector& previous, float half)
+{
+	if (enginetrace == nullptr)
+		return false;
+	Vector dir = point - previous;
+	dir.z = 0.0f;
+	if (dir.Length2D() < 1.0f)
+		return false;
+	dir /= dir.Length2D();
+	const Vector left(-dir.y, dir.x, 0.0f);
+	const float reach = half + 64.0f;
+	const Vector base = point + Vector(0.0f, 0.0f, 40.0f);
+	CTraceFilterWorldOnly filter;
+	float total = 0.0f;
+	for (int sideIndex = 0; sideIndex < 2; ++sideIndex)
+	{
+		Ray_t ray;
+		ray.Init(base, base + (sideIndex == 0 ? left : left * -1.0f) * reach);
+		trace_t hit;
+		enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+		if (hit.startsolid)
+			return false;
+		total += hit.fraction * reach;
+	}
+	return total < 2.0f * half + 128.0f;
+}
+
+Vector KeepVehicleOffWalls(const Vector& point, const Vector& previous, float half, int* shifted)
+{
+	if (enginetrace == nullptr || TheNavMesh == nullptr || !rcbot_empires_vehicle_wall_clearance.GetBool())
+		return point;
+	Vector dir = point - previous;
+	dir.z = 0.0f;
+	const float len = dir.Length2D();
+	if (len < 1.0f)
+		return point;
+	dir /= len;
+	const Vector left(-dir.y, dir.x, 0.0f);
+	const float reach = half + 64.0f;
+	const Vector base = point + Vector(0.0f, 0.0f, 40.0f);
+	CTraceFilterWorldOnly filter;
+	float room[2];
+	for (int sideIndex = 0; sideIndex < 2; ++sideIndex)
+	{
+		const Vector toward = sideIndex == 0 ? left : left * -1.0f;
+		Ray_t ray;
+		ray.Init(base, base + toward * reach);
+		trace_t hit;
+		enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+		if (hit.startsolid)
+			return point;
+		// Only a wall along the lane counts: a wall ahead hit at an angle (route turning in front of the
+		// crossroads BE west exit) moved points along its face (runs 20261124-2336*, 3 give-ups in 10).
+		const bool sideWall = hit.fraction < 1.0f &&
+			-(hit.plane.normal.x * toward.x + hit.plane.normal.y * toward.y) > 0.9f;
+		room[sideIndex] = sideWall ? hit.fraction * reach : reach;
+	}
+	const float leftRoom = room[0];
+	const float rightRoom = room[1];
+	// A lane only a little wider than the vehicle (be_gate1 west lane: 303 for 211) needs the middle,
+	// not just half a width off each wall.
+	const bool tight = leftRoom + rightRoom < 2.0f * half + 128.0f;
+	if (!tight && leftRoom >= half && rightRoom >= half)
+		return point;
+	float shift; // positive = toward the left
+	if (tight)
+		shift = 0.5f * (leftRoom - rightRoom);
+	else if (leftRoom < half)
+		shift = -(half - leftRoom);
+	else
+		shift = half - rightRoom;
+	shift = (std::max)(-96.0f, (std::min)(96.0f, shift));
+	if (std::fabs(shift) < 4.0f)
+		return point;
+	Vector moved = point + left * shift;
+	const CNavArea* area = TheNavMesh->GetNavArea(moved + Vector(0.0f, 0.0f, 40.0f), 120.0f);
+	if (area == nullptr || std::fabs(area->GetZ(moved) - point.z) > 40.0f)
+		return point;
+	moved.z = area->GetZ(moved);
+	if (shifted != nullptr)
+		++*shifted;
+	return moved;
+}
+
 bool HullHitsWorld(const Vector& point)
 {
 	Ray_t ray;
@@ -1886,7 +1982,7 @@ public:
 			cost += dist * 1.5f;
 		// No room for the vehicle: strongly prefer the way around (kept open, it may be the only one).
 		if (AreaVehicleNarrow(area, m_width))
-			cost += dist * 8.0f;
+			cost += dist * 8.0f + rcbot_empires_vehicle_narrow_cost.GetFloat();
 		if (waterDepth > 0.0f)
 			cost += dist * (waterDepth > m_maxWaterDepth ? 4.0f : 0.5f);
 		return cost;
@@ -2319,6 +2415,7 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	AppendPoint(path, from);
 	Vector previous = from;
 	const float margin = width * 0.5f + 16.0f;
+	int wallShifts = 0;
 	for (std::size_t i = 0; i + 1 < areaPath.size(); ++i)
 	{
 		CNavArea *current = areaPath[i];
@@ -2338,9 +2435,66 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 		else
 			point.y = (std::max)(center.y - room, (std::min)(center.y + room, previous.y));
 		point.z = current->GetZ(point);
+		point = KeepVehicleOffWalls(point, previous, width * 0.5f, &wallShifts);
 		AppendPoint(path, point);
 		previous = point;
 	}
+	// Enter a tight lane straight: when the route turns right before it, add a point on the lane axis
+	// behind the entry so the hull is aligned before its corners reach the walls.
+	int approachPoints = 0;
+	if (rcbot_empires_vehicle_wall_clearance.GetBool())
+	{
+		for (std::size_t i = 2; i < path.points.size(); ++i)
+		{
+			const Vector entry = path.points[i - 1];
+			if (!VehicleLaneTight(path.points[i], entry, width * 0.5f))
+				continue;
+			// Lane axis over at least one vehicle width: the next point alone can be a few units away and
+			// sideways after the wall shift (crossroads BE west exit: 30 HU, axis 50 degrees off, approach
+			// point put against the lane wall, run 20261124-224450).
+			std::size_t axisEnd = i;
+			while (axisEnd + 1 < path.points.size() && axisEnd < i + 3 &&
+				(path.points[axisEnd] - entry).Length2D() < width)
+				++axisEnd;
+			Vector lane = path.points[axisEnd] - entry;
+			lane.z = 0.0f;
+			Vector in = entry - path.points[i - 2];
+			in.z = 0.0f;
+			if (lane.Length2D() < 1.0f || in.Length2D() < 1.0f)
+				continue;
+			lane /= lane.Length2D();
+			in /= in.Length2D();
+			if (lane.x * in.x + lane.y * in.y > 0.94f) // already within ~20 degrees
+				continue;
+			const float lead = (std::min)(width * 1.2f, 0.8f * (entry - path.points[i - 2]).Length2D());
+			if (lead < 48.0f)
+				continue;
+			Vector approach = entry - lane * lead;
+			const CNavArea* area = TheNavMesh->GetNavArea(approach + Vector(0.0f, 0.0f, 40.0f), 120.0f);
+			if (area == nullptr || std::fabs(area->GetZ(approach) - entry.z) > 40.0f)
+				continue;
+			approach.z = area->GetZ(approach);
+			{
+				// The straight run to the entry must be clear for most of the hull.
+				const float probe = width * 0.4f;
+				Ray_t ray;
+				ray.Init(approach + Vector(0.0f, 0.0f, 40.0f), entry + Vector(0.0f, 0.0f, 40.0f),
+					Vector(-probe, -probe, 0.0f), Vector(probe, probe, 32.0f));
+				CTraceFilterWorldOnly filter;
+				trace_t hit;
+				enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+				if (hit.startsolid || hit.fraction < 1.0f)
+					continue;
+			}
+			path.precisePoints.push_back(approach);
+			path.precisePoints.push_back(entry);
+			path.points.insert(path.points.begin() + static_cast<std::ptrdiff_t>(i - 1), approach);
+			++approachPoints;
+			++i;
+		}
+	}
+	if (wallShifts > 0 || approachPoints > 0)
+		RCBOT_DIAG("[RCBOT2] vehicle-nav wall-shifts=%d approach-points=%d\n", wallShifts, approachPoints);
 	AppendPoint(path, path.walkGoal);
 	g_detourHalf = (std::max)(16.0f, width * 0.5f);
 	ApplyBuildingDetours(path, true, drivenVehicle);
@@ -2409,6 +2563,35 @@ void DebugNavScan(const Vector& from, const Vector& to, float half, float step, 
 		Msg("[RCBOT2] scan vehicle-route=%s partial=%d points=%zu direct-clip=%d\n",
 			PathResultName(result), path.partial ? 1 : 0, path.points.size(),
 			VehicleClipBlocks(from, to, vehicleWidth) ? 1 : 0);
+		CTraceFilterWorldOnly filter;
+		for (std::size_t i = 0; i < path.points.size(); ++i)
+		{
+			// Free room to the left/right of the travel direction at 16/40/72 above the point (world only).
+			char rooms[160] = "";
+			if (i > 0)
+			{
+				Vector dir = path.points[i] - path.points[i - 1];
+				dir.z = 0.0f;
+				if (dir.Length2D() > 1.0f)
+				{
+					dir /= dir.Length2D();
+					const Vector left(-dir.y, dir.x, 0.0f);
+					int used = 0;
+					for (float h : {16.0f, 40.0f, 72.0f})
+						for (int sideIndex = 0; sideIndex < 2; ++sideIndex)
+						{
+							const Vector base = path.points[i] + Vector(0, 0, h);
+							Ray_t ray;
+							ray.Init(base, base + (sideIndex == 0 ? left : left * -1.0f) * 400.0f);
+							trace_t hit;
+							enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+							used += snprintf(rooms + used, sizeof(rooms) - used, "%s%.0f", sideIndex == 0 ? " h=" : "/",
+								hit.startsolid ? -1.0f : hit.fraction * 400.0f);
+						}
+				}
+			}
+			Msg("[RCBOT2] scan vehicle-point %zu (%.0f %.0f %.0f)%s\n", i, path.points[i].x, path.points[i].y, path.points[i].z, rooms);
+		}
 		return;
 	}
 	Path path;

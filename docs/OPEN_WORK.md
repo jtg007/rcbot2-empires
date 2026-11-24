@@ -81,6 +81,16 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   once. In the 10-bot Crossroads match `20261120-122757` there were 0
   `navmesh-plan-failed` and 0 `no-path` results (baseline `20261120-120044`: 168
   and 55). The remaining Rainbowroad resource failures are not re-measured.
+- [ ] **Vehicle jam at the Crossroads BE gates (3.16b):** in a 22-bot match (`20261124-202404`) BE lost
+  90:132 tickets despite 37:15 vehicles; waiting vehicles at `be_gate1` reversed five times, gave up
+  and left wrecks in the lane. Route points in tight lanes are now centred, keep half a width off walls
+  that run along the route, and get a straight approach point whose axis spans one vehicle width
+  (`rcbot_empires_vehicle_wall_clearance`, `rcbot_empires_vehicle_narrow_cost`). `scripts/dev_gate.sh`,
+  two vehicles at once, 4x: west exit 10/10 passed, 0 give-ups (lane logic off 10/10, 0; before the
+  side-wall fix 7/10, 3); east gate 6/8 passed with the lane logic, 4/8 without. A queue (wait behind a
+  moving own vehicle, head-on tie-break) was worse twice (east gate 4/10 vs. 9/11: both vehicles waited
+  for each other) and is not included. In 10-bot matches the jam hardly forms, so the match effect is
+  not measured; open: a 22-bot match, residual reversals at the lane entry.
 - [ ] **Tank combat (3.21) and vehicle goals (3.24):** tanks hold position and fire
   at static buildings from 550–1500 HU, the fire-line check ignores physboxes, panels
   and vehicle clip brushes, and side-on facing is used only against armed targets in

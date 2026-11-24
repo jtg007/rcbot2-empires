@@ -76,6 +76,7 @@ Each takes `[map] [timescale]` unless noted and ends at the observable result. P
 | `dev_turret.sh` | Refinery MG turret; `DEV_TURRET_UPGRADE=1` upgrade 1 to 3 | - |
 | `dev_deploy.sh` | Three-part refinery wall, then a camera behind it; `DEPLOY_MODE=1/2` only one part; `DEPLOY_RANK=1` two turrets, camera and radar | - |
 | `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | Revive, heal teammate, seismic throws at a barracks (`DEV_SEISMIC_POS`) | 1 min each |
+| `dev_gate.sh [east\|west] [runs] ["B cvars"]` | Two BE vehicles through a Crossroads BE base exit at once, 4x; passes, reversals, give-ups per run; every second run with the B cvars | about 1.5 min per batch |
 | `dev_lawliet.sh [map] [min]` | Forced NF APC rush on the BE CV at 1x; success ends at `lawliet end team=2 reason=cv-destroyed` | about 4 min |
 | `dev_navgen.sh <map>` | Generate a navmesh on the test server (`DEV_NAVGEN_PRE`) | up to minutes (20 min timeout hit on `emp_mvalley`) |
 | `dev_maps.sh [out] ["map:min:ts ..."]` | Map sweep, 10 bots per map one after another | - |
