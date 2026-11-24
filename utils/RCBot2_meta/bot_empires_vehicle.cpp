@@ -6681,11 +6681,103 @@ bool CBotEmpires::empiresVehicleRepairClaimed() const
 		RepairRequestVehicle(team) != nullptr;
 }
 
+edict_t* CBotEmpires::findEmpiresBuddyRepairVehicle(int& worstSide, bool& armorDamaged, int& driverUserId)
+{
+	worstSide = -1;
+	armorDamaged = false;
+	driverUserId = -1;
+	const int mode = rcbot_empires_buddy_repair.GetInt();
+	if (mode <= 0 || gpGlobals == nullptr || engine == nullptr || playerinfomanager == nullptr)
+		return nullptr;
+	const int team = getTeam();
+	const Vector origin = getOrigin();
+	edict_t* best = nullptr;
+	float bestDist = 1200.0f;
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		if (e == nullptr || e->IsFree() || !IsClass(e, "emp_vehicle") ||
+			EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) != team ||
+			IsCommanderChassis(EmpiresVehicleReadInt(this, e, "m_iChassis", -1)))
+			continue;
+		const float d = Dist2D(origin, CBotGlobals::entityOrigin(e));
+		if (d >= bestDist)
+			continue;
+		const int uid = engine->GetPlayerUserId(m_pEdict);
+		auto skip = [&](const char* why) {
+			RCBOT_DIAG("[RCBOT2] buddy-repair skip userid=%d veh=%d dist=%.0f reason=%s\n", uid, i, d, why);
+		};
+		if (!empiresRepairCallAllowed(e))
+		{
+			skip("order");
+			continue;
+		}
+		// Driver seat: a human, or empty (parked); bots call for repair themselves.
+		int driver = -1;
+		int driverUid = -1;
+		if (readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) && driver > 0 && driver <= gpGlobals->maxClients)
+		{
+			edict_t* p = engine->PEntityOfEntIndex(driver);
+			IPlayerInfo* info = p != nullptr ? playerinfomanager->GetPlayerInfo(p) : nullptr;
+			if (info == nullptr || (info->IsFakeClient() && mode < 2))
+			{
+				continue;
+			}
+			driverUid = engine->GetPlayerUserId(p);
+		}
+		int side = -1;
+		bool armor = false;
+		if (!VehicleNeedsBaseRepair(this, e, 60.0f, side, armor))
+		{
+			continue;
+		}
+		// Worth walking over for: hull below 90 % or an armor side below 85 %.
+		float hp = 0.0f, maxHp = 0.0f;
+		const bool hullLow = ReadVehicleHealth(e, hp) && ReadVehicleMaxHealth(e, maxHp) && hp < maxHp * 0.9f;
+		const int armorMax = EmpiresVehicleReadInt(this, e, "m_iMaxArmorHealth", 0);
+		const bool armorLow = armor && side >= 0 && armorMax > 0 && ReadArmorSide(e, side) < armorMax * 0.85f;
+		if (!hullLow && !armorLow)
+		{
+			continue;
+		}
+		best = e;
+		bestDist = d;
+		worstSide = side;
+		armorDamaged = armor;
+		driverUserId = driverUid;
+	}
+	return best;
+}
+
 bool CBotEmpires::handleEmpiresVehicleRepairRequest()
 {
 	if (gpGlobals == nullptr || engine == nullptr || !isEmpiresEngineerClass())
 		return false;
 	const int team = getTeam();
+	// TODO 8.3: no call standing -> look for a damaged human or parked vehicle nearby and help unasked
+	// (EngiBots have their own base scan). Uses the bot repair call, so the walk and REPAIR_ASSIST stay the same.
+	if (RepairRequestVehicle(team) == nullptr && !EmpiresIsEngibot(m_pEdict) && gpGlobals->curtime >= m_flBuddyRepairScan &&
+		team >= 0 && team < 4)
+	{
+		m_flBuddyRepairScan = gpGlobals->curtime + 2.0f;
+		int side = -1, driverUid = -1;
+		bool armorDamaged = false;
+		if (edict_t* buddy = findEmpiresBuddyRepairVehicle(side, armorDamaged, driverUid); buddy != nullptr)
+		{
+			RepairRequest& r = s_repairRequest[team];
+			r = RepairRequest();
+			r.vehicle = engine->IndexOfEdict(buddy);
+			r.driverUserId = driverUid;
+			r.origin = CBotGlobals::entityOrigin(buddy);
+			r.until = gpGlobals->curtime + 20.0f;
+			r.side = side;
+			r.armorDamaged = armorDamaged;
+			r.baseScan = true; // repair until full, like the EngiBot scan
+			RCBOT_DIAG("[RCBOT2] buddy-repair start userid=%d veh=%d driver=%d dist=%.0f side=%d armor=%d\n",
+				engine->GetPlayerUserId(m_pEdict), r.vehicle, driverUid, Dist2D(getOrigin(), r.origin), side,
+				armorDamaged ? 1 : 0);
+		}
+	}
 	edict_t* hurt = RepairRequestVehicle(team);
 	if (hurt == nullptr || !empiresRepairCallAllowed(hurt))
 		return false;

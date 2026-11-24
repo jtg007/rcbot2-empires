@@ -112,6 +112,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | 🟡 | **Fewer idle guards** | Small teams (3–4 free infantry) keep no standing defender at the base without an alert, and a bot holding a defend or sector spot walks to the next spot around it every 12 s instead of standing 30 s (`rcbot_empires_lean_defense`, `rcbot_empires_defend_patrol`) *(crossroads 15-min pair: idle 1154 s vs 1422 s)* |
 | 🟡 | **Learns from losses** | Three deaths of a team on foot within 30 s and 700 units mark the spot as hot for 90 s; the next wave's routes avoid it (`rcbot_empires_hot_zones`) *(test kill zone at the NF base exit, 5 on/off pairs: 41 vs 84 deaths there)* |
 | 🟡 | **Self-preservation** | When two teammates are killed by the enemy within 8 s and 600 units of a bot, it falls back 300-450 units from the killer (preferably out of his sight) or backs off out of the fight for 5 s instead of walking on (`rcbot_empires_self_preservation`) *(scripted test: 316 units back; no natural trigger in a bot-only match yet)* |
+| 🟡 | **Helps human tanks** | A free engineer bot repairs a damaged, standing own vehicle within 1200 units unasked when a human drives it or it is parked empty (`rcbot_empires_buddy_repair`) *(scripted test: empty damaged tank repaired to full; no trigger in a bot-only match yet)* |
 | 🟡 | **Tactical respawn** | Defenders far from an alert or drivers far from the factory may respawn closer (`rcbot_empires_kill_spawn`) |
 | 🟡 | **Anti-vehicle** | Grenadiers track APC hull health when deciding whether to continue an RPG attack. RPG and sticky-grenade selection skips stale inventory handles after a weapon slot is reused. Riflemen sticky-grenade vehicles; scouts approach slow vehicles with stun grenades (up to 150 HU/s using the vehicle’s horizontal velocity) and can throw at faster vehicles already within 250 HU *(not yet confirmed in a full match)* |
 | 🟡 | **Guard & attack orders** | Infantry follow guarded units; engineers build or repair guarded buildings *(not yet tested with a human)* |
@@ -235,6 +236,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_defend_patrol` | `1` | Defend/sector spot held 12 s, then the next spot around it (arrive within 100); 0 = 30 s hold, 250 radius |
 | `rcbot_empires_hot_zones` | `1` | Hot zones: 3 deaths on foot within 30 s / 700 units make the spot hot for 90 s (renewed by each death there); routes pay to enter and per unit inside |
 | `rcbot_empires_self_preservation` | `1` | Two teammates killed by the enemy within 8 s / 600 units of a bot: it falls back from the killer or backs off out of the fight for 5 s (20 s cooldown) |
+| `rcbot_empires_buddy_repair` | `1` | A free engineer bot repairs a damaged, standing own vehicle within 1200 units when a human drives it or it is empty (hull < 90 % or an armor side < 85 %); `2` also bot-driven (test) |
 | `rcbot_empires_kill_spawn` | `1` | Tactical respawn closer to goal (≥ 3800 units closer, 6 s out of combat, tickets > 20 & > 25%, max once per 90 s) |
 
 ### Infantry Combat
