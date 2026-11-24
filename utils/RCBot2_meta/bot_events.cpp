@@ -54,6 +54,8 @@
 #include "bot_waypoint_locations.h"
 #include "rcbot/logging.h"
 
+void EmpiresNoteFriendlyDeath(edict_t* victim, edict_t* attacker); // bot_empires_skirmish.cpp (TODO 8.2)
+
 std::vector<CBotEvent*> CBotEvents :: m_theEvents;
 ///////////////////////////////////////////////////////
 
@@ -435,6 +437,9 @@ void CPlayerDeathEvent :: execute ( IBotEventInterface *pEvent )
 				}
 			}
 		}
+
+	if ( combatTelemetryEmpires )
+		EmpiresNoteFriendlyDeath(m_pActivator, pAttacker);
 
 	if ( pBot != nullptr && !pBot->isControlledTestOnly() )
 		pBot->died(pAttacker,weapon);

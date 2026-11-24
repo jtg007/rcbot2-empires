@@ -164,6 +164,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   matches showed such clusters about once in 15 matches, so the effect is meant for human or turret positions
   and still needs a human test. Open: bots already on a route do not replan; waiting for armour, seismic or
   mortar on the spot.
+- [ ] **Self-preservation (built, measuring, 8.2, `rcbot_empires_self_preservation`):** two teammates (humans
+  too) killed by the enemy within 8 s and 600 units of a bot make it fall back 300-450 units from the killer,
+  preferably out of his sight, and crouch there for 5 s; in a fight it backs off and breaks the sight like when
+  outnumbered. 20 s cooldown. Scripted test (`empires_test_near_death`): 316 units back, killer distance 800 ->
+  1116. A bot-only 10-bot match never had two deaths that close together; needs a human test.
 - [x] **Low steep edges (8.1a):** a stuck at world geometry that blocks the feet with a face steeper than
   45 degrees but is free 20 higher blocks every mesh link within 32 units at once (`navmesh-steep-block`).
   Crossroads west bridge (-3800 -5087), same scenario: 45 stucks in 8 runs -> 5 in 6 runs, 0 plan failures.

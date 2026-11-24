@@ -19,6 +19,7 @@
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_weapons.h"
+#include "bot_empires_team_director.h"
 #include "iplayerinfo.h"
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,12 @@ constexpr float kStage2Pause = 15.0f;
 constexpr float kCrouchRange = 500.0f;     // short crouched bursts only beyond this
 constexpr float kTooClose = 110.0f;        // always back off inside this
 constexpr float kSightGrace = 1.0f;        // keep moving like in the fight this long after losing sight
+
+// TODO 8.2 self-preservation.
+constexpr float kShakenSeconds = 5.0f;     // cover / fall-back time after two teammates fell next to me
+constexpr float kShakenCooldown = 20.0f;   // from the start: bots must still push on afterwards
+constexpr float kShakenProgress = 1.0f;    // seconds on the way before judging progress
+EmpiresTeamDirector::NearDeathRing s_nearDeaths[4];
 
 class CSkirmishTraceFilter : public CTraceFilter
 {
@@ -138,6 +145,23 @@ bool CBotEmpires::empiresSkirmishSpotSafe(const Vector& origin, const Vector& wa
 	}
 	out = spot;
 	return true;
+}
+
+void CBotEmpires::takeEmpiresMovement(const char* why)
+{
+	if (m_bEmpiresApproachTaskIssued || !m_pSchedules->isEmpty() || m_navigationIntent.active)
+	{
+		m_bEmpiresApproachTaskIssued = false;
+		m_pEmpiresApproachTarget = nullptr;
+		cancelNavigationAttempt(why);
+		// A cancelled provider can hand the intent to a fallback provider that keeps owning the
+		// movement and silently rejects setMoveTo; end the intent outright.
+		if (m_navigationIntent.active)
+			finishNavigationIntent(RCBotNavigation::Result::CANCELLED, why);
+		m_pSchedules->freeMemory();
+		if (m_pNavigator != nullptr)
+			m_pNavigator->clear();
+	}
 }
 
 void CBotEmpires::endEmpiresSkirmish(const char* reason)
@@ -299,19 +323,7 @@ bool CBotEmpires::handleEmpiresSkirmish()
 	if (seen && !inVehicle)
 		postEmpiresContact(enemyPos);
 	// Take the movement over from the approach route and any navigation intent, once.
-	if (m_bEmpiresApproachTaskIssued || !m_pSchedules->isEmpty() || m_navigationIntent.active)
-	{
-		m_bEmpiresApproachTaskIssued = false;
-		m_pEmpiresApproachTarget = nullptr;
-		cancelNavigationAttempt("skirmish");
-		// A cancelled provider can hand the intent to a fallback provider that keeps owning the
-		// movement and silently rejects setMoveTo; end the intent outright.
-		if (m_navigationIntent.active)
-			finishNavigationIntent(RCBotNavigation::Result::CANCELLED, "skirmish");
-		m_pSchedules->freeMemory();
-		if (m_pNavigator != nullptr)
-			m_pNavigator->clear();
-	}
+	takeEmpiresMovement("skirmish");
 
 	const Vector side(-toEnemy.y, toEnemy.x, 0.0f);
 	const int userId = engine->GetPlayerUserId(m_pEdict);
@@ -347,7 +359,7 @@ bool CBotEmpires::handleEmpiresSkirmish()
 	{
 		const CBotWeapon* held = getCurrentWeapon();
 		if (!(held != nullptr && held->clipEmptyWithReserve(this)) && getHealthPercent() >= 0.35f &&
-			!(m_iSkirmishEnemies >= m_iSkirmishAllies + 2))
+			!(m_iSkirmishEnemies >= m_iSkirmishAllies + 2) && !empiresShaken(now))
 			m_flSkirmishPhaseUntil = now;
 	}
 	if (now >= m_flSkirmishPhaseUntil)
@@ -368,7 +380,9 @@ bool CBotEmpires::handleEmpiresSkirmish()
 			allies = m_iSkirmishAllies;
 			enemies = (std::max)(1, m_iSkirmishEnemies);
 		}
-		const bool outnumbered = useOdds && enemies >= allies + 2;
+		// TODO 8.2: two teammates just fell next to me -> give ground and break the sight like outnumbered.
+		const bool shaken = empiresShaken(now);
+		const bool outnumbered = (useOdds && enemies >= allies + 2) || shaken;
 		const bool ahead = useOdds && allies >= enemies;
 		const char* mode = "strafe";
 		if (dist < nearDist || dist < kTooClose || reloading || hurtBadly || outnumbered)
@@ -447,7 +461,7 @@ bool CBotEmpires::handleEmpiresSkirmish()
 			m_flSkirmishPhaseStarted = now;
 			m_flSkirmishPhaseUntil = now + 3.5f;
 			RCBOT_DIAG("[RCBOT2] skirmish cover userid=%d reason=%s at=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f) allies=%d enemies=%d\n",
-				userId, reloading ? "reload" : hurtBadly ? "hurt" : "outnumbered", origin.x, origin.y, origin.z,
+				userId, reloading ? "reload" : hurtBadly ? "hurt" : shaken ? "shaken" : "outnumbered", origin.x, origin.y, origin.z,
 				target.x, target.y, target.z, allies, enemies);
 			found = true;
 			coverChosen = true;
@@ -815,7 +829,13 @@ void CBotEmpires::resetEmpiresSkirmishState(bool mapChange)
 			t = 0.0f;
 		for (float& t : s_nextTeamBinocular)
 			t = 0.0f;
+		for (EmpiresTeamDirector::NearDeathRing& r : s_nearDeaths)
+			r = EmpiresTeamDirector::NearDeathRing();
 	}
+	m_bShakenActive = false;
+	m_flShakenUntil = 0.0f;
+	m_flShakenNext = 0.0f;
+	m_flShakenAfter = -1.0e9f;
 	m_bSkirmishActive = false;
 	m_pSkirmishEnemy = nullptr;
 	m_iSkirmishPhase = 0;
@@ -987,4 +1007,200 @@ void CBotEmpires::getLookAtVector()
 		m_fLookAroundTime = now + randomFloat(3.0f, 5.0f);
 	}
 	setLookAt(m_vLookAroundOffset);
+}
+
+// ---------------------------------------------------------------------------------------------
+// TODO 8.2 self-preservation: two teammates killed by the enemy within 8 s and 600 HU of a bot make it
+// take cover or fall back for a few seconds instead of walking on into the same fire. In a fight the
+// skirmish treats it like being outnumbered (back off, break the sight); otherwise the bot walks
+// 300-450 HU away from the killer, preferably to a spot he cannot see, and crouches there.
+namespace
+{
+void NoteNearDeath(int team, const Vector& at, const Vector& threat, int victimUserId, int killerUserId)
+{
+	if (gpGlobals == nullptr || team < 2 || team > 3)
+		return;
+	const float a[3] = { at.x, at.y, at.z };
+	const float t[3] = { threat.x, threat.y, threat.z };
+	EmpiresTeamDirector::RecordNearDeath(s_nearDeaths[team], a, t, gpGlobals->curtime);
+	RCBOT_DIAG("[RCBOT2] shaken death team=%d victim=%d killer=%d pos=(%.0f %.0f %.0f) threat=(%.0f %.0f %.0f)\n",
+		team, victimUserId, killerUserId, at.x, at.y, at.z, threat.x, threat.y, threat.z);
+}
+}
+
+void EmpiresNoteFriendlyDeath(edict_t* victim, edict_t* attacker)
+{
+	if (!rcbot_empires_self_preservation.GetBool() || engine == nullptr || gpGlobals == nullptr ||
+		victim == nullptr || attacker == nullptr || victim == attacker)
+		return;
+	const int killer = engine->IndexOfEdict(attacker);
+	if (killer <= 0 || killer > gpGlobals->maxClients)
+		return; // world, turret, prop: no soldier to fear at a spot (turrets have their own handling)
+	const int team = CClassInterface::getTeam(victim);
+	const int killerTeam = CClassInterface::getTeam(attacker);
+	if (team < 2 || team > 3 || killerTeam < 2 || killerTeam > 3 || killerTeam == team)
+		return;
+	NoteNearDeath(team, CBotGlobals::entityOrigin(victim), CBotGlobals::entityOrigin(attacker),
+		engine->GetPlayerUserId(victim), engine->GetPlayerUserId(attacker));
+}
+
+void EmpiresInjectNearDeath(int team, const Vector& at, const Vector& threat)
+{
+	NoteNearDeath(team, at, threat, -1, -1);
+}
+
+bool CBotEmpires::empiresShaken(float now)
+{
+	if (!rcbot_empires_self_preservation.GetBool())
+		return false;
+	if (now < m_flShakenUntil)
+		return true;
+	const int team = getTeam();
+	if (now < m_flShakenNext || team < 2 || team > 3 || engine == nullptr)
+		return false;
+	const Vector origin = getOrigin();
+	const float me[3] = { origin.x, origin.y, origin.z };
+	float newest = 0.0f, threat[3];
+	const int deaths = EmpiresTeamDirector::CountNearDeaths(s_nearDeaths[team], me, now, m_flShakenAfter, newest, threat);
+	if (deaths < EmpiresTeamDirector::kShakenDeaths)
+		return false;
+	m_flShakenAfter = newest;
+	m_flShakenStarted = now;
+	m_flShakenUntil = now + kShakenSeconds;
+	m_flShakenNext = now + kShakenCooldown;
+	m_vShakenThreat = Vector(threat[0], threat[1], threat[2]);
+	m_vShakenStart = origin;
+	m_bShakenHasGoal = false;
+	m_iShakenStage = 0;
+	RCBOT_DIAG("[RCBOT2] shaken start userid=%d deaths=%d at=(%.0f %.0f %.0f) threat=(%.0f %.0f %.0f) threat_dist=%.0f fight=%d\n",
+		engine->GetPlayerUserId(m_pEdict), deaths, origin.x, origin.y, origin.z, threat[0], threat[1], threat[2],
+		(m_vShakenThreat - origin).Length2D(), m_bSkirmishActive ? 1 : 0);
+	return true;
+}
+
+bool CBotEmpires::pickEmpiresShakenSpot(const Vector& origin, bool avoidCurrent, Vector& out) const
+{
+	Vector away = origin - m_vShakenThreat;
+	away.z = 0.0f;
+	if (away.Length2D() < 1.0f)
+		away = Vector(1.0f, 0.0f, 0.0f);
+	away.NormalizeInPlace();
+	const Vector side(-away.y, away.x, 0.0f);
+	const float s = randomInt(0, 1) == 0 ? -1.0f : 1.0f;
+	const Vector dirs[] = { away, (away + side * s) * 0.7071f, (away - side * s) * 0.7071f, side * s, side * -s };
+	const Vector eye = m_vShakenThreat + Vector(0, 0, 60);
+	// First a spot the killer cannot see, then any safe spot farther from him.
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		for (const float range : {300.0f, 450.0f, 200.0f})
+		{
+			for (const Vector& dir : dirs)
+			{
+				Vector spot;
+				if (!empiresSkirmishSpotSafe(origin, origin + dir * range, nullptr, spot))
+					continue;
+				if (avoidCurrent && (spot - m_vShakenGoal).Length2D() < 120.0f)
+					continue;
+				if (pass == 0 && CBotGlobals::isVisible(m_pEdict, eye, spot + Vector(0, 0, 48)))
+					continue;
+				out = spot;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void CBotEmpires::endEmpiresShaken(const char* reason)
+{
+	if (!m_bShakenActive)
+		return;
+	m_bShakenActive = false;
+	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
+	RCBOT_DIAG("[RCBOT2] shaken end userid=%d reason=%s secs=%.1f moved=%.0f threat_dist=%.0f stage=%d\n",
+		engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1, reason, now - m_flShakenStarted,
+		(getOrigin() - m_vShakenStart).Length2D(), (m_vShakenThreat - getOrigin()).Length2D(), m_iShakenStage);
+}
+
+bool CBotEmpires::handleEmpiresShaken()
+{
+	if (gpGlobals == nullptr || engine == nullptr || m_pSchedules == nullptr)
+		return false;
+	const float now = gpGlobals->curtime;
+	if (!empiresShaken(now))
+	{
+		endEmpiresShaken("time");
+		return false;
+	}
+	// A fight in the weapon band handles it (skirmish backs off); busy actions finish first.
+	if (m_bSkirmishActive || EmpiresIsEngibot(m_pEdict) || m_iAmmoCrateStage != 0 ||
+		m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons() || EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
+	{
+		endEmpiresShaken(m_bSkirmishActive ? "fight" : "busy");
+		return false;
+	}
+	const Vector origin = getOrigin();
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+	if (!m_bShakenActive)
+	{
+		m_bShakenActive = true;
+		takeEmpiresMovement("shaken");
+		Vector spot;
+		if (pickEmpiresShakenSpot(origin, false, spot))
+		{
+			m_vShakenGoal = spot;
+			m_bShakenHasGoal = true;
+			m_flShakenGoalSet = now;
+			RCBOT_DIAG("[RCBOT2] shaken fall-back userid=%d at=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f) hidden=%d\n",
+				userId, origin.x, origin.y, origin.z, spot.x, spot.y, spot.z,
+				CBotGlobals::isVisible(m_pEdict, m_vShakenThreat + Vector(0, 0, 60), spot + Vector(0, 0, 48)) ? 0 : 1);
+		}
+		else
+		{
+			m_iShakenStage = 2;
+			RCBOT_DIAG("[RCBOT2] shaken no-spot userid=%d at=(%.0f %.0f %.0f) reject=%d\n", userId, origin.x, origin.y,
+				origin.z, m_iSkirmishRejectMask);
+		}
+	}
+	// Local progress check: blocked on the way -> another spot -> crouch where we are.
+	if (m_bShakenHasGoal && m_iShakenStage < 2 && now - m_flShakenGoalSet > kShakenProgress &&
+		m_vVelocity.Length2D() < kMinStepSpeed && (m_vShakenGoal - origin).Length2D() > 32.0f)
+	{
+		Vector spot;
+		if (m_iShakenStage == 0 && pickEmpiresShakenSpot(origin, true, spot))
+		{
+			m_iShakenStage = 1;
+			m_vShakenGoal = spot;
+			m_flShakenGoalSet = now;
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=shaken stage=1 reason=blocked userid=%d at=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f)\n",
+				userId, origin.x, origin.y, origin.z, spot.x, spot.y, spot.z);
+		}
+		else
+		{
+			m_iShakenStage = 2;
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=shaken stage=2 reason=blocked userid=%d at=(%.0f %.0f %.0f)\n",
+				userId, origin.x, origin.y, origin.z);
+		}
+	}
+
+	const int saved = m_iMoveLookPriority;
+	setMoveLookPriority(MOVELOOK_OVERRIDE);
+	if (m_bShakenHasGoal && m_iShakenStage < 2 && (m_vShakenGoal - origin).Length2D() > 24.0f)
+		setMoveTo(m_vShakenGoal);
+	else
+	{
+		stopMoving();
+		if (m_pButtons != nullptr)
+			m_pButtons->duck(0.1f);
+	}
+	edict_t* enemy = m_pEnemy.get();
+	if (enemy != nullptr && hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && CBotGlobals::entityIsAlive(enemy))
+		setLookAtTask(LOOK_ENEMY);
+	else
+	{
+		setLookVector(m_vShakenThreat + Vector(0, 0, 48));
+		setLookAtTask(LOOK_VECTOR);
+	}
+	setMoveLookPriority(saved);
+	return true;
 }

@@ -235,6 +235,24 @@ int main()
 		Check(RecordDeath(n, far, 300, z) == HOT_NONE, "old cluster deaths used up");
 	}
 
+	// Self-preservation (TODO 8.2).
+	{
+		NearDeathRing r;
+		const float me[3] = { 0, 0, 0 };
+		const float a[3] = { 200, 0, 0 }, b[3] = { 0, 300, 0 }, far[3] = { 2000, 0, 0 };
+		const float ta[3] = { 1000, 0, 0 }, tb[3] = { 1000, 400, 0 };
+		float newest = 0.0f, threat[3];
+		RecordNearDeath(r, a, ta, 10);
+		Check(CountNearDeaths(r, me, 11, -1.0f, newest, threat) == 1, "one death near");
+		RecordNearDeath(r, far, ta, 12);
+		Check(CountNearDeaths(r, me, 13, -1.0f, newest, threat) == 1, "far death does not count");
+		RecordNearDeath(r, b, tb, 14);
+		Check(CountNearDeaths(r, me, 15, -1.0f, newest, threat) == kShakenDeaths && newest == 14, "two deaths near");
+		Check(threat[0] == 1000 && threat[1] == 200, "mean threat");
+		Check(CountNearDeaths(r, me, 15, 14.0f, newest, threat) == 0, "deaths before the last reaction do not count");
+		Check(CountNearDeaths(r, me, 10 + kShakenWindow + 0.5f, -1.0f, newest, threat) == 1, "old death runs out");
+	}
+
 	if (g_failures == 0)
 		std::printf("team director tests PASS\n");
 	return g_failures == 0 ? 0 : 1;

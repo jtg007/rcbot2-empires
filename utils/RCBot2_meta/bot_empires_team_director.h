@@ -461,6 +461,65 @@ inline HotResult RecordDeath(DeathMemory& m, const float at[3], float now, int& 
 	zoneIndex = target;
 	return HOT_NEW;
 }
+
+// Self-preservation (TODO 8.2): kShakenDeaths teammates killed by the enemy within kShakenWindow seconds and
+// kShakenRadius of a bot make it take cover or fall back for a few seconds instead of walking on.
+// Every team member counts (humans too), also crews of vehicles: a tank blown up next to you is a warning.
+constexpr float kShakenWindow = 8.0f;
+constexpr float kShakenRadius = 600.0f;
+constexpr int kShakenDeaths = 2;
+constexpr int kMaxNearDeaths = 8;
+
+struct NearDeathRing
+{
+	float pos[kMaxNearDeaths][3] = {};
+	float threat[kMaxNearDeaths][3] = {};   // killer position, or the death spot when unknown
+	float time[kMaxNearDeaths] = {};
+	int next = 0;
+
+	NearDeathRing()
+	{
+		for (float& t : time)
+			t = -1.0e9f;
+	}
+};
+
+inline void RecordNearDeath(NearDeathRing& r, const float at[3], const float threat[3], float now)
+{
+	const int slot = r.next;
+	r.next = (r.next + 1) % kMaxNearDeaths;
+	for (int k = 0; k < 3; ++k)
+	{
+		r.pos[slot][k] = at[k];
+		r.threat[slot][k] = threat[k];
+	}
+	r.time[slot] = now;
+}
+
+// Deaths within kShakenRadius of me in the last kShakenWindow seconds that happened after `after` (the last
+// reaction, so one pair does not trigger twice). threatOut gets the mean threat position of those deaths.
+inline int CountNearDeaths(const NearDeathRing& r, const float me[3], float now, float after, float& newest,
+	float threatOut[3])
+{
+	int count = 0;
+	newest = after;
+	threatOut[0] = threatOut[1] = threatOut[2] = 0.0f;
+	for (int i = 0; i < kMaxNearDeaths; ++i)
+	{
+		if (r.time[i] <= after || now - r.time[i] > kShakenWindow || r.time[i] > now ||
+			HotDist2D(r.pos[i], me) > kShakenRadius)
+			continue;
+		++count;
+		if (r.time[i] > newest)
+			newest = r.time[i];
+		for (int k = 0; k < 3; ++k)
+			threatOut[k] += r.threat[i][k];
+	}
+	if (count > 0)
+		for (int k = 0; k < 3; ++k)
+			threatOut[k] /= static_cast<float>(count);
+	return count;
+}
 } // namespace EmpiresTeamDirector
 
 // Runtime (bot_empires_team_director.cpp). Board of team 2/3 or nullptr before the first update.

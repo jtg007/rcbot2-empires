@@ -2531,6 +2531,8 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 		endEmpiresHeal("died", 0.0f);
 	endEmpiresSkirmish("died");
 	endEmpiresJoinFight("died");
+	endEmpiresShaken("died");
+	m_flShakenUntil = 0.0f;
 	if (m_iAmmoCrateStage != 0)
 	{
 		EmpiresAmmoRequest* ar = EmpiresAmmoRequestForVehicle(getTeam(), m_iAmmoCrateVehicle, false);
@@ -5615,6 +5617,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	if (handleEmpiresSkirmish())
 		return;
 
+	// Two teammates just fell next to me: fall back / take cover instead of approaching (TODO 8.2).
+	if (handleEmpiresShaken())
+		return;
+
 	edict_t* pApproachTarget = m_pEmpiresApproachTarget.get();
 	const bool validApproachTarget =
 		m_bEmpiresApproachTaskIssued &&
@@ -6266,6 +6272,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 
 		// A deployable being aimed/placed/built finishes first (a few seconds; a path schedule would take the view).
 		if (m_deploy.stage >= 2 && handleEmpiresEngineerDeployables())
+			return;
+
+		// Two teammates just fell next to me: fall back / take cover first (TODO 8.2).
+		if (handleEmpiresShaken())
 			return;
 
 		if (handleEmpiresRevive())

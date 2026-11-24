@@ -282,6 +282,10 @@ void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
 void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
+// TODO 8.2: player_death of any player (bot_events.cpp); remembers teammates killed by the enemy.
+void EmpiresNoteFriendlyDeath(edict_t* victim, edict_t* attacker);
+// Test only (rcbotd empires_test_near_death): a death of `team` at `at`, killed from `threat`.
+void EmpiresInjectNearDeath(int team, const Vector& at, const Vector& threat);
 void EmpiresCommanderOrdersLevelReset(); // bot_empires_commander_orders.cpp
 bool EmpiresCommanderOrderIsOurs(int team, int client); // bot_empires_commander_orders.cpp
 
@@ -864,6 +868,23 @@ private:
 	void postEmpiresContact(const Vector& enemyPos);
 	bool handleEmpiresJoinFight();
 	void endEmpiresJoinFight(const char* reason);
+	// TODO 8.2: teammates fell next to me -> cover / short fall-back (bot_empires_skirmish.cpp).
+	bool empiresShaken(float now);
+	bool handleEmpiresShaken();
+	void endEmpiresShaken(const char* reason);
+	void takeEmpiresMovement(const char* why);
+	float m_flShakenUntil = 0.0f;
+	float m_flShakenStarted = 0.0f;
+	float m_flShakenNext = 0.0f;      // cooldown
+	float m_flShakenAfter = -1.0e9f;  // deaths up to this time are used up
+	float m_flShakenGoalSet = 0.0f;
+	Vector m_vShakenThreat;
+	Vector m_vShakenGoal;
+	Vector m_vShakenStart;
+	int m_iShakenStage = 0;           // 0 moving, 1 second spot, 2 crouch in place
+	bool m_bShakenActive = false;     // the fall-back movement owns the bot
+	bool m_bShakenHasGoal = false;
+	bool pickEmpiresShakenSpot(const Vector& origin, bool avoidCurrent, Vector& out) const;
 	// Map change / new bot: gpGlobals->curtime restarts at 0, so stored times would block or misfire.
 	void resetEmpiresSkirmishState(bool mapChange);
 	float m_flNextContactPost = 0.0f;

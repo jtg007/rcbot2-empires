@@ -1678,6 +1678,29 @@ CBotCommandInline EmpiresKillZoneTestCommand("empires_test_kill_zone", CMD_ACCES
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_kill_zone <x> <y> <z> <radius> [team]" : test-only (TODO 8.1), every bot (of team 2/3, 0 = all) on foot that enters the circle (2D, +-200 height) is killed once per life by 'kill' and counted as a death for the hot zones; radius 0 disarms)");
 
+CBotCommandInline EmpiresNearDeathTestCommand("empires_test_near_death", CMD_ACCESS_CONSOLE_ONLY,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		if (args[0] == nullptr || *args[0] == '\0' || playerinfomanager == nullptr)
+			return COMMAND_ERROR;
+		edict_t* bot = CBotGlobals::playerByUserId(std::atoi(args[0]));
+		IPlayerInfo* info = bot != nullptr ? playerinfomanager->GetPlayerInfo(bot) : nullptr;
+		if (info == nullptr)
+			return COMMAND_ERROR;
+		const int deaths = args[1] != nullptr && *args[1] != '\0' ? std::atoi(args[1]) : 2;
+		const float threatDist = args[2] != nullptr && *args[2] != '\0' ? static_cast<float>(std::atof(args[2])) : 800.0f;
+		Vector fwd, right;
+		QAngle angles = info->GetAbsAngles();
+		angles.x = 0.0f;
+		AngleVectors(angles, &fwd, &right, nullptr);
+		const Vector at = CBotGlobals::entityOrigin(bot);
+		const Vector threat = at + fwd * threatDist;
+		for (int i = 0; i < deaths; ++i)
+			EmpiresInjectNearDeath(info->GetTeamIndex(), at + right * (i % 2 == 0 ? 150.0f : -150.0f) + fwd * 100.0f, threat);
+		Msg("[RCBOT2] test-near-death userid=%s deaths=%d threat=(%.0f %.0f %.0f)\n", args[0], deaths, threat.x, threat.y, threat.z);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_near_death <bot_userid> [deaths=2] [threat_dist=800]" : test-only (TODO 8.2), records teammate deaths 150 HU beside the bot, killed from threat_dist ahead of its facing)");
+
 extern int g_exitBlockUserId; // bot_empires_vehicle.cpp
 extern bool g_exitBlockPassenger;
 
@@ -3675,6 +3698,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresBotClientCommandTest,
 	&EmpiresExitBlockTestCommand,
 	&EmpiresKillZoneTestCommand,
+	&EmpiresNearDeathTestCommand,
 	&EmpiresRecoveryCaptureAcceptanceCommand,
 	&EmpiresRecoverySquadAcceptanceCommand,
 	&EmpiresScoutBuildingVisibilityScanCommand,
