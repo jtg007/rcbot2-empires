@@ -54,11 +54,10 @@ two paired matches (all on vs. all off) with no new stalls, kills 28 vs. 24.
 | 1.5a / 3.5 / 5.8d | Refinery turret fails silently / first rainbowroad attempt fails / sporadic refinery rejection on Palmbay (`REJECTED type=0`) |
 | 1.5b | Commander CV stops on the way to the factory (`drive-stuck`, second attempt worked) |
 | 3.2 / 3.2b | Bot inside barracks hull after leaving the CV (`start_solid=1`); turret job hangs after a map change |
-| 3.4 / 3.4d | Rainbowroad `start-area-not-found` and `goal-roam fail`; navmesh islands (revive on separate area, door button with offset route end, retreat without reachable spot) |
+| 3.4 / 3.4d | Rainbowroad `start-area-not-found` and `goal-roam fail`; navmesh islands (revive on separate area, retreat without reachable spot; door button reach verified 2026-11-24) |
 | 3.16 | Vehicle as obstacle for infantry (soft 15 s penalty built; recheck in long match) |
 | 3.17 | Abandoned vehicle stays as obstacle (adoption built; wedged wrecks open via 5.8a) |
 | 3.12a / 3.6a / 3.6b | Bail-out false trigger (`143031`), bail-out timing per chassis, Bill Nye falls off alone (4 falls per run on rainbowroad) |
-| 3.9 | Crossroads base ramps and gates |
 
 ## Human-session checks
 
@@ -72,8 +71,8 @@ two paired matches (all on vs. all off) with no new stalls, kills 28 vs. 24.
 
 ## Maps, modes, long runs
 
-5.11 map sweep (21/22 done), 5.12 game modes (Conquest/escort PASS; round end untested), 5.21 better navmesh generation (unreachable areas, jump/climb edges),
-5.16 `emp_dmz_b1` flag rock link, 5.17 `emp_slaughtered` flag 130, 3.9a `as_escort` pillar tunnel. Details on [Maps](Maps.md).
+5.11 map sweep (22/22 navmeshes), 5.12 game modes (Conquest/escort PASS; round end untested), 5.21 better navmesh generation (unreachable areas, jump/climb edges),
+5.16 `emp_dmz_b1` flag rock link, 5.17 `emp_slaughtered` flag 130. Details on [Maps](Maps.md).
 
 ## Cleanup, portability, upkeep
 

@@ -19,7 +19,7 @@ Numbers like `3.25` are stable item IDs used in commits, logs and [docs/OPEN_WOR
 | Stuck recovery | Verified | Detects stalls (also flush building contacts), backs off, replans. A 15 s cooldown (`kFailureCooldown`) blocks the same goal+segment; vehicles get a soft infantry-only edge penalty (3.16) instead of a 60 s full block. |
 | Move orders | Verified | Finish within the game's 100-unit tolerance; stop at the nearest reachable point for off-mesh targets (3.18). |
 | Water | Verified | Surface for air, avoid deep water, swim to ladders ending in water, climb boat decks on `emp_palmbay`, jump back into water (5.15). |
-| Doors and gates | Open | Button reserved only if the route ends within 72 HU of it; Crossroads base gates and ramps problematic (3.9, 3.9a, 5.16). |
+| Doors and gates | Verified | Blocks closed `func_door*`, `prop_door*`, and `func_movelinear` gates; reserves door buttons only when a front-side line-of-sight stand is reachable within 72 HU, releases claims on death, disambiguates duplicate names by position (`emp_mvalley`), and skips timed auto-closing buttons (Crossroads 15 s gates); live built-state detection for `emp_eng_map_model` walls and `emp_eng_map_brush` ramps (`as_escort` 3/3 `20261124-181431`, Crossroads built ramp `20261124-180923`, gate drive `20261124-181243`). |
 | Map coverage | Built | 21 of 22 multiplayer maps have a navmesh and ran without a crash (5.11); see [Maps](Maps.md). |
 
 ## Commander (bot commander in the CV)

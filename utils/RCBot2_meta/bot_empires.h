@@ -280,6 +280,7 @@ void EmpiresReviveLevelReset();
 void EmpiresVehicleLevelReset();
 void EmpiresCommanderEconomyLevelReset();
 void EmpiresObjectiveLevelReset();
+void EmpiresReleaseDoorButtonClaim(int userId);
 void EmpiresEngibotLevelReset(); // bot_empires_engibot.cpp
 bool EmpiresIsEngibot(const edict_t* player);
 // TODO 8.2: player_death of any player (bot_events.cpp); remembers teammates killed by the enemy.

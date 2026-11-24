@@ -192,7 +192,12 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   onto the deck, and jumping back into the water afterwards (verified in 10-bot 1x match `20261122-124651`).
   Fords on `emp_cyclopean` are not measured yet.
 - [ ] **Gates:** doors and sliding gates (`func_movelinear`) count as passable when generating, and routing
-  blocks the links a gate covers while shut (`navmesh-gate`). On emp_dmz_b1 (paths open by player count) the
+  blocks the links a gate covers while shut (`navmesh-gate`). Door-button parsing disambiguates duplicate
+  targetnames by BSP origin (`emp_mvalley`), skips timed auto-closing buttons (Crossroads 15 s base gates),
+  selects a front-side line-of-sight stand, releases claims on death, and supports `func_movelinear`
+  (`as_escort` 3/3 including pillar tunnel verified in `20261124-181431`). Built `emp_eng_map_model` walls and
+  `emp_eng_map_brush` ramps are detected live (`emp_crossroads` built ramp detoured in `20261124-180923`,
+  APC gate drive verified in `20261124-181243`). On emp_dmz_b1 (paths open by player count) the
   `no-path` everywhere came from an enemy turret's danger circle being forbidden while the only open way ran
   through it; entering the circle is now very expensive instead of forbidden. Open: the DMZ flag rock has no
   upward link in the mesh (a crouch-jump link of about 52 would be needed). On emp_slaughtered the flag sits
@@ -390,7 +395,7 @@ When the following cases recur, compare the relevant trace and route.
 - Repair-pad entry blocked when the CV stands in it.
 - A bot hangs at a map wall on `emp_rainbowroad` (-7461 -911); a parked vehicle is not
   blocked for infantry routes; an abandoned vehicle blocks the NF base for minutes.
-- Navmesh islands (3.4d): refinery turret jobs check the route endpoint before claiming a stand. Rainbowroad run `122756` recorded five path failures for the same stand; follow-up `150857` recorded none. Revive and door-button claims now check the route endpoint against their interaction range. Vehicles require a full route for parking beside the CV and wait locally if all parking spots fail. These three changes await gameplay verification. `GetNearestAreaId` supplies telemetry keys and helps select an edge on an existing route.
+- Navmesh islands (3.4d): refinery turret jobs check the route endpoint before claiming a stand. Rainbowroad run `122756` recorded five path failures for the same stand; follow-up `150857` recorded none. Door-button reachability and front-side line-of-sight stand selection are verified on `as_escort` (`20261124-181431`). Revive claims check the route endpoint against their interaction range and vehicles require a full route for parking beside the CV (awaiting gameplay verification). `GetNearestAreaId` supplies telemetry keys and helps select an edge on an existing route.
 
 ## 4. Missing features
 
@@ -507,7 +512,7 @@ When the following cases recur, compare the relevant trace and route.
   Rifleman sticky grenades at vehicles never left the hand (the throw step read the wrong health field) - fixed.
   Scouts walk up to a visible enemy vehicle (<= 1200) with the sticky stun grenade and throw from 250; in short 1x
   runs a driving tank outran the scout. Outside throw range, Scouts now drop chases above 150 HU/s. Verify stun and sticky hits at 1x.
-- Maps: `emp_crossroads` base gates/ramps for vehicles, `as_escort` pillar tunnel.
+- Maps (closed 2026-11-24): `emp_crossroads` base gates/ramps (`20261124-180923`, `20261124-181243`) and `as_escort` pillar tunnel (`20261124-181431`).
 - Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
   modes, groups, magazine and reserve every 0.25 s; hitscan MG only against infantry (up to 1200;
   never the cannon, no infantry target without MG ammo), no fire while the MG reloads;

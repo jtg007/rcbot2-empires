@@ -25,10 +25,12 @@
 #include "collisionutils.h"
 #include "cmodel.h"
 #include "bot_empires_telemetry.h"
+#include "bot_empires_doors.h"
 #include "bot_navigation_experience.h"
 #include "navmesh/nav_mesh/nav_mesh.h"
 #include "navmesh/nav_mesh/nav_pathfind.h"
 #include "navmesh/nav_mesh/nav_ladder.h"
+#include "bot_getprop.h"
 #include "filesystem.h"
 #include "bot_cvars.h"
 extern IFileSystem* filesystem;
@@ -326,6 +328,113 @@ int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &ma
 				BlockEdge(area->GetID(), other->GetID(), seconds);
 				++count;
 			}
+	}
+	return count;
+}
+
+bool IsBuiltEmpiresMapObject(edict_t *edict)
+{
+	if (edict == nullptr || edict->IsFree())
+		return false;
+	const char *name = edict->GetClassName();
+	if (name == nullptr ||
+		(std::strcmp(name, "emp_eng_map_brush") != 0 && std::strcmp(name, "emp_eng_map_model") != 0))
+		return false;
+	ICollideable *collide = edict->GetCollideable();
+	if (collide == nullptr || collide->GetSolid() == SOLID_NONE ||
+		(collide->GetSolidFlags() & FSOLID_NOT_SOLID) != 0)
+		return false;
+	CBaseEntity *base = edict->GetUnknown() != nullptr ? edict->GetUnknown()->GetBaseEntity() : nullptr;
+	const datamap_t *map = base != nullptr ? CBaseEntity_GetDataDescMap(base) : nullptr;
+	if (map == nullptr)
+		return false;
+	const unsigned effectsOffset = UTIL_FindInDataMap(map, "m_fEffects");
+	if (effectsOffset != 0)
+	{
+		const int effects = *reinterpret_cast<const int *>(reinterpret_cast<const char *>(base) + effectsOffset);
+		if ((effects & 0x20) != 0) // EF_NODRAW
+			return false;
+	}
+	const unsigned renderOffset = UTIL_FindInDataMap(map, "m_nRenderMode");
+	if (renderOffset != 0)
+	{
+		const unsigned char renderMode =
+			*reinterpret_cast<const unsigned char *>(reinterpret_cast<const char *>(base) + renderOffset);
+		if (renderMode != 0) // kRenderTransTexture (4) while unbuilt hologram
+			return false;
+	}
+	return true;
+}
+
+int BlockSteepBrushEdges(edict_t *brush, const Vector &mins, const Vector &maxs, const float seconds, const bool learned)
+{
+	if (!IsLoaded() || enginetrace == nullptr || brush == nullptr || brush->IsFree())
+		return 0;
+	IServerEntity *handle = brush->GetIServerEntity();
+	if (handle == nullptr)
+		return 0;
+	const Vector padMins = mins - Vector(16.0f, 16.0f, 0.0f);
+	const Vector padMaxs = maxs + Vector(16.0f, 16.0f, 0.0f);
+	const Vector segMins = mins - Vector(16.0f, 16.0f, 53.0f);
+	const Vector segMaxs = maxs + Vector(16.0f, 16.0f, 0.0f);
+	int count = 0;
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea *area = TheNavAreas[i];
+		if (area == nullptr)
+			continue;
+		const Vector &nw = area->GetCorner(NORTH_WEST);
+		const Vector &se = area->GetCorner(SOUTH_EAST);
+		if (se.x < padMins.x || nw.x > padMaxs.x || se.y < padMins.y || nw.y > padMaxs.y ||
+			(std::max)(nw.z, se.z) + 72.0f < mins.z || (std::min)(nw.z, se.z) > maxs.z + 16.0f)
+			continue;
+		for (int dir = 0; dir < NUM_DIRECTIONS; ++dir)
+		{
+			const NavDirType navDir = static_cast<NavDirType>(dir);
+			for (int k = 0; k < area->GetAdjacentCount(navDir); ++k)
+			{
+				CNavArea *other = area->GetAdjacentArea(navDir, k);
+				if (other == nullptr)
+					continue;
+				Vector portal;
+				float halfWidth = 0.0f;
+				area->ComputePortal(other, navDir, &portal, &halfWidth);
+				const Vector &onw = other->GetCorner(NORTH_WEST);
+				const Vector &ose = other->GetCorner(SOUTH_EAST);
+				Vector fromPt = portal;
+				Vector toPt = portal;
+				if (navDir == NORTH || navDir == SOUTH)
+				{
+					const float stepFrom = (std::min)(96.0f, (se.y - nw.y) * 0.5f);
+					const float stepTo = (std::min)(96.0f, (ose.y - onw.y) * 0.5f);
+					const float sign = navDir == SOUTH ? 1.0f : -1.0f;
+					fromPt.y = (std::max)(nw.y, (std::min)(se.y, portal.y - sign * stepFrom));
+					toPt.y = (std::max)(onw.y, (std::min)(ose.y, portal.y + sign * stepTo));
+				}
+				else
+				{
+					const float stepFrom = (std::min)(96.0f, (se.x - nw.x) * 0.5f);
+					const float stepTo = (std::min)(96.0f, (ose.x - onw.x) * 0.5f);
+					const float sign = navDir == EAST ? 1.0f : -1.0f;
+					fromPt.x = (std::max)(nw.x, (std::min)(se.x, portal.x - sign * stepFrom));
+					toPt.x = (std::max)(onw.x, (std::min)(ose.x, portal.x + sign * stepTo));
+				}
+				// Start above Source's 18-HU step height so flat bridges and low kerbs stay open.
+				fromPt.z = area->GetZ(fromPt) + 19.0f;
+				toPt.z = other->GetZ(toPt) + 19.0f;
+				if (!SegmentCrossesBox(fromPt, toPt, segMins, segMaxs))
+					continue;
+				Ray_t ray;
+				ray.Init(fromPt, toPt, Vector(-16.0f, -16.0f, 0.0f), Vector(16.0f, 16.0f, 53.0f));
+				trace_t hit;
+				enginetrace->ClipRayToEntity(ray, MASK_PLAYERSOLID, handle, &hit);
+				if (EmpiresDoors::BrushStepHitBlocks(hit.DidHit(), hit.startsolid, hit.allsolid, hit.plane.normal.z))
+				{
+					BlockEdge(area->GetID(), other->GetID(), seconds, learned);
+					++count;
+				}
+			}
+		}
 	}
 	return count;
 }
@@ -872,9 +981,11 @@ std::vector<BuildingBox> CollectSolidBuildings(const edict_t* drivenVehicle = nu
 		// are unknown to the mesh as well (Crossroads 20261122-213339: 19 prop_dynamic + 6 physbox
 		// vehicle stalls). Infantry paths stay unchanged (players walk through vehicle physboxes).
 		const bool vehicleProp = drivenVehicle != nullptr && name != nullptr && std::strcmp(name, "prop_dynamic") == 0;
+		const bool builtMapWall = name != nullptr && std::strcmp(name, "emp_eng_map_model") == 0 &&
+			IsBuiltEmpiresMapObject(edict);
 		const bool isPhysbox = name != nullptr && std::strstr(name, "physbox") != nullptr;
-		if (name == nullptr || (!commanderVehicle && !vehicleProp && (std::strncmp(name, "emp_building_", 13) != 0 ||
-			(drivenVehicle == nullptr && isPhysbox))))
+		if (name == nullptr || (!commanderVehicle && !vehicleProp && !builtMapWall &&
+			(std::strncmp(name, "emp_building_", 13) != 0 || (drivenVehicle == nullptr && isPhysbox))))
 			continue;
 		ICollideable* collideable = edict->GetCollideable();
 		IServerEntity* serverEntity = edict->GetIServerEntity();
@@ -1704,8 +1815,9 @@ bool ClipsBlockSegment(const std::vector<BuildingBox>& clips, const Vector& from
 		InitVehicleClipSweep(ray, from, to, width);
 		trace_t hit;
 		enginetrace->ClipRayToEntity(ray, MASK_SOLID, clip.handle, &hit);
-		// A vehicle overlapping a re-enabled clip may still move out.
-		if (hit.DidHit() && (!hit.startsolid || hit.allsolid))
+		// A vehicle overlapping a re-enabled clip may still move out, and a gentle
+		// upward ramp face (e.g. built Crossroads one-way exit ramps) stays drivable.
+		if (EmpiresDoors::VehicleClipHitBlocks(hit.DidHit(), hit.startsolid, hit.allsolid, hit.plane.normal.z))
 			return true;
 	}
 	return false;

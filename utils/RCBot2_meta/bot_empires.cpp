@@ -2527,6 +2527,12 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	}
 	if (engine != nullptr && m_pEdict != nullptr)
 		EmpiresLawlietOnBotReset(engine->IndexOfEdict(m_pEdict));
+	if (m_iEmpiresDoorButton >= 0 && engine != nullptr && m_pEdict != nullptr)
+	{
+		EmpiresReleaseDoorButtonClaim(engine->GetPlayerUserId(m_pEdict));
+		m_iEmpiresDoorButton = -1;
+		m_bEmpiresDoorButtonMoving = false;
+	}
 	if (m_iHealTarget != 0)
 		endEmpiresHeal("died", 0.0f);
 	endEmpiresSkirmish("died");
@@ -7689,7 +7695,16 @@ bool CBotEmpires::findEmpiresKitAim(edict_t* building, const Vector& eye, Vector
 	if (enginetrace == nullptr || building == nullptr || building->IsFree() ||
 		building->GetIServerEntity() == nullptr)
 		return false;
-	const Vector center = CBotGlobals::entityOrigin(building);
+	Vector center = CBotGlobals::entityOrigin(building);
+	const char* const cls = building->GetClassName();
+	const bool isMapBrush = cls != nullptr && std::strcmp(cls, "emp_eng_map_brush") == 0;
+	const bool isMapObject = isMapBrush || (cls != nullptr && std::strcmp(cls, "emp_eng_map_model") == 0);
+	if (isMapObject && building->GetCollideable() != nullptr)
+	{
+		Vector bmins, bmaxs;
+		building->GetCollideable()->WorldSpaceSurroundingBounds(&bmins, &bmaxs);
+		center = (bmins + bmaxs) * 0.5f;
+	}
 	const float yaw = std::atan2(center.y - eye.y, center.x - eye.x);
 	CTraceFilterWorldOnly worldOnly;
 	float best = kReach;
@@ -7732,11 +7747,32 @@ bool CBotEmpires::findEmpiresKitAim(edict_t* building, const Vector& eye, Vector
 
 bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) const
 {
-	const Vector center = CBotGlobals::entityOrigin(building);
+	Vector center = CBotGlobals::entityOrigin(building);
 	const Vector eyeOffset = getEyePosition() - getOrigin();
-	const ICollideable* collide = building->GetCollideable();
-	const float outer = (collide != nullptr ?
+	const char* const cls = building->GetClassName();
+	const bool isMapBrush = cls != nullptr && std::strcmp(cls, "emp_eng_map_brush") == 0;
+	const bool isMapObject = isMapBrush || (cls != nullptr && std::strcmp(cls, "emp_eng_map_model") == 0);
+	ICollideable* collide = building->GetCollideable();
+	float outer = (collide != nullptr ?
 		(std::max)(collide->OBBMins().Length2D(), collide->OBBMaxs().Length2D()) : 1000.0f) + 200.0f;
+	float probeZ[2] = {center.z + 40.0f, center.z + 100.0f};
+	if (isMapObject && collide != nullptr)
+	{
+		Vector bmins, bmaxs;
+		collide->WorldSpaceSurroundingBounds(&bmins, &bmaxs);
+		center = (bmins + bmaxs) * 0.5f;
+		outer = ((bmaxs - bmins) * 0.5f).Length2D() + 200.0f;
+		if (bmaxs.z - bmins.z < 100.0f)
+		{
+			probeZ[0] = bmaxs.z - 8.0f;
+			probeZ[1] = (bmins.z + bmaxs.z) * 0.5f;
+		}
+		else
+		{
+			probeZ[0] = bmins.z + 40.0f;
+			probeZ[1] = bmins.z + 100.0f;
+		}
+	}
 	CBaseEntity* const buildingEntity = building->GetUnknown()->GetBaseEntity();
 	CBuildStandTraceFilter filter(m_pEdict->GetUnknown());
 	float spotCost = (std::numeric_limits<float>::max)();
@@ -7745,11 +7781,12 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	{
 		const float angle = i * (6.28318530718f / 32.0f);
 		const Vector dir(std::cos(angle), std::sin(angle), 0.0f);
-		for (const float height : {40.0f, 100.0f})
+		for (const float z : probeZ)
 		{
 			// Outer wall as seen from outside in this direction.
 			Ray_t inward;
-			inward.Init(center + dir * outer + Vector(0.0f, 0.0f, height), center + Vector(0.0f, 0.0f, height));
+			inward.Init(Vector(center.x + dir.x * outer, center.y + dir.y * outer, z),
+				Vector(center.x, center.y, z));
 			trace_t wall;
 			enginetrace->ClipRayToEntity(inward, MASK_PLAYERSOLID, building->GetIServerEntity(), &wall);
 			if (wall.startsolid || wall.fraction >= 1.0f)
@@ -7761,7 +7798,8 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 			Ray_t down;
 			down.Init(stand + Vector(0.0f, 0.0f, 80.0f), stand - Vector(0.0f, 0.0f, 240.0f));
 			trace_t ground;
-			enginetrace->TraceRay(down, MASK_PLAYERSOLID, &filter, &ground);
+			CTraceFilterWorldOnly worldOnly;
+			enginetrace->TraceRay(down, MASK_PLAYERSOLID, isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter, &ground);
 			if (ground.startsolid || ground.fraction >= 1.0f || ground.m_pEnt == buildingEntity)
 			{
 				++noGround;
@@ -7771,7 +7809,7 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 			body.Init(ground.endpos + Vector(0.0f, 0.0f, 2.0f), ground.endpos + Vector(0.0f, 0.0f, 3.0f),
 				Vector(-16.0f, -16.0f, 0.0f), Vector(16.0f, 16.0f, 72.0f));
 			trace_t bodyHit;
-			enginetrace->TraceRay(body, MASK_PLAYERSOLID, &filter, &bodyHit);
+			enginetrace->TraceRay(body, MASK_PLAYERSOLID, isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter, &bodyHit);
 			if (bodyHit.startsolid || bodyHit.fraction < 1.0f)
 			{
 				++blocked;
@@ -7877,9 +7915,13 @@ void CBotEmpires::tickEmpiresGuardOrder()
 	if (targetIndex <= 0 || gpGlobals == nullptr || targetIndex >= gpGlobals->maxEntities)
 		return;
 	edict_t* target = engine->PEntityOfEntIndex(targetIndex);
-	if (target == nullptr || target->IsFree() || target->GetClassName() == nullptr ||
-		std::strncmp(target->GetClassName(), "emp_building", 12) != 0 ||
-		CClassInterface::getTeam(target) != getTeam())
+	const char* targetClass = target != nullptr && !target->IsFree() ? target->GetClassName() : nullptr;
+	const bool isBuilding = targetClass != nullptr && std::strncmp(targetClass, "emp_building", 12) == 0;
+	const bool isMapBuildable = targetClass != nullptr &&
+		(std::strcmp(targetClass, "emp_eng_map_brush") == 0 || std::strcmp(targetClass, "emp_eng_map_model") == 0);
+	const int targetTeam = target != nullptr && !target->IsFree() ? CClassInterface::getTeam(target) : -1;
+	if ((!isBuilding && !isMapBuildable) ||
+		(targetTeam != getTeam() && !(isMapBuildable && targetTeam == 0)))
 		return;
 	// The commander's guard order replaces the bot's own building job: the bot finished a turret
 	// first (43 s) and looked as if it ignored the order (human test 15.11., run 20261115-130758).
@@ -12499,8 +12541,10 @@ bool CBotEmpires::requestEmpiresEngineerRepairOnce(const int buildingIndex,
 			pNetworkable->GetEdict() : nullptr;
 		const char* className = pNetworkable != nullptr ?
 			pNetworkable->GetClassName() : nullptr;
+		const bool mapBuildable = buildingIndex >= 0 && className != nullptr &&
+			(std::strcmp(className, "emp_eng_map_brush") == 0 || std::strcmp(className, "emp_eng_map_model") == 0);
 		if (pCandidate == nullptr || pCandidate->IsFree() ||
-			!isEmpiresRepairableBuildingClass(className, team))
+			(!isEmpiresRepairableBuildingClass(className, team) && !mapBuildable))
 		{
 			continue;
 		}
@@ -16392,6 +16436,8 @@ void CBotEmpires::freeMapMemory()
 	m_flSeismicTrackStart = 0.0f;
 	m_flSeismicTrackResultAt = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
+	if (m_iEmpiresDoorButton >= 0 && engine != nullptr && m_pEdict != nullptr)
+		EmpiresReleaseDoorButtonClaim(engine->GetPlayerUserId(m_pEdict));
 	m_iEmpiresDoorButton = -1;
 	m_iEmpiresDoorButtonDoor = -1;
 	m_vEmpiresDoorButtonOrigin = Vector(0, 0, 0);

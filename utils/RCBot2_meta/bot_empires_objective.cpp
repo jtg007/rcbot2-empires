@@ -3322,6 +3322,49 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		m_bEmpiresDoorButtonMoving = false;
 	};
 
+	auto buttonClearFrom = [&](const Vector& fromStand, const Vector& buttonPos, int buttonEntIndex, bool* directHit = nullptr) -> bool {
+		if (directHit != nullptr)
+			*directHit = false;
+		if (enginetrace == nullptr)
+			return true;
+		edict_t* buttonEdict = buttonEntIndex > 0 ? INDEXENT(buttonEntIndex) : nullptr;
+		CBaseEntity* buttonBase = buttonEdict != nullptr && !buttonEdict->IsFree() && buttonEdict->GetUnknown() != nullptr ?
+			buttonEdict->GetUnknown()->GetBaseEntity() : nullptr;
+		class ButtonLosFilter : public CTraceFilter
+		{
+		public:
+			explicit ButtonLosFilter(const IHandleEntity* self) : m_self(self) {}
+			bool ShouldHitEntity(IHandleEntity* entity, int) override
+			{
+				if (entity == m_self)
+					return false;
+				IServerUnknown* unknown = static_cast<IServerUnknown*>(entity);
+				CBaseEntity* base = unknown != nullptr ? unknown->GetBaseEntity() : nullptr;
+				edict_t* e = base != nullptr && servergameents != nullptr ? servergameents->BaseEntityToEdict(base) : nullptr;
+				const char* cls = e != nullptr ? e->GetClassName() : nullptr;
+				return cls == nullptr || std::strcmp(cls, "player") != 0;
+			}
+		private:
+			const IHandleEntity* m_self;
+		} filter(m_pEdict->GetIServerEntity());
+		Ray_t ray;
+		ray.Init(fromStand + Vector(0.0f, 0.0f, 50.0f), buttonPos);
+		trace_t hit;
+		enginetrace->TraceRay(ray, MASK_SOLID, &filter, &hit);
+		const bool direct = buttonBase != nullptr && hit.m_pEnt == buttonBase;
+		if (directHit != nullptr)
+			*directHit = direct;
+		if (direct)
+			return true;
+		return !hit.startsolid && (hit.fraction >= 1.0f || (hit.endpos - buttonPos).Length() <= 14.0f);
+	};
+
+	if (m_vehicle.stage != EmpiresVehicleStage::NONE)
+	{
+		if (m_iEmpiresDoorButton >= 0)
+			finish("vehicle-busy", 5.0f);
+		return false;
+	}
 	RCBotNavMeshProvider::DoorButton entry;
 	if (m_iEmpiresDoorButton < 0)
 	{
@@ -3333,16 +3376,43 @@ bool CBotEmpires::handleEmpiresDoorButton()
 		std::pair<int, float>* claim = claimOf(entry.button);
 		if (claim->first != userId && claim->second > now)
 			return false;
-		Vector stand;
-		RCBotNavMesh::Path path;
-		if (!RCBotNavMesh::ClosestPointOnMesh(entry.origin, 128.0f, stand) ||
-			RCBotNavMesh::BuildPath(origin, stand, path, this) != RCBotNavMesh::PathResult::SUCCESS ||
-			path.points.empty() || (path.points.back() - entry.origin).Length2D() > useRange)
+		// Wall-mounted buttons sit on one side of a wall or pillar (as_escort control pillar
+		// tunnel): probe around the button and prefer a stand whose ray hits the button face directly.
+		const Vector offsets[] = {
+			Vector(0, 0, 0), Vector(36, 0, 0), Vector(-36, 0, 0), Vector(0, 36, 0), Vector(0, -36, 0)
+		};
+		bool foundStand = false;
+		bool bestDirect = false;
+		float bestDist = useRange + 1.0f;
+		Vector chosenStand(0, 0, 0);
+		for (const Vector& offset : offsets)
+		{
+			Vector cand;
+			RCBotNavMesh::Path path;
+			if (!RCBotNavMesh::ClosestPointOnMesh(entry.origin + offset, 96.0f, cand))
+				continue;
+			if (RCBotNavMesh::BuildPath(origin, cand, path, this) != RCBotNavMesh::PathResult::SUCCESS ||
+				path.points.empty())
+				continue;
+			const Vector& end = path.points.back();
+			const float endDist = (end - entry.origin).Length2D();
+			bool direct = false;
+			if (endDist > useRange || !buttonClearFrom(end, entry.origin, entry.button, &direct))
+				continue;
+			if (!foundStand || (direct && !bestDirect) || (direct == bestDirect && endDist < bestDist))
+			{
+				foundStand = true;
+				bestDirect = direct;
+				bestDist = endDist;
+				chosenStand = end;
+			}
+		}
+		if (!foundStand)
 		{
 			m_flEmpiresDoorButtonNext = now + 10.0f;
 			return false;
 		}
-		m_vEmpiresDoorButtonStand = path.points.back();
+		m_vEmpiresDoorButtonStand = chosenStand;
 		*claim = std::make_pair(userId, now + 95.0f);
 		m_iEmpiresDoorButton = entry.button;
 		m_iEmpiresDoorButtonDoor = entry.door;
@@ -3371,10 +3441,30 @@ bool CBotEmpires::handleEmpiresDoorButton()
 	}
 
 	const Vector button = m_vEmpiresDoorButtonOrigin;
-	if ((button - origin).Length2D() > useRange)
+	if ((button - origin).Length2D() > useRange || !buttonClearFrom(origin, button, m_iEmpiresDoorButton))
 	{
 		if (m_bEmpiresDoorButtonMoving && m_pSchedules->isEmpty())
 		{
+			// Navmesh arrival tolerance (64 HU) can finish the route just short of the stand
+			// or around a pillar corner (as_escort control pillar tunnel): close in directly.
+			const float standDist = (m_vEmpiresDoorButtonStand - origin).Length2D();
+			if (standDist > 14.0f && standDist < 120.0f)
+			{
+				setMoveTo(m_vEmpiresDoorButtonStand);
+				setLookVector(m_vEmpiresDoorButtonStand);
+				setLookAtTask(LOOK_VECTOR, 0.5f);
+				return true;
+			}
+			// A stuck edge on a long walk clears the schedule; replan from here if still far.
+			RCBotNavMesh::Path retryPath;
+			if ((button - origin).Length2D() > 160.0f &&
+				RCBotNavMesh::BuildPath(origin, m_vEmpiresDoorButtonStand, retryPath, this) == RCBotNavMesh::PathResult::SUCCESS &&
+				!retryPath.points.empty() && (retryPath.points.back() - button).Length2D() <= useRange &&
+				requestNavigation(retryPath.points.back(), RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+			{
+				m_vEmpiresDoorButtonStand = retryPath.points.back();
+				return true;
+			}
 			finish("arrived-too-far", 30.0f);
 			return false;
 		}
@@ -3418,6 +3508,15 @@ bool CBotEmpires::handleEmpiresDoorButton()
 			m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetLastUserCommand().buttons : -1);
 	}
 	return true;
+}
+
+void EmpiresReleaseDoorButtonClaim(int userId)
+{
+	if (userId <= 0)
+		return;
+	for (auto& claim : s_doorButtonClaims)
+		if (claim.second.first == userId)
+			claim.second.second = 0.0f;
 }
 
 void EmpiresObjectiveLevelReset()

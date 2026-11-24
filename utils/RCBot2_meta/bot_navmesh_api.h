@@ -92,6 +92,11 @@ int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, float seconds, 
 	const Vector *keepEscapeFrom = nullptr, int keepFromArea = -1);
 // Links of areas under the box whose shared edge lies behind it, seen from 'from'.
 int BlockEdgesBehindBox(const Vector &from, const Vector &mins, const Vector &maxs, float seconds);
+// True iff edict is a built, solid emp_eng_map_brush or emp_eng_map_model (unbuilt holograms return false).
+bool IsBuiltEmpiresMapObject(edict_t *edict);
+// Directionally blocks ground links that hit a steep face of a built map brush (e.g. outer face
+// of a built Crossroads one-way base ramp), leaving gentle exit ramps and bridges open.
+int BlockSteepBrushEdges(edict_t *brush, const Vector &mins, const Vector &maxs, float seconds, bool learned = false);
 // Team-only no-go circle (2D), e.g. a hostile turret's range: routes of that team's
 // bots never enter an area whose centre lies inside it (leaving it stays allowed).
 // radius <= 0 clears it. Cleared with the map.

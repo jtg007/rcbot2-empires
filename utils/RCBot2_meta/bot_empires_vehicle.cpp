@@ -624,6 +624,8 @@ public:
 			return col != nullptr && col->GetSolid() != SOLID_NONE &&
 				(col->GetSolidFlags() & FSOLID_NOT_SOLID) == 0;
 		}
+		if (std::strcmp(cls, "emp_eng_map_model") == 0)
+			return RCBotNavMesh::IsBuiltEmpiresMapObject(e);
 		return std::strncmp(cls, "emp_building_", 13) == 0 ||
 			std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0;
 	}
@@ -1211,6 +1213,10 @@ public:
 				std::strncmp(classname, "emp_comm_restrict", 17) == 0 ||
 				std::strncmp(classname, "emp_eng_restrict", 16) == 0 ||
 				std::strcmp(classname, "emp_resource_point") == 0) // driven over at 483-505 HU/s (VF runs 1336, 1357)
+				return false;
+			if ((std::strcmp(classname, "emp_eng_map_brush") == 0 ||
+				std::strcmp(classname, "emp_eng_map_model") == 0) &&
+				!RCBotNavMesh::IsBuiltEmpiresMapObject(entity))
 				return false;
 			// Our own rotating gun sits on the hull; other vehicles' turrets
 			// stand on a hull the trace hits anyway.
@@ -2761,6 +2767,10 @@ void CBotEmpires::tickEmpiresVehicle()
 			return;
 
 		const bool billNye = isEmpiresBillNye();
+		// Do not hijack a bot currently walking to open a map door/gate button
+		// (as_escort: vehicle goto-factory fought over navigation for 90 s).
+		if (m_iEmpiresDoorButton >= 0)
+			return;
 		const bool lawlietBuyer = client > 0 && EmpiresLawlietWantsApcBuy(team, client);
 		if (!billNye && !lawlietBuyer)
 		{
@@ -5582,10 +5592,16 @@ void CBotEmpires::tickEmpiresVehicle()
 				seg.z = 0.0f;
 				Vector toP = p - origin;
 				toP.z = 0.0f;
-				const bool reached = Dist2D(origin, p) < (std::max)(160.0f, v.width) ||
+				const float distToP = Dist2D(origin, p);
+				const bool reached = distToP < (std::max)(160.0f, v.width) ||
 					(DotProduct(toP, seg) < 0.0f && toP.Length() < 450.0f);
 				trace_t blocked;
-				if (reached && (drivenCV == nullptr || DriveLineClear(origin, q, v.width * 0.5f, drivenCV, &blocked, true)))
+				// Non-CV vehicles also check line-of-sight before advancing early (distToP >= 120),
+				// so they do not skip the gate-entry waypoint and clip Crossroads gate center pillars.
+				const bool lineClear = drivenCV != nullptr
+					? DriveLineClear(origin, q, v.width * 0.5f, drivenCV, &blocked, true)
+					: (distToP < 120.0f || DriveLineClear(origin, q, v.width * 0.5f, sightVehicle, &blocked, false));
+				if (reached && lineClear)
 					++v.routeIndex;
 				else
 				{

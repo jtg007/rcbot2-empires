@@ -39,7 +39,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 > **Legend:** `✅` works in matches · `🟡` partial / not yet reliable · `⬜` planned
 
 <details>
-<summary><strong>🧭 Movement & Navigation</strong> — <code>5 ✅</code> · <code>1 🟡</code></summary>
+<summary><strong>🧭 Movement & Navigation</strong> — <code>6 ✅</code></summary>
 
 <br>
 
@@ -48,7 +48,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Waypoint-free navigation** | Generated navmesh; routes around buildings placed during the match and ends at the nearest walkable spot outside solid building walls when a goal lies inside a structure |
 | ✅ | **Stuck recovery** | Detects stalls (including flush building contacts), backs off, and tries another route; avoids blocked links near buildings for 60 s and applies a soft 15 s infantry-only edge penalty for vehicles without blocking vehicle routing |
 | ✅ | **Move orders** | Finishes within the game's 100-unit tolerance; stops at the nearest reachable point on the same level for off-mesh targets |
-| 🟡 | **Doors and gates** | Bots reserve a door button only if the route ends within 72 horizontal units of it; Crossroads base gates and ramps remain problematic |
+| ✅ | **Doors and gates** | Blocks closed `func_door*`, `prop_door*`, and `func_movelinear` gates; reserves door buttons only when a front-side line-of-sight stand is reachable within 72 HU, releases claims on death, disambiguates duplicate button names by position (`emp_mvalley`), and skips timed auto-closing buttons (e.g. Crossroads 15 s gates); verified all three `as_escort` doors (including the `func_movelinear` pillar tunnel). Live built-state detection for `emp_eng_map_model` walls and `emp_eng_map_brush` ramps (Crossroads built ramps detoured for vehicles and infantry, unbuilt holograms ignored by obstacle traces, vehicle waypoint sightline check at gate center pillars) |
 | ✅ | **Navmesh coverage** | All 22 multiplayer maps in the test inventory have a generated navmesh. `emp_mvalley` loads its 65,621-area mesh. A route scan rejects the clipped dam crossing for vehicles. Infantry can stall below the buildable ramps on the way to the dam resource point. Routing after engineer construction remains open. District completed a map change after the NF ticket depletion test. Sudden death remains unverified |
 | ✅ | **Water** | Surfaces for air and avoids deep water when a land route exists. Swims to ladders that end in water, climbs onto boat decks to capture (`emp_palmbay`), and jumps back into the water afterwards |
 
@@ -271,7 +271,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset and grenadiers mortaring an enemy APC now require a driver/grenadier or teammate sightline *(pending match verification)*.
-- **Vehicle stuck spots:** Near repair pads, inside the BE base, at Crossroads gates/ramps and a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
+- **Vehicle stuck spots:** Near repair pads, inside the BE base, at a wall near `(3800 5000)`, and in the palm cluster for NF tanks on `emp_palmbay`.
 - **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.

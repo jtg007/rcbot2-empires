@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "bot.h"
+#include "bot_empires_doors.h"
 #include "bot_empires_telemetry.h"
 #include "bot_getprop.h"
 #include "bot_globals.h"
@@ -114,6 +115,18 @@ bool DoorDatamapInt(edict_t* door, const char* name, int& value)
 	return true;
 }
 
+bool DoorDatamapVector(edict_t* door, const char* name, Vector& value)
+{
+	CBaseEntity* base = door != nullptr && !door->IsFree() && door->GetUnknown() != nullptr ?
+		door->GetUnknown()->GetBaseEntity() : nullptr;
+	const datamap_t* map = base != nullptr ? CBaseEntity_GetDataDescMap(base) : nullptr;
+	const unsigned offset = map != nullptr ? UTIL_FindInDataMap(map, name) : 0;
+	if (offset == 0)
+		return false;
+	value = *reinterpret_cast<const Vector*>(reinterpret_cast<const char*>(base) + offset);
+	return true;
+}
+
 // func_door that neither use (SF_DOOR_PUSE 256) nor touch (SF_DOOR_PTOUCH 1024) opens,
 // or that is locked: only a map input (button, timer) moves it. as_escort gate 228
 // (door1, spawnflags 2080 = toggle + locked) opens from button control1 only.
@@ -212,6 +225,28 @@ void UpdateInputOnlyDoorBlocks()
 			RCBOT_DIAG("[RCBOT2] navmesh-gate gate=%d state=%s links=%d box=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n", index,
 				closed ? "closed" : "open", links, mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
 		s_closed[index] = closed ? 1 : 0;
+	}
+	// Built engineer map brushes (e.g. Crossroads one-way base ramps): directionally block
+	// links whose hull sweep hits a steep/vertical face while leaving gentle exit ramps and
+	// walkable bridges open. Lowered or unbuilt brushes no longer hit and reopen within 1 s.
+	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+	{
+		edict_t* brush = INDEXENT(index);
+		const char* name = brush != nullptr && !brush->IsFree() ? brush->GetClassName() : nullptr;
+		if (name == nullptr || std::strcmp(name, "emp_eng_map_brush") != 0)
+			continue;
+		int links = 0;
+		if (RCBotNavMesh::IsBuiltEmpiresMapObject(brush) && brush->GetCollideable() != nullptr)
+		{
+			Vector mins, maxs;
+			brush->GetCollideable()->WorldSpaceSurroundingBounds(&mins, &maxs);
+			links = RCBotNavMesh::BlockSteepBrushEdges(brush, mins, maxs, 2.5f, s_closed[index] != 1);
+		}
+		const bool blocked = links > 0;
+		if (s_closed[index] != (blocked ? 1 : 0))
+			RCBOT_DIAG("[RCBOT2] navmesh-map-brush brush=%d state=%s links=%d\n", index,
+				blocked ? "blocked" : "open", links);
+		s_closed[index] = blocked ? 1 : 0;
 	}
 }
 
@@ -697,6 +732,10 @@ void Frame()
 								edict_t* e = base != nullptr && servergameents != nullptr ?
 									servergameents->BaseEntityToEdict(base) : nullptr;
 								const char* name = e != nullptr ? e->GetClassName() : nullptr;
+								if (name != nullptr &&
+									(strcmp(name, "emp_eng_map_brush") == 0 || strcmp(name, "emp_eng_map_model") == 0) &&
+									!RCBotNavMesh::IsBuiltEmpiresMapObject(e))
+									return false;
 								return name == nullptr || (strcmp(name, "emp_eng_restrict") != 0 &&
 									strcmp(name, "emp_comm_restrict") != 0 &&
 									strcmp(name, "emp_building_vehicle_physbox") != 0 &&
@@ -1047,90 +1086,6 @@ const char* EntityTargetName(edict_t* entity)
 		nullptr;
 }
 
-struct MapOutput
-{
-	std::string target;
-	std::string input;
-};
-
-struct MapEntity
-{
-	std::string classname;
-	std::string targetname;
-	std::string filterteam;
-	std::string negated;
-	std::vector<std::pair<std::string, MapOutput>> outputs;
-};
-
-// "OnPressed" "door1,Toggle,,0,-1" (older maps separate with ESC 0x1b).
-MapOutput ParseOutput(const std::string& value)
-{
-	MapOutput out;
-	const char sep = value.find('\x1b') != std::string::npos ? '\x1b' : ',';
-	const std::size_t a = value.find(sep);
-	out.target = value.substr(0, a);
-	if (a != std::string::npos)
-	{
-		const std::size_t b = value.find(sep, a + 1);
-		out.input = value.substr(a + 1, b == std::string::npos ? std::string::npos : b - a - 1);
-	}
-	return out;
-}
-
-std::vector<MapEntity> ParseMapEntities()
-{
-	std::vector<MapEntity> entities;
-	const char* text = engine != nullptr ? engine->GetMapEntitiesString() : nullptr;
-	if (text == nullptr)
-		return entities;
-	MapEntity current;
-	bool inside = false;
-	std::vector<std::string> tokens;
-	for (const char* p = text; *p != '\0'; ++p)
-	{
-		if (*p == '{')
-		{
-			current = MapEntity();
-			tokens.clear();
-			inside = true;
-		}
-		else if (*p == '}' && inside)
-		{
-			for (std::size_t i = 0; i + 1 < tokens.size(); i += 2)
-			{
-				const std::string& key = tokens[i];
-				const std::string& value = tokens[i + 1];
-				if (key == "classname")
-					current.classname = value;
-				else if (key == "targetname")
-					current.targetname = value;
-				else if (key == "filterteam")
-					current.filterteam = value;
-				else if (key == "Negated")
-					current.negated = value;
-				else if (key.size() > 2 && key[0] == 'O' && key[1] == 'n')
-					current.outputs.emplace_back(key, ParseOutput(value));
-			}
-			entities.push_back(current);
-			inside = false;
-		}
-		else if (*p == '"' && inside)
-		{
-			const char* end = std::strchr(p + 1, '"');
-			if (end == nullptr)
-				break;
-			tokens.emplace_back(p + 1, end);
-			p = end;
-		}
-	}
-	return entities;
-}
-
-bool OpensDoor(const std::string& input)
-{
-	return input == "Toggle" || input == "Open";
-}
-
 std::vector<edict_t*> EntitiesNamed(const std::string& name, const char* classPrefix)
 {
 	std::vector<edict_t*> found;
@@ -1149,55 +1104,78 @@ std::vector<edict_t*> EntitiesNamed(const std::string& name, const char* classPr
 	return found;
 }
 
+std::vector<edict_t*> MatchButtonsForLink(const EmpiresDoors::DoorButtonLink& link)
+{
+	std::vector<edict_t*> found;
+	if (gpGlobals == nullptr)
+		return found;
+	edict_t* nearest = nullptr;
+	float bestDistSq = 32.0f * 32.0f;
+	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
+	{
+		edict_t* entity = INDEXENT(index);
+		const char* cls = entity != nullptr && !entity->IsFree() ? entity->GetClassName() : nullptr;
+		if (cls == nullptr || std::strncmp(cls, "func_button", 11) != 0)
+			continue;
+		if (!link.buttonName.empty())
+		{
+			const char* targetName = EntityTargetName(entity);
+			if (targetName == nullptr || link.buttonName != targetName)
+				continue;
+		}
+		if (link.hasOrigin)
+		{
+			const Vector origin = CBotGlobals::entityOrigin(entity);
+			const float dx = origin.x - link.origin[0];
+			const float dy = origin.y - link.origin[1];
+			const float dz = origin.z - link.origin[2];
+			const float distSq = dx * dx + dy * dy + dz * dz;
+			if (distSq < bestDistSq)
+			{
+				bestDistSq = distSq;
+				nearest = entity;
+			}
+		}
+		else
+		{
+			found.push_back(entity);
+		}
+	}
+	if (link.hasOrigin && nearest != nullptr)
+		found.push_back(nearest);
+	return found;
+}
+
 void ParseDoorButtons()
 {
 	s_doorButtonsParsed = true;
 	s_doorButtons.clear();
-	const std::vector<MapEntity> entities = ParseMapEntities();
-	auto addDoors = [&](const std::string& buttonName, const std::string& doorName, int team) {
-		for (edict_t* button : EntitiesNamed(buttonName, "func_button"))
-			for (edict_t* door : EntitiesNamed(doorName, "func_door"))
+	const char* text = engine != nullptr ? engine->GetMapEntitiesString() : nullptr;
+	const std::vector<EmpiresDoors::DoorButtonLink> links = EmpiresDoors::ParseDoorButtonLinks(text);
+	for (const EmpiresDoors::DoorButtonLink& link : links)
+	{
+		// Timed auto-closing gates (e.g. Crossroads 15 s base gates with OnOut -> Close)
+		// must not be pressed proactively by bots walking past.
+		if (link.timed)
+			continue;
+		std::vector<edict_t*> doors = EntitiesNamed(link.doorName, "func_door");
+		const std::vector<edict_t*> linearDoors = EntitiesNamed(link.doorName, "func_movelinear");
+		doors.insert(doors.end(), linearDoors.begin(), linearDoors.end());
+		if (doors.empty())
+			continue;
+		for (edict_t* button : MatchButtonsForLink(link))
+			for (edict_t* door : doors)
 			{
 				DoorButton entry;
 				entry.button = engine->IndexOfEdict(button);
 				entry.door = engine->IndexOfEdict(door);
-				entry.team = team;
+				entry.team = link.team;
 				entry.origin = CBotGlobals::entityOrigin(button);
 				s_doorButtons.push_back(entry);
 				RCBOT_DIAG("[RCBOT2] door-button map button=%d(%s) door=%d(%s) team=%d at=(%.0f %.0f %.0f)\n",
-					entry.button, buttonName.c_str(), entry.door, doorName.c_str(), team,
+					entry.button, link.buttonName.c_str(), entry.door, link.doorName.c_str(), link.team,
 					entry.origin.x, entry.origin.y, entry.origin.z);
 			}
-	};
-	for (const MapEntity& button : entities)
-	{
-		if (button.classname != "func_button" || button.targetname.empty())
-			continue;
-		for (const auto& output : button.outputs)
-		{
-			if (output.first != "OnPressed")
-				continue;
-			if (OpensDoor(output.second.input))
-			{
-				addDoors(button.targetname, output.second.target, 0);
-				continue;
-			}
-			if (output.second.input != "TestActivator")
-				continue;
-			// Team filter: OnPass runs for the filter team (or every other team if negated).
-			for (const MapEntity& filter : entities)
-			{
-				if (filter.classname != "filter_activator_team" || filter.targetname != output.second.target)
-					continue;
-				const int filterTeam = std::atoi(filter.filterteam.c_str());
-				if (filterTeam < 2 || filterTeam > 3)
-					continue;
-				const int team = std::atoi(filter.negated.c_str()) != 0 ? 5 - filterTeam : filterTeam;
-				for (const auto& pass : filter.outputs)
-					if (pass.first == "OnPass" && OpensDoor(pass.second.input))
-						addDoors(button.targetname, pass.second.target, team);
-			}
-		}
 	}
 }
 }
@@ -1208,6 +1186,17 @@ bool DoorButtonPressable(const DoorButton& entry)
 	edict_t* door = INDEXENT(entry.door);
 	if (button == nullptr || button->IsFree() || door == nullptr || door->IsFree())
 		return false;
+	const char* cls = door->GetClassName();
+	if (cls != nullptr && std::strcmp(cls, "func_movelinear") == 0)
+	{
+		Vector pos1, pos2;
+		if (!DoorDatamapVector(door, "m_vecPosition1", pos1) ||
+			!DoorDatamapVector(door, "m_vecPosition2", pos2) ||
+			(pos2 - pos1).LengthSqr() <= 1.0f)
+			return false;
+		const Vector current = CBotGlobals::entityOrigin(door);
+		return (current - pos1).LengthSqr() < 16.0f;
+	}
 	int state = -1;
 	return DoorDatamapInt(door, "m_toggle_state", state) && state == 1;
 }
