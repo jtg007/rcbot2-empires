@@ -1,9 +1,9 @@
-// Engineer deployables (TODO 5.9 / 5.31.4): the Repair-role engineer places
-//  - a camera or radar (kit items 4/5, `engSelect`, detection allotment m_iEngineerDetectionBuilt/Allotted)
-//    beside an own refinery that has no detection device yet; the first one of a team is a radar,
-//  - a three-part wall (kit item 6: two clicks per segment, BuildWalls 0x3cecc0 -> CompleteWalls 0x397fc0)
-//    on a refinery's enemy side: a middle piece across the line to the enemy CV and two wings bent back
-//    (user rule 2026-11-24: no walls anywhere else).
+// Engineer deployables (TODO 5.9 / 5.31.4), per own refinery (nearest first, one engineer per refinery):
+//  - a three-part wall (kit item 6) on the refinery's enemy side: a middle piece across the line to the enemy CV
+//    and two wings bent back, clicked as one chained line (BuildWalls 0x3cecc0 -> CompleteWalls 0x397fc0).
+//    Walls are free for engineers (user rule 2026-11-24: walls only at refineries),
+//  - behind it a camera (kit item 4); a radar (item 5) only with a second detection slot
+//    (m_iEngineerDetectionBuilt/Allotted, grows with rank).
 // Each click goes through the kit's own GetBuildLocation (0x3cd800): ground within 150 of the eye, normal
 // z >= 0.7, no player or vehicle in a +-25 box. Success = a new own entity of the class near the spot.
 #include "bot_empires.h"
@@ -33,7 +33,6 @@ constexpr float kWallHalf = 110.0f;     // half of the middle piece; endpoints s
 constexpr float kWingBack = 140.0f;     // wings bend back toward the refinery ...
 constexpr float kWingOut = 100.0f;      // ... and outward
 constexpr float kStandOff = 50.0f;      // the engineer stands this far behind a segment
-constexpr float kWallMinResources = 300.0f;
 constexpr int kMaxTries = 3;
 
 class CTraceFilterSimpleLocal : public CTraceFilter
@@ -279,8 +278,10 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 			readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerDetectionAllotted", detAllotted) &&
 			detAllotted > 0 && detBuilt < detAllotted;
 		float resources = 0.0f;
-		const bool wallMoney = (mode & 2) != 0 && EmpiresTeamResources(team, resources) && resources >= kWallMinResources;
-		if (!detectFree && !wallMoney)
+		// Engineer walls cost the team nothing (user 24.11.); resources are only logged.
+		EmpiresTeamResources(team, resources);
+		const bool wallsOn = (mode & 2) != 0;
+		if (!detectFree && !wallsOn)
 			return false;
 
 		const char* cvClass = team == 2 ? "emp_nf_commander" : "emp_imp_commander";
@@ -363,9 +364,9 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 					wallAlong = along;
 			}
 			const bool walled = wallAlong > 0.0f || Marked(s_walled, index, now);
-			if (!walled && wallMoney)
+			if (!walled && wallsOn)
 			{
-				// First radius whose three segments have ground under every endpoint and keep 70 off buildings.
+				// First radius whose three segments have ground under every endpoint and keep 110 off buildings.
 				float radius = 0.0f;
 				for (float r : kWallRadius)
 				{
@@ -378,7 +379,7 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 						ok = GroundBelow(seg[s][0], g0) && GroundBelow(seg[s][1], g1) &&
 							std::fabs(g0.z - at.z) < 120.0f && std::fabs(g1.z - at.z) < 120.0f;
 						for (const Vector& b : blockers)
-							ok = ok && SegDist2D(b, seg[s][0], seg[s][1]) > 70.0f;
+							ok = ok && SegDist2D(b, seg[s][0], seg[s][1]) > 110.0f; // building boxes reach out
 						ok = ok && (!RCBotNavMesh::IsLoaded() ||
 							RCBotNavMesh::ClosestPointOnMesh(SegmentStand(seg[s], at), 80.0f, onMesh));
 					}
@@ -410,13 +411,15 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 			for (const Detector& det : detectors)
 				if (Dist2D(det.at, at) < kDetectCover)
 					(det.radar ? haveRadar : haveCamera) = true;
-			const bool radarOk = !haveRadar && now >= job.radarBlockedUntil;
-			if (!radarOk && haveCamera)
+			// A camera first; a radar only when the engineer may place two devices (allotment grows with rank,
+			// user 24.11.: about 30 points), so it comes later.
+			const bool radarOk = !haveRadar && detAllotted >= 2 && now >= job.radarBlockedUntil;
+			if (haveCamera && !radarOk)
 			{
 				++nDone;
 				continue;
 			}
-			const int item = radarOk ? 5 : 4;
+			const int item = !haveCamera ? 4 : 5;
 			// Behind the wall (refinery side): radar left, camera right of the enemy line.
 			const float along = (wallAlong > 0.0f ? wallAlong : kWallRadius[0]) - 110.0f;
 			const Vector lat(-dir.y, dir.x, 0.0f);

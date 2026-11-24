@@ -87,9 +87,9 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Skill distribution** | Repair and revive skills are split across the team's engineers |
 | ✅ | **Heal teammates** | Engineers out of combat heal a visible hurt teammate within 700 units with the kit (clears the deployable selection, keeps a revive charge with the Revive skill); a hurt bot waits up to 8 seconds for the engineer unless busy with commander duty, Lawliet, revive, building, or ammo crates. Seen in 10-bot matches (25 → 100 HP in 6 s; 37 → 100 HP in 3.5 s) |
 | 🟡 | **Turret upgrades** | Rank 30+ engineers upgrade their own turrets up to the map limit *(verified in tests, not yet observed in a full match)* |
-| 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand. Occasional placement failures remain |
+| 🟡 | **Refinery turrets** | Engineers check that the route ends within building range before claiming a refinery turret stand; with a second turret slot (rank) a refinery gets a second turret on the side away from the enemy, refineries without a turret first. Occasional placement failures remain |
 | 🟡 | **EngiBots** | Buyable engineer bots for human commanders — see [EngiBots](#engibots-for-human-commanders) |
-| ✅ | **Walls, radar, cameras** | At each own refinery (nearest first, a second engineer takes the next one) an engineer builds a three-part wall on the side facing the enemy CV — a middle piece across the line to the enemy and two wings bent back — then places a radar (first) or camera behind it and builds everything up to full health. Walls only at refineries and only with at least 300 team resources; points the game rejects are retried shorter, and the standing pieces are kept (`rcbot_empires_engineer_deployables`) |
+| ✅ | **Walls, radar, cameras** | At each own refinery (nearest first, a second engineer takes the next one) an engineer builds a three-part wall on the side facing the enemy CV — a middle piece across the line to the enemy and two wings bent back — then places a camera behind it — and a radar too once its rank gives a second detection slot — and builds everything up to full health. Walls only at refineries (engineer walls cost no resources); points the game rejects are retried shorter, and the standing pieces are kept (`rcbot_empires_engineer_deployables`) |
 
 </details>
 
@@ -214,7 +214,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | Cvar | Default | Description |
 |---|---:|---|
 | `rcbot_empires_engineer_turrets` | `1` | Engineers build MG turrets at friendly refineries |
-| `rcbot_empires_engineer_deployables` | `3` | Refinery fortification (bits): `1` radar and camera behind the wall, `2` three-part wall on the enemy side |
+| `rcbot_empires_engineer_deployables` | `3` | Refinery fortification (bits): `1` camera behind the wall (plus radar with a second detection slot), `2` three-part wall on the enemy side |
 | `rcbot_empires_engineer_help_human` | `2` | Engineer bots per team that autonomously build/repair near a human commander's CV |
 | `rcbot_empires_engibot` | `1` | Allow commanders to purchase EngiBots |
 | `rcbot_empires_engibot_cost` | `100` | Team resources per EngiBot |
@@ -311,7 +311,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
-| `scripts/dev_deploy.sh [map] [timescale]` | Three-part refinery wall, then radar/camera behind it (`DEPLOY_MODE=1` radar/camera only, `2` walls only) |
+| `scripts/dev_deploy.sh [map] [timescale]` | Three-part refinery wall, then a camera behind it (`DEPLOY_MODE=1` camera/radar only, `2` walls only; `DEPLOY_RANK=1` ranks the engineer up: two turrets, camera and radar) |
 | `scripts/dev_lawliet.sh [map] [min]` | Forced NF Lawliet rush on the BE CV at 1× (`LAWLIET_ROSTER`, `LAWLIET_REAL_VF=1`) |
 | `scripts/dev_navgen.sh <map>` | Generate a map's navmesh on the test server with all available CPUs eligible by default (set `RCBOT_CPUS` to restrict affinity). Each sample shares its vertical clearance trace across four corners. Area merges use indexed incoming ground links and report elapsed time and candidate counts. |
 | `scripts/run_unit_tests.sh` | All offline unit tests in parallel (~5 s, needs only a C++17 compiler and python3; also run by CI) |

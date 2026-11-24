@@ -452,11 +452,10 @@ When the following cases recur, compare the relevant trace and route.
   map barricades, damage on turrets/cameras.
 - Refinery fortification (5.9, built; `bot_empires_deployables.cpp`, cvar `rcbot_empires_engineer_deployables`):
   per own refinery one engineer builds a three-part wall facing the enemy CV (kit item 6; the game chains
-  wall points, so it is one line of four clicks), then a radar or camera behind it (items 4/5), and builds
-  every piece up (`scripts/dev_deploy.sh`). 10-bot crossroads match `20261124-131109`: walls at 3 refineries,
+  wall points, so it is one line of four clicks; engineer walls are free), then a camera behind it (item 4)
+  and, with a second detection slot from rank, a radar (item 5), and builds every piece up (`scripts/dev_deploy.sh`). 10-bot crossroads match `20261124-131109`: walls at 3 refineries,
   8/9 pieces full, 1 radar. Pitfalls: `checkStuck()` locks the view on LOOK_WAYPOINT while the move target is
-  valid; a player in a piece's line makes `CompleteWalls` reject it. Open: cameras on flanks/ladders, one
-  detection device per engineer, full repair of front buildings after an attack, walls may narrow own
+  valid; a player in a piece's line makes `CompleteWalls` reject it. Open: cameras on flanks/ladders, full repair of front buildings after an attack, walls may narrow own
   vehicle lanes at refineries.
   Turret upgrade (5.6) is done: an engineer with the upgrade skill raises its own finished
   turrets 1 -> 2 -> 3 with `emp_eng_upgrade` (only up to the map's turret restriction) and rebuilds them

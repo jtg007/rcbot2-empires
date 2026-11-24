@@ -48,11 +48,11 @@ Numbers like `3.25` are stable item IDs used in commits, logs and [docs/OPEN_WOR
 | Revive | Built | Individual `emp_revive` (route must end within 120 HU of the body; 6 s replan/release; wounded bot waits up to 3 s). Timing changes await match verification (3.4d). A "vacancy" Mass Revive path exists behind `rcbot_empires_vacancy_revive`. |
 | Heal teammates (5.31.1) | Verified | Out of combat, heals a visible hurt teammate (<85 %, within 700 HU) with the kit; hurt bot waits up to 8 s. `dev_heal.sh`: 42 to 100 HP in about 5 s; natural heals in match `20261123-020726`. |
 | Seismic grenades (5.31.2, 5.7) | Built | Throws at enemy buildings up to 1400 HU (turrets, then camera/radar, large buildings, walls). 20 damage per hit on a barracks; aborts after 5 throws without damage. Never triggered naturally yet; run-up throws at firing turrets open. |
-| Refinery turrets (1.5a, 3.5, 5.8d) | Built | Repair-role engineer places an MG turret on the refinery front side. Occasional silent placement failures (rainbowroad, Palmbay). |
+| Refinery turrets (1.5a, 3.5, 5.8d) | Built | Repair-role engineer places an MG turret on the refinery front side; with two turret slots (rank) a second one on the side away from the enemy. Occasional silent placement failures (rainbowroad, Palmbay). |
 | Turret upgrade (5.6) | Built | Rank 30+ engineers raise own turrets 1 to 3 (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); not seen in a full match. |
 | Ammo crates (3.10b, 3.10c) | Built | Answers a vehicle "I need ammo" call and a human infantry ammo call by placing a supply crate (`engSelect 7`). Two simultaneous calls unreliable; autonomous infantry requests open. |
 | EngiBots (7.1) | Built | Buyable base-engineer bots for human commanders (`/buildengibot`); only tested with the bot commander. See below. |
-| Refinery walls, radar, cameras (5.9, 5.31.4) | Built | Three-part wall on the refinery side facing the enemy CV (kit item 6, one chained line of four clicks), then radar/camera behind it (items 4/5), each built up to full health; one refinery per engineer (`bot_empires_deployables.cpp`, `scripts/dev_deploy.sh`). |
+| Refinery walls, radar, cameras (5.9, 5.31.4) | Built | Three-part wall on the refinery side facing the enemy CV (kit item 6, one chained line of four clicks), then a camera behind it (item 4) and, with a second detection slot from rank, a radar (item 5), each built up to full health; walls are free for engineers; one refinery per engineer (`bot_empires_deployables.cpp`, `scripts/dev_deploy.sh`). |
 | ML turret (5.31.3) | Open | Not implemented. |
 
 ### EngiBots

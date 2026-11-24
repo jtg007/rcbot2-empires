@@ -246,7 +246,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				haveEnemyHome = true;
 			}
 		}
-		float best = kSearchRange;
+		float best = kSearchRange * 4.0f; // distance + 20000 per standing turret
 		int nOurs = 0, nClaimed = 0, nNoYaw = 0, nCovered = 0, nNoMesh = 0, nNoPath = 0;
 		for (edict_t* e : refineries)
 		{
@@ -275,15 +275,37 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				}
 				yaw = std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f;
 			}
+			// With two turret slots (rank, user 24.11.) a refinery takes a second turret, turned 70 degrees
+			// from the first; refineries without a turret come first.
+			int nearCount = 0;
+			for (const Vector& t : turrets)
+				nearCount += Dist2D(t, at) < kTurretNear + 100.0f ? 1 : 0;
+			if (nearCount >= (allotted >= 2 ? 2 : 1))
+			{
+				++nCovered;
+				continue;
+			}
 			// Failed tries turn the spot: 0, +45, -45, +90, -90.
 			static const float kTurn[] = {0.0f, 45.0f, -45.0f, 90.0f, -90.0f};
+			if (nearCount > 0)
+			{
+				// Second turret: the side away from the enemy, which the refinery wall covers (deployables).
+				float side = 70.0f;
+				if (haveEnemyHome)
+				{
+					const float enemyYaw = std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f;
+					auto off = [](float a, float b) { float d = std::fmod(std::fabs(a - b), 360.0f); return d > 180.0f ? 360.0f - d : d; };
+					side = off(yaw + 70.0f, enemyYaw) >= off(yaw - 70.0f, enemyYaw) ? 70.0f : -70.0f;
+				}
+				yaw += side;
+			}
 			yaw += kTurn[m_iTurretAttempt % 5];
 			const float r = yaw * 3.14159265f / 180.0f;
 			const Vector dir(std::cos(r), std::sin(r), 0.0f);
 			Vector spot = at + dir * kStandOut;
 			bool covered = false;
 			for (const Vector& t : turrets)
-				covered = covered || Dist2D(t, spot) < kTurretNear || Dist2D(t, at) < kTurretNear;
+				covered = covered || Dist2D(t, spot) < 200.0f;
 			if (covered)
 			{
 				++nCovered;
@@ -315,8 +337,8 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 					continue;
 				}
 			}
-			const float d = Dist2D(at, getOrigin());
-			if (d < best)
+			const float d = Dist2D(at, getOrigin()) + 20000.0f * static_cast<float>(nearCount);
+			if (Dist2D(at, getOrigin()) < kSearchRange && d < best)
 			{
 				best = d;
 				m_iTurretRefinery = index;
