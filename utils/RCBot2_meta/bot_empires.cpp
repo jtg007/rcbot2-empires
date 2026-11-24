@@ -7617,6 +7617,12 @@ void CBotEmpires::failEmpiresVehicleAction(const char* reason)
 	m_eEmpiresVehicleActionState = EmpiresVehicleActionState::FAILED;
 }
 
+// A refinery wall/radar job at work or nearly there; a far walk still yields to the dispatcher.
+bool CBotEmpires::empiresDeployBusy() const
+{
+	return m_deploy.stage >= 2 || (m_deploy.stage == 1 && (getOrigin() - m_deploy.stand).Length2D() < 800.0f);
+}
+
 bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 {
 	// A started refinery-turret job finishes first (user rule 2026-11-12: no detours).
@@ -7628,7 +7634,7 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 		return false;
 	// And a refinery wall/radar job that is at work or nearly there (match 20261124-124106: 17 jobs taken
 	// away on the way, no wall finished); a far walk still yields to the dispatcher.
-	if (m_deploy.stage >= 2 || (m_deploy.stage == 1 && (getOrigin() - m_deploy.stand).Length2D() < 800.0f))
+	if (empiresDeployBusy())
 		return false;
 	if (m_iBuildAssignStage != 0 || building == nullptr || building->IsFree() ||
 		building->GetUnknown() == nullptr || m_pSchedules == nullptr || !isAlive() ||

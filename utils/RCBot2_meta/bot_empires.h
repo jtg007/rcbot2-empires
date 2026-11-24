@@ -874,6 +874,7 @@ private:
 	// TODO 8.2: teammates fell next to me -> cover / short fall-back (bot_empires_skirmish.cpp).
 	bool empiresShaken(float now);
 	bool handleEmpiresShaken();
+	bool empiresDeployBusy() const; // wall/radar job at work or < 800 from its stand
 	// TODO 8.3: damaged standing own vehicle of a human (or parked empty) near this engineer.
 	edict_t* findEmpiresBuddyRepairVehicle(int& worstSide, bool& armorDamaged, int& driverUserId);
 	float m_flBuddyRepairScan = 0.0f;

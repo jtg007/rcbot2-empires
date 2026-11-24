@@ -1757,6 +1757,9 @@ void CBotEmpires::tickCommanderEconomy()
 		for (const Site& site : escortSites)
 			for (CBotEmpires* engineer : freeEngineers)
 			{
+				// Not off a wall click (pad test 20261124-152547: escort pulled the engineer 6200 away mid-click).
+				if (engineer->empiresDeployBusy())
+					continue;
 				const float score = RefineryScore(site.income, engineer->distanceFrom(site.origin) + site.distance);
 				if (score > bestScore)
 				{

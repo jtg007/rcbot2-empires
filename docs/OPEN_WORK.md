@@ -179,8 +179,10 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   vehicle nearby replaces a bot's repair call (a bot call waits while a human vehicle is repaired). Scripted heal
   test with a bot counted as human (`rcbot_empires_test_human_userid`): the engineer left the bot, healed the
   "human" from 42 to 100 and went back. The ammo and repair order is not tested in a scenario yet.
-- [ ] **Refinery walls:** while clicking the first wall point the engineer can walk away from it (eye distance
-  244 -> 1048, `wall-start-lost` three times); seen in the pad test, which now runs without walls.
+- [x] **Refinery walls, engineer walked away mid-click:** the commander's refinery escort took the engineer
+  6200 units away while it clicked the first wall point (`wall-start-lost` three times). The escort now skips an
+  engineer whose wall/radar job is at work or near its stand, like building assignments already did. Three pad
+  runs with walls on: 3/3 full three-piece chains, no `wall-start-lost`.
 - [x] **Low steep edges (8.1a):** a stuck at world geometry that blocks the feet with a face steeper than
   45 degrees but is free 20 higher blocks every mesh link within 32 units at once (`navmesh-steep-block`).
   Crossroads west bridge (-3800 -5087), same scenario: 45 stucks in 8 runs -> 5 in 6 runs, 0 plan failures.
