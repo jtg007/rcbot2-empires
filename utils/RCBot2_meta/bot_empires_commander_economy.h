@@ -71,6 +71,14 @@ inline int NextResearch(const bool done[kResearchItemCount], bool hasVehicleFact
 
 constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f, 0.0f, 0.0f, 75.0f, 75.0f};
 
+constexpr float kNearVehicleRange = 3800.0f; // CanBuildAt allows 4000, keep a margin
+
+// Discount map income by travel distance. One build radius halves the score.
+inline float RefineryScore(float income, float distance)
+{
+	return income / (1.0f + distance / kNearVehicleRange);
+}
+
 struct Step { BuildType type; int targetCount; };
 
 // Economy first (income is the only source), then infantry support, vehicles, supply,

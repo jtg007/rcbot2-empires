@@ -45,7 +45,6 @@ float s_humanCommanderUntil[4] = {};
 bool s_testYieldRequest[4] = {};
 constexpr float kVerifyDelay = 0.3f;
 constexpr float kPointBlockSeconds = 15.0f;
-constexpr float kNearVehicleRange = 3800.0f; // CanBuildAt allows 4000, keep a margin
 constexpr float kHullClearance = 250.0f;     // a player inside the refinery hull gets it rejected
 constexpr float kSearchRadius = 2048.0f;
 constexpr float kShiftedSearchOffset = 1500.0f;
@@ -1705,7 +1704,8 @@ void CBotEmpires::tickCommanderEconomy()
 	}
 
 	// --- Refinery sites: enabled resource points the game would accept. ---
-	struct Site { int index; int resIndex; Vector origin; float distance; };
+	struct Site { int resIndex; Vector origin; float distance; float income; };
+	std::vector<Site> escortSites;
 	std::vector<Site> refinerySites;
 	std::vector<Vector> friends;
 	for (int i = 1; i <= gpGlobals->maxClients; ++i)
@@ -1734,42 +1734,31 @@ void CBotEmpires::tickCommanderEconomy()
 		for (const Vector& friendOrigin : friends)
 			nearestFriend = (std::min)(nearestFriend, (origin - friendOrigin).Length());
 		const bool inReach = vehicleDistance < kNearVehicleRange || nearestFriend < kNearVehicleRange;
-		if (!inReach || nearestFriend < kHullClearance)
+		// CRefinery::CalculateResourceOutput multiplies this point's ResourcesSecond.
+		const float income = *reinterpret_cast<const float*>(raw + 0x4ac);
+		if (!std::isfinite(income) || income <= 0.0f)
 			continue;
-		refinerySites.push_back({i, resIndex, origin, vehicleDistance});
+		const Site site{resIndex, origin, vehicleDistance, income};
+		if (!inReach)
+			escortSites.push_back(site);
+		else if (nearestFriend >= kHullClearance)
+			refinerySites.push_back(site);
 	}
-	std::sort(refinerySites.begin(), refinerySites.end(), [](const Site& a, const Site& b) { return a.distance < b.distance; });
+	std::stable_sort(refinerySites.begin(), refinerySites.end(), [](const Site& a, const Site& b) {
+		return RefineryScore(a.income, a.distance) > RefineryScore(b.income, b.distance);
+	});
 
-	// No resource point in reach: the game only accepts a refinery with the CV or a living
-	// teammate within 4000 (streetsoffire NF: nearest point 7700 from the CV, one refinery
-	// in 12 min). Walk a free Engineer toward the nearest enabled point; he then builds it.
+	// To bring a distant site into build range, also charge the Engineer's walk.
 	if (refinerySites.empty() && inventory.count[Refinery] < 4 && now >= state.escortUntil)
 	{
 		const Site* best = nullptr;
-		std::vector<Site> candidates;
-		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
-		{
-			edict_t* e = engine->PEntityOfEntIndex(i);
-			const char* raw = RawEntity(e);
-			if (raw == nullptr || !IsResourcePoint(e) || *reinterpret_cast<const unsigned char*>(raw + 0x4a8) == 0)
-				continue;
-			const int resIndex = *reinterpret_cast<const int*>(raw + 0x4b0);
-			bool blocked = false;
-			for (const auto& entry : state.refineryPointBlocked)
-				blocked = blocked || (entry.first == resIndex && entry.second > now);
-			if (!blocked)
-				candidates.push_back({i, resIndex, CBotGlobals::entityOrigin(e), (CBotGlobals::entityOrigin(e) - vehicleOrigin).Length()});
-		}
-		// Score = Engineer's walk + point's distance from the CV: a short walk wins, but a
-		// point near our own base beats one deep in enemy land (run 20261111-102816: nearest
-		// point to the BE CV sent the Engineer 17000 across the map).
 		CBotEmpires* escort = nullptr;
-		float bestScore = 1.0e9f;
-		for (const Site& site : candidates)
+		float bestScore = 0.0f;
+		for (const Site& site : escortSites)
 			for (CBotEmpires* engineer : freeEngineers)
 			{
-				const float score = engineer->distanceFrom(site.origin) + site.distance;
-				if (score < bestScore)
+				const float score = RefineryScore(site.income, engineer->distanceFrom(site.origin) + site.distance);
+				if (score > bestScore)
 				{
 					bestScore = score;
 					best = &site;
@@ -1781,7 +1770,7 @@ void CBotEmpires::tickCommanderEconomy()
 			state.escortUntil = now + kEscortSeconds;
 			RCBOT_DIAG("[RCBOT2] commander-econ escort engineer_userid=%d res_index=%d point=(%.0f %.0f %.0f) distance=%.0f cv_distance=%.0f candidates=%zu\n",
 				engine->GetPlayerUserId(escort->getEdict()), best->resIndex, best->origin.x, best->origin.y,
-				best->origin.z, escort->distanceFrom(best->origin), best->distance, candidates.size());
+				best->origin.z, escort->distanceFrom(best->origin), best->distance, escortSites.size());
 		}
 	}
 
@@ -1953,7 +1942,10 @@ void CBotEmpires::tickCommanderEconomy()
 	state.verifyResIndex = -1;
 	if (type == Refinery)
 	{
-		state.verifyResIndex = refinerySites.front().resIndex;
+		const Site& site = refinerySites.front();
+		state.verifyResIndex = site.resIndex;
+		RCBOT_DIAG("[RCBOT2] commander-econ refinery-site team=%d res_index=%d income=%.2f cv_distance=%.0f candidates=%zu\n",
+			team, site.resIndex, site.income, site.distance, refinerySites.size());
 		snprintf(command, sizeof(command), "emp_build 0 %d 0\n", state.verifyResIndex);
 	}
 	else

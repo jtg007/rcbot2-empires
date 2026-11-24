@@ -96,6 +96,12 @@ int main()
 	inventory.count[MlTurret] = 2;
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::Done, "ECON-10 order complete");
 
+	inventory.count[Barracks] = 0;
+	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == Barracks, "rebuild lost barracks");
+	Require(RefineryScore(2, 3433) > RefineryScore(1, 3163), "emp_arid richer site wins");
+	Require(RefineryScore(1, 3163) > RefineryScore(1, 3433), "equal yields prefer shorter travel");
+	Require(RefineryScore(1, 1000) > RefineryScore(2, 16000), "long escort can outweigh income");
+
 	Require(BackoffSeconds(1) == 5.0f && BackoffSeconds(2) == 10.0f && BackoffSeconds(3) == 20.0f, "ECON-11 backoff doubles");
 	Require(BackoffSeconds(30) == 120.0f, "ECON-12 backoff capped");
 	Require(MaxUnfinished(0) == 1 && MaxUnfinished(1) == 1 && MaxUnfinished(2) == 2 && MaxUnfinished(5) == 2, "ECON-13 unfinished limit");

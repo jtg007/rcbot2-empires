@@ -381,7 +381,7 @@ When the following cases recur, compare the relevant trace and route.
   part selection by research and budget (`bot_empires_vehicle_loadout.h`, unit-tested, live
   check `20261120-193737`: NF/BE Heavy Tanks with Composite Armor, Gas Turbine and Medium
   Chain Gun) is wired into purchase and pad refit. Open: confirm in a full normal-speed
-  match; rebuild lost buildings and choose resource points by value.
+  match.
 - Commander CV survival & base defense (5.23): the commander pulls the CV back when an
   alive enemy vehicle closes within 2200 HU or under heavy fire, preferring a finished own
   repair station or open navmesh away from the threat (live test `20261121-002633`: NF CV

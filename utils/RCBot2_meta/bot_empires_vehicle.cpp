@@ -5533,6 +5533,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		!v.retreating && !v.billNye && rcbot_empires_vehicle_curve_speed.GetBool();
 	if (!closeManeuver && Dist2D(origin, driveTo) > 300.0f)
 	{
+		const Vector routeTarget = driveTo;
 		const edict_t* drivenCV = v.commanderCV ? vehicle : nullptr;
 		const edict_t* sightVehicle = v.padInside ? nullptr : vehicle;
 		if (now >= v.nextReplan || Dist2D(v.routeGoal, driveTo) > 500.0f)
@@ -5606,6 +5607,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			maneuverFrom = pick > 0 ? v.route[pick - 1] : origin;
 			maneuverNext = pick + 1 < v.route.size() ? v.route[pick + 1] : v.route[pick];
 			onRoute = true;
+			// The pad is not on the navmesh: a route to it ends at the mesh edge in front of the
+			// ramp. Braking there (arrive) left a tank 322 from the centre, just outside the
+			// direct-drive range (dev_check 20261124-112956). Past that end drive at the pad.
+			if (v.padInside && pick + 1 == v.route.size() && Dist2D(origin, driveTo) < 300.0f &&
+				Dist2D(driveTo, routeTarget) > arrive)
+				driveTo = routeTarget;
 			if (pick + 1 < v.route.size() || Dist2D(origin, driveTo) > 300.0f || v.routePartial)
 				arrive = 0.0f;
 			// Preview the line the driver actually follows. Points skipped by

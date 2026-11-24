@@ -37,7 +37,7 @@ Numbers like `3.25` are stable item IDs used in commits, logs and [docs/OPEN_WOR
 | Team-director orders (5.4, 5.8, 5.28) | Validation | Free infantry split about 50/30/20 push/hold/defense via *attack location* orders; never overrides human orders; role locks (40 s), alert logic, flag avoidance. Shared flag attack seen (Coast `20261122-124709`); feel with humans open. |
 | Shared team economy (5.5a) | Built | Commander publishes a reserve; vehicle purchases keep it; richest-wages buyer goes first; bots hand over wages when a teammate types `wages`. |
 | Commander target call (5.30) | Built | A seated commander can redirect one attacking grenadier to an APC a teammate sees. |
-| Strategic adaptation (5.5) | Open | Resource-point value, rebuilding lost buildings, forward repair pad, second front barracks. |
+| Strategic adaptation (5.5) | Verified | The commander weighs map income against distance when choosing a refinery site. Escort choices also account for the engineer’s walk. A controlled Arid run (`20261124-112144`) selected the higher-yield site. In a ten-bot Palmbay match at normal speed (`20261124-112020`), NF chose between two sites and placed the refinery. Palmbay run `20261121-170243` showed recovery after a refinery loss. |
 
 ## Engineers
 

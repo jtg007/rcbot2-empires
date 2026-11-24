@@ -55,7 +55,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 </details>
 
 <details>
-<summary><strong>🎖️ Commander</strong> — <code>7 ✅</code> · <code>3 🟡</code> · <code>1 ⬜</code></summary>
+<summary><strong>🎖️ Commander</strong> — <code>8 ✅</code> · <code>3 🟡</code></summary>
 
 <br>
 
@@ -71,7 +71,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | 🟡 | **Human handover** | Yields the seat when a human enters or uses the CV *(not yet tested with a real player)* |
 | 🟡 | **Driving the CV** | Drives to distant build sites and slows to about 250 u/s in the last 800 units, so it no longer overshoots the site onto slopes; gives up after 25 s without progress and builds from its current spot |
 | 🟡 | **Team-director orders** | Splits free infantry into push / hold / defense (~50 / 30 / 20) via *attack location* orders; never overrides human orders. A flag with assigned living attackers is avoided for 120 seconds after 180 seconds without a 128-unit advance or a new friendly entry into its capture zone. Losing a core building keeps the team stabilizing for 60 seconds even if the CV recovers sooner |
-| ⬜ | **Strategic adaptation** | Prioritize resource points by value and react dynamically to lost buildings |
+| ✅ | **Strategic adaptation** | Weighs refinery income against distance, accounts for the engineer’s walk when sending an escort, and replans construction when buildings are lost |
 
 </details>
 
@@ -128,7 +128,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 | ✅ | **Purchasing** | Buys at built or map-placed vehicle factories; drives blocking empty vehicles out of the bay after observing an empty driver seat for five seconds. Movement over 100 units from the start of that interval restarts the timer. A nearby human teammate within 250 units keeps priority in the bay even after 30 seconds. Engine-reported bots from other plugins do not reserve the vehicle. The updated timer and human priority await a handover check |
 | ✅ | **Tech-scaled loadouts** | Upgrades chassis, weapons, armor, and engines as research & budget allow; keeps one APC at the front when APC Spawn is researched |
 | ✅ | **Driving** | Follows the navmesh, executes three-point turns, routes around buildings, building vehicle physboxes, and solid map props (trees, roadblocks) for all vehicle classes, and avoids drop-offs or water too deep for the chassis |
-| ✅ | **Retreat & repair** | Returns to the repair pad when damaged. A tank that moves less than 96 units from its last progress mark in eight seconds on the approach tries to free itself, even when rocking registers as speed. If repairs finish during a refit, it finishes sending the commands while it remains on the pad. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
+| ✅ | **Retreat & repair** | Returns to the repair pad when damaged. A tank that moves less than 96 units from its last progress mark in eight seconds on the approach tries to free itself, even when rocking registers as speed. If repairs finish during a refit, it finishes sending the commands while it remains on the pad. Where the route ends at the navmesh edge in front of the pad ramp, it drives straight onto the pad instead of stopping there. Without a pad, checks for a full vehicle route to a parking spot near the friendly CV. If all eight spots fail, waits locally and uses the existing retreat retry limit (pending gameplay verification) |
 | ✅ | **Roadkills** | Runs over enemy infantry |
 | ✅ | **Vehicle combat** | Cannon leads moving targets; hitscan MG tracks infantry up to 1200; shells buildings from 550–1500; angles strongest armor toward threats |
 | 🟡 | **Target priority** | Defend base (immediate CV threats first) → hunt spotted tanks → support front → push enemy buildings → enemy CV *(CV-threat override over APCs awaits match verification)* |

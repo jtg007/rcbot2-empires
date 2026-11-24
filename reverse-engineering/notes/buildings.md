@@ -40,6 +40,7 @@ Checks (in order): research (`ResearchIsItemUnlocked`, message "not researched")
 - Normal buildings: `CanBuildAt` (only type ≠ 0), cost > team resources (CEmpTeam+0x3b4 → +0x30 float) → Remove 0x652b82, `GetAllObstructions` ≠ 0 → Remove 0x652015.
 - Refinery: cost > resources, `CanBuildAt(point origin)`, hull trace 50 down at the point: only a `worldspawn` hit is allowed; `emp_eng_crate`/`prop_physics_multiplayer` are removed; any other entity (including a player inside the hull) → Remove 0x652d12. No `DistanceToCV` check in the refinery path except through `CanBuildAt`.
 - `CEmpGameRules::CanBuildAt(pos, team)` 0x397af0: true only if a **living non-commander teammate** is within 4000 (dist² < 16e6) **or the own CV** is within 4000; with CV distance > 1000 additionally false if a living enemy is < 1000 away or an enemy building is within a 1000 radius. The commander in the CV does not count as a teammate.
+- `CRefinery::CalculateResourceOutput` (0x6768f0) resolves the associated resource point and reads its float at +0x4ac (0x6769c0). This is the map's `ResourcesSecond` factor before global and building modifiers.
 - `GetAllObstructions` 0x387ed0 flags: 0x8 = > 4000 from the CV without a teammate in range, 0x40 = refinery without a resource point, 0x4/0x2 = resource point disabled/hull.
 - Costs (scripts_000.vpk buildings): Refinery 100, Armory 100, Repair 150, Barracks 300, Radar 400, VehicleFactory 500 (research "Vehicle Factory"), Turrets 75, Wall 15.
 
