@@ -11,6 +11,7 @@
 #include "bot_empires_commander_order_adapter.h"
 #include "bot_empires_leader_actuation.h"
 #include "bot_empires_vacancy_revive.h"
+#include "bot_empires_priority.h"
 #include "bot_navigator.h"
 #include "bot_navmesh_api.h"
 #include "bot_squad_order_recipient.h"
@@ -478,9 +479,22 @@ struct EmpiresVehicleBrain
 	int mgEngTicks = 0;
 	int mgEngHp0 = 0;
 	int mgEngHpLast = 0;
+	int cannonEyeLogged = -1;
+	float pitchLimitUntil = 0.0f; // 3.21a: cannon pitch clamped (target out of reach) until
+	bool pitchLimitDown = false;  // wanted lower than the limit (too close)
+	float pitchLimitLogAt = 0.0f;
+	int pitchRangeLogged = -1;
+	int cannonCacheVehicle = -1;  // vehicle the cached emp_tank_cannon index belongs to
+	int cannonCacheIndex = -1;
+	float cannonSearchAt = 0.0f;     // 3.21a: vehicle whose cannon pivot was logged
+	float mgEngHullOff = 0.0f;   // 3.21a: summed |hull yaw - target yaw| per tick
+	float mgEngTurretOff = 0.0f; // summed |turret yaw - target yaw| per tick
 	int goalKind = -1; // strategic goal: 0 defend, 1 hunt, 2 front support, 3 push (building), 4 CV
 	Vector skippedFront = Vector(0, 0, 0);
 	float skipFrontUntil = 0;
+	float escortWaitSince = 0.0f;       // TODO 8.4: holding for the escorting engineer
+	float escortWaitBlockedUntil = 0.0f;
+	float escortRepairHoldSince = 0.0f;
 	float nextParkSearch = 0.0f;
 	float parkProgressAt = 0.0f;
 	float parkBestDistance = 0.0f;
@@ -507,6 +521,9 @@ struct EmpiresVehicleBrain
 	bool weaponHeavyPresent = false; // the group has a cannon or missile launcher (3.10b)
 	bool weaponHeavyLeft = false;    // one of them still has magazine or reserve rounds
 	int weaponHeavyTotal = 0;        // magazine + reserve of those weapons (3.10b step 2)
+	int weaponGroup = -1;            // 3.10f: active fire group 0..5 (turret m_iGroup)
+	int weaponGroupCount = 0;        // highest group with a weapon + 1
+	float fireGroupSentAt = -10.0f;  // last emp_change_vehicweap
 	// 3.10b step 2: an ammo trip may end at a supply crate nearer than the pad.
 	int crateIndex = -1;             // crate driven to, -1 = pad
 	float crateNearSince = -1.0f;    // inside the crate's reach (1000) since
@@ -597,6 +614,7 @@ public:
 	void tickEmpiresVoidSuicide();
 	// Team director (bot_empires_team_director.cpp, TODO 5.4/5.8/5.28): team blackboard and kill-spawn.
 	void tickTeamDirector();
+	void tickEmpiresMatchFlow(); // bot_empires_match_flow.cpp, MATCH_FLOW.md
 	void tickEmpiresKillSpawn();
 	bool findNearestEmpiresSpawn(int team, const Vector& to, int& spawnId, Vector& at) const;
 	float m_flKillSpawnNextCheck = 0.0f;
@@ -617,6 +635,8 @@ public:
 	bool isEmpiresBillNye() const;
 	// Engineer walks to a team vehicle that called for repairs (getTasks).
 	bool handleEmpiresVehicleRepairRequest();
+	bool handleEmpiresWreckDeconstruct();
+	bool handleEmpiresFactoryBayEnemy();
 	// True while this engineer holds the team's vehicle repair call (claim not expired).
 	bool empiresVehicleRepairClaimed() const;
 	EmpiresVehicleBrain m_vehicle;
@@ -695,7 +715,7 @@ public:
 		float verifyResources = 0.0f;
 		std::vector<int> verifyBefore;
 		std::vector<std::pair<int, float>> refineryPointBlocked; // res index, until
-		struct AssignTry { int entity = 0; int tries = 0; float next = 0.0f; };
+		struct AssignTry { int entity = 0; int tries = 0; float next = 0.0f; int rounds = 0; int lastUserId = -1; };
 		std::vector<AssignTry> assignTries;
 		int lastLogKey = -1;
 		float escortUntil = 0.0f; // an Engineer walks toward a resource point out of reach
@@ -715,7 +735,9 @@ public:
 		std::vector<Vector> siteExcluded;
 	} m_commanderEconomy;
 	// An Engineer walks to one assigned building and works on it until full.
-	bool requestEmpiresBuildAssignment(edict_t* building);
+	// tier: EmpiresPriority tier of the order, -1 = from the building class (bot_empires_priority.h).
+	bool requestEmpiresBuildAssignment(edict_t* building, int tier = -1);
+	EmpiresPriority::Job empiresEngineerJob() const;
 	bool tickEmpiresEngibot(); // bot_empires_engibot.cpp
 	bool empiresRepairCallAllowed(edict_t* hurt); // bot_empires_vehicle.cpp
 	bool commanderOrderHoldsFrom(edict_t* vehicle); // bot_empires.cpp
@@ -728,6 +750,7 @@ public:
 	int m_iEmpiresTestGuardTarget = 0; // test-only: entindex acting as Guard target
 	void queueEmpiresBuildAssignRoute();
 	int m_iBuildAssignStage = 0;
+	int m_iBuildAssignTier = EmpiresPriority::TIER_IDLE;
 	int m_iBuildAssignAttempts = 0;
 	MyEHandle m_hBuildAssignBuilding;
 	float m_fBuildAssignStart = 0.0f;
@@ -784,7 +807,8 @@ public:
 	bool requestEmpiresEngineerBuildSelectionOnce();
 	bool requestEmpiresEngineerBuildOnce(int targetWaypoint = 147,
 		const Vector* targetOverride = nullptr,
-		bool requireFullHealth = false);
+		bool requireFullHealth = false,
+		int buildItem = 1);
 	bool requestEmpiresEngineerResupplyOnce(bool fixtureMode = true,
 		bool depletionOnly = false);
 	bool requestEmpiresMineFireOnce();
@@ -894,6 +918,19 @@ private:
 	// TODO 8.3: damaged standing own vehicle of a human (or parked empty) near this engineer.
 	edict_t* findEmpiresBuddyRepairVehicle(int& worstSide, bool& armorDamaged, int& driverUserId);
 	float m_flBuddyRepairScan = 0.0f;
+	// TODO 8.4: follow an own tank and repair it at the front (bot_empires_vehicle.cpp).
+	bool handleEmpiresTankEscort();
+	void endEmpiresTankEscort(const char* reason);
+	int m_iEscortVehicle = -1;
+	float m_flEscortNextScan = 0.0f;
+	float m_flEscortNextNav = 0.0f;
+	float m_flEscortProgressAt = 0.0f;
+	float m_flEscortBestDist = 1.0e9f;
+	float m_flEscortCooldownUntil = 0.0f;
+	int m_iEscortRejected = -1;
+	Vector m_vEscortNavGoal = Vector(0, 0, 0);
+	Vector m_vEscortTankLast = Vector(0, 0, 0);
+	Vector m_vEscortBehind = Vector(0, 0, 0);
 	void endEmpiresShaken(const char* reason);
 	void takeEmpiresMovement(const char* why);
 	float m_flShakenUntil = 0.0f;
@@ -943,6 +980,17 @@ private:
 	bool m_bHealAttacking = false;
 	bool m_bHealInReach = false;
 	Vector m_vHealNavGoal;
+	// 5.8a / 3.17: Engineer carcass deconstruction (VF bay & base wrecks) + Grenadier bay enemy clear.
+	int m_iWreckClearTarget = 0;
+	int m_iWreckClearLastHp = -1;
+	bool m_bWreckClearBay = false;
+	bool m_bWreckClearAttacking = false;
+	bool m_bWreckClearProgressLogged = false;
+	float m_flWreckClearNextSearch = 0.0f;
+	float m_flWreckClearNextNav = 0.0f;
+	float m_flWreckClearProgressAt = 0.0f;
+	float m_flWreckClearBestDist = 1.0e9f;
+	float m_flBayEnemyNextNav = 0.0f;
 	int m_iReviveTarget = 0;
 	int m_iReviveTargetUserId = -1;
 	struct ReviveRetry { int targetUserId; float until; };
@@ -978,6 +1026,7 @@ private:
 	int m_iTurretRefinery = 0;
 	int m_iTurretAttempt = 0;
 	int m_iTurretBuilding = 0;
+	int m_iTurretBuildItem = 1; // 1 = MG turret, 2 = ML turret
 	int m_iTurretAssignRejects = 0;
 	bool m_bEmpiresRepairRole = false; // skill plan: Repair first (builds turrets); Revive role stays with the team
 	bool m_bTurretBuildArmed = false;
@@ -1489,6 +1538,7 @@ private:
 	EmpiresEngineerBuildActionState m_eEmpiresEngineerBuildActionState =
 		EmpiresEngineerBuildActionState::IDLE;
 	int m_iEmpiresEngineerBuildActionTeam = -1;
+	int m_iEmpiresEngineerBuildActionItem = 1; // 1 = MG turret, 2 = ML turret
 	int m_iEmpiresEngineerBuildActionExpectedIndex = -1;
 	int m_iEmpiresEngineerBuildActionExpectedUserId = -1;
 	const edict_t* m_pEmpiresEngineerBuildActionExpectedEdict = nullptr;
@@ -1722,6 +1772,7 @@ private:
 	bool m_bEmpiresBuildingActionThrown = false;
 	// Engineer seismic throw (5.31.2): mode 1 with a ballistic pitch, plus a flight/damage trace.
 	bool m_bEmpiresBuildingActionSeismic = false;
+	bool m_bEmpiresBuildingActionSeismicRunning = false;
 	float m_flEmpiresSeismicPitch = 0.0f;
 	float m_flEmpiresSeismicHoldUntil = 0.0f;
 	int m_iSeismicBurstTarget = 0;

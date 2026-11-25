@@ -40,7 +40,6 @@ two paired matches (all on vs. all off) with no new stalls, kills 28 vs. 24.
 | 5.31 | Complete the classes (user wish: mainly Engineer). Order: 1 heal (done, verified in match) -> 2 seismic (built; open: run-up throw at firing turrets from outside their ~2000 range, map barricades `emp_eng_map_model`, damage on turrets/cameras, match acceptance) -> 3 ML turret (kit item 2) at refineries against vehicles -> 4 cameras/radar (items 4/5), walls (item 6), finish-repair after attacks (5.9) -> 5 Scout hide skill and sniper positions, Grenadier anti-tank positions and road mines (5.25) -> 6 couple a human medic call to the healing engineer (5.26) |
 | 5.5 / 5.5a | Front infrastructure (forward repair pad and an additional front barracks for redundancy); team economy (buyer choice, wages, late research) when a concrete purchase failed |
 | 3.10d / 3.10b | Mixed loadout refit on the pad and vehicle ammo for Medium/Heavy; two simultaneous ammo calls (`DEV_AMMO_TANKS=2`) |
-| 3.10f | Fire-group switching and missile in the loadout (user 14.11.): group 1 cannon/missile vs. buildings and vehicles, group 2 cannon/MG vs. infantry |
 | 5.25 | Class depth: Scout hide + sniper positioning, Grenadier anti-tank + road mines |
 | 5.8a / 5.8b | Clear the factory build spot (destroy enemy vehicle with a grenadier, dismantle wrecks); rainbowroad base expansion (forward barracks, pads, factories) |
 | 3.11 / 3.11a / 3.11b | Squad passengers in vehicles; rainbowroad jeep start; defend the rainbowroad refinery with about four ML turrets plus an MG turret in a line |

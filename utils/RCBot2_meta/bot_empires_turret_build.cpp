@@ -12,6 +12,7 @@
 #include "bot_schedule.h"
 #include "bot_cvars.h"
 #include "bot_empires_binary.h"
+#include "bot_empires_turret_plan.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -75,7 +76,8 @@ int PlayerTurretRestrict(edict_t* player)
 	return EmpiresPlayerTurretRestrict(player);
 }
 
-constexpr float kUpgradeReach = 70.0f; // game traces 115 from the eye (Command_emp_eng_upgrade 0x650830)
+// Game traces 115 from the eye (Command_emp_eng_upgrade 0x650830); ML turret hull radius is 64 + 16 player = 80.
+constexpr float kUpgradeReach = 96.0f;
 
 bool IsClassPrefix(edict_t* e, const char* prefix, const char* part)
 {
@@ -152,12 +154,14 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		if (full && m_iTurretBuilding < MAX_EDICTS && Dist2D(getOrigin(), CBotGlobals::entityOrigin(turret)) < 200.0f &&
 			(restrict = PlayerTurretRestrict(m_pEdict)) >= 0)
 			s_upgradeCap[m_iTurretBuilding] = {TurretSerial(turret), 3 - restrict};
-		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d health=%d/%d yaw=%.0f restrict=%d\n",
+		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d type=%s refinery=%d turret=%d health=%d/%d yaw=%.0f restrict=%d\n",
 			full ? "complete" : (alive ? "unfinished reason=assign-rejected" : "failed reason=turret-gone"),
-			userId, m_iTurretRefinery, m_iTurretBuilding, health, maxHealth, m_flTurretYaw, restrict);
+			userId, EmpiresTurretPlan::TurretLabelForItem(m_iTurretBuildItem), m_iTurretRefinery, m_iTurretBuilding,
+			health, maxHealth, m_flTurretYaw, restrict);
 		s_claim[m_iTurretRefinery] = {userId, now + 5.0f};
 		m_iTurretBuilding = 0;
 		m_iTurretRefinery = 0;
+		m_iTurretBuildItem = EmpiresTurretPlan::kItemMGTurret;
 		m_flTurretNextSearch = now + 3.0f;
 		return false;
 	}
@@ -168,17 +172,31 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		if (isEmpiresEngineerBuildActionActive())
 			return true;
 		m_bTurretBuildArmed = false;
+		const char* const wantPart = EmpiresTurretPlan::TurretPartForItem(m_iTurretBuildItem);
 		edict_t* turret = nullptr;
-		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities && turret == nullptr; ++i)
+		float bestDist = 250.0f;
+		bool bestUnfinished = false;
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 		{
 			edict_t* e = engine->PEntityOfEntIndex(i);
-			if (IsClassPrefix(e, "emp_building_", "turret") &&
-				Dist2D(CBotGlobals::entityOrigin(e), m_vTurretSpot) < 250.0f)
+			if (!IsClassPrefix(e, "emp_building_", wantPart) || CClassInterface::getTeam(e) != team)
+				continue;
+			const float d = Dist2D(CBotGlobals::entityOrigin(e), m_vTurretSpot);
+			if (d >= 250.0f)
+				continue;
+			int hp = -1, maxHp = -1;
+			const bool unfinished = readEmpiresEntityIntProperty(e, "m_iHealth", hp) &&
+				readEmpiresEntityIntProperty(e, "m_iMaxHealth", maxHp) && maxHp > 0 && hp < maxHp;
+			if (turret == nullptr || (unfinished && !bestUnfinished) || (unfinished == bestUnfinished && d < bestDist))
+			{
 				turret = e;
+				bestDist = d;
+				bestUnfinished = unfinished;
+			}
 		}
-		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d refinery=%d turret=%d spot=(%.0f %.0f %.0f) yaw=%.0f\n",
-			turret != nullptr ? "placed" : "failed", userId, m_iTurretRefinery,
-			turret != nullptr ? engine->IndexOfEdict(turret) : -1, m_vTurretSpot.x, m_vTurretSpot.y,
+		RCBOT_DIAG("[RCBOT2] refinery-turret %s userid=%d type=%s refinery=%d turret=%d spot=(%.0f %.0f %.0f) yaw=%.0f\n",
+			turret != nullptr ? "placed" : "failed", userId, EmpiresTurretPlan::TurretLabelForItem(m_iTurretBuildItem),
+			m_iTurretRefinery, turret != nullptr ? engine->IndexOfEdict(turret) : -1, m_vTurretSpot.x, m_vTurretSpot.y,
 			m_vTurretSpot.z, m_flTurretYaw);
 		if (turret != nullptr)
 		{
@@ -222,8 +240,14 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		const char* enemyCvClass = team == 2 ? "emp_imp_commander" : "emp_nf_commander";
 		Vector home, enemyHome;
 		bool haveHome = false, haveEnemyHome = false;
+		struct StandingTurret
+		{
+			Vector pos;
+			int team = 0;
+			bool isML = false;
+		};
 		std::vector<edict_t*> refineries;
-		std::vector<Vector> turrets;
+		std::vector<StandingTurret> turrets;
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 		{
 			edict_t* e = engine->PEntityOfEntIndex(i);
@@ -234,7 +258,8 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				IsClassPrefix(e, team == 2 ? "emp_building_nf_" : "emp_building_imp_", "refinery"))
 				refineries.push_back(e);
 			else if (IsClassPrefix(e, "emp_building_", "turret"))
-				turrets.push_back(CBotGlobals::entityOrigin(e));
+				turrets.push_back({CBotGlobals::entityOrigin(e), CClassInterface::getTeam(e),
+					std::strstr(cls, "mlturret") != nullptr});
 			else if (!haveHome && std::strcmp(cls, cvClass) == 0)
 			{
 				home = CBotGlobals::entityOrigin(e);
@@ -246,7 +271,9 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				haveEnemyHome = true;
 			}
 		}
-		float best = kSearchRange * 4.0f; // distance + 20000 per standing turret
+		const EmpiresTurretPlan::RefineryTurretTarget mapTarget =
+			EmpiresTurretPlan::TargetForMap(gpGlobals != nullptr ? STRING(gpGlobals->mapname) : nullptr);
+		float best = kSearchRange * 8.0f; // distance + 20000 per standing turret
 		int nOurs = 0, nClaimed = 0, nNoYaw = 0, nCovered = 0, nNoMesh = 0, nNoPath = 0;
 		for (edict_t* e : refineries)
 		{
@@ -265,47 +292,47 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 				++nClaimed;
 				continue;
 			}
-			float yaw = 0.0f;
-			if (!EmpiresFrontYaw(at, team, yaw))
+			float frontYaw = 0.0f;
+			if (!EmpiresFrontYaw(at, team, frontYaw))
 			{
 				if (!haveEnemyHome)
 				{
 					++nNoYaw;
 					continue;
 				}
-				yaw = std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f;
+				frontYaw = std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f;
 			}
-			// With two turret slots (rank, user 24.11.) a refinery takes a second turret, turned 70 degrees
-			// from the first; refineries without a turret come first.
-			int nearCount = 0;
-			for (const Vector& t : turrets)
-				nearCount += Dist2D(t, at) < kTurretNear + 100.0f ? 1 : 0;
-			if (nearCount >= (allotted >= 2 ? 2 : 1))
+			int nearMG = 0, nearML = 0;
+			for (const StandingTurret& t : turrets)
+			{
+				if (t.team != team || Dist2D(t.pos, at) >= mapTarget.countRadius)
+					continue;
+				if (t.isML)
+					++nearML;
+				else
+					++nearMG;
+			}
+			const float enemyYaw = haveEnemyHome ?
+				std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f : 0.0f;
+			const EmpiresTurretPlan::TurretDecision plan = EmpiresTurretPlan::PlanNextRefineryTurret(
+				mapTarget, nearMG, nearML, frontYaw, haveEnemyHome, enemyYaw, m_iTurretAttempt);
+			if (!plan.shouldBuild)
 			{
 				++nCovered;
 				continue;
 			}
-			// Failed tries turn the spot: 0, +45, -45, +90, -90.
-			static const float kTurn[] = {0.0f, 45.0f, -45.0f, 90.0f, -90.0f};
-			if (nearCount > 0)
-			{
-				// Second turret: the side away from the enemy, which the refinery wall covers (deployables).
-				float side = 70.0f;
-				if (haveEnemyHome)
-				{
-					const float enemyYaw = std::atan2(enemyHome.y - at.y, enemyHome.x - at.x) * 180.0f / 3.14159265f;
-					auto off = [](float a, float b) { float d = std::fmod(std::fabs(a - b), 360.0f); return d > 180.0f ? 360.0f - d : d; };
-					side = off(yaw + 70.0f, enemyYaw) >= off(yaw - 70.0f, enemyYaw) ? 70.0f : -70.0f;
-				}
-				yaw += side;
-			}
-			yaw += kTurn[m_iTurretAttempt % 5];
+			const float yaw = frontYaw + plan.yawOffsetDeg;
 			const float r = yaw * 3.14159265f / 180.0f;
 			const Vector dir(std::cos(r), std::sin(r), 0.0f);
 			Vector spot = at + dir * kStandOut;
+			if (mapTarget.lineFormation)
+			{
+				const Vector lat(-dir.y, dir.x, 0.0f);
+				spot += lat * plan.lateralOffset;
+			}
 			bool covered = false;
-			for (const Vector& t : turrets)
-				covered = covered || Dist2D(t, spot) < 200.0f;
+			for (const StandingTurret& t : turrets)
+				covered = covered || Dist2D(t.pos, spot) < 180.0f;
 			if (covered)
 			{
 				++nCovered;
@@ -337,11 +364,13 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 					continue;
 				}
 			}
+			const int nearCount = nearMG + nearML;
 			const float d = Dist2D(at, getOrigin()) + 20000.0f * static_cast<float>(nearCount);
 			if (Dist2D(at, getOrigin()) < kSearchRange && d < best)
 			{
 				best = d;
 				m_iTurretRefinery = index;
+				m_iTurretBuildItem = plan.buildItem;
 				m_vTurretSpot = spot;
 				m_flTurretYaw = yaw;
 			}
@@ -358,9 +387,9 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 		}
 		m_flTurretUntil = now + 60.0f;
 		m_flTurretNextNav = 0.0f;
-		RCBOT_DIAG("[RCBOT2] refinery-turret start userid=%d refinery=%d spot=(%.0f %.0f %.0f) yaw=%.0f dist=%.0f attempt=%d\n",
-			userId, m_iTurretRefinery, m_vTurretSpot.x, m_vTurretSpot.y, m_vTurretSpot.z, m_flTurretYaw, best,
-			m_iTurretAttempt);
+		RCBOT_DIAG("[RCBOT2] refinery-turret start userid=%d type=%s refinery=%d spot=(%.0f %.0f %.0f) yaw=%.0f dist=%.0f attempt=%d\n",
+			userId, EmpiresTurretPlan::TurretLabelForItem(m_iTurretBuildItem), m_iTurretRefinery,
+			m_vTurretSpot.x, m_vTurretSpot.y, m_vTurretSpot.z, m_flTurretYaw, best, m_iTurretAttempt);
 	}
 	s_claim[m_iTurretRefinery] = {userId, now + 3.0f};
 
@@ -405,11 +434,11 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	Vector ground;
 	if (GroundBelow(target, ground))
 		target = ground;
-	if (requestEmpiresEngineerBuildOnce(-1, &target, false))
+	if (requestEmpiresEngineerBuildOnce(-1, &target, false, m_iTurretBuildItem))
 	{
 		m_bTurretBuildArmed = true;
-		RCBOT_DIAG("[RCBOT2] refinery-turret place userid=%d refinery=%d target=(%.0f %.0f %.0f)\n", userId,
-			m_iTurretRefinery, target.x, target.y, target.z);
+		RCBOT_DIAG("[RCBOT2] refinery-turret place userid=%d type=%s refinery=%d target=(%.0f %.0f %.0f)\n", userId,
+			EmpiresTurretPlan::TurretLabelForItem(m_iTurretBuildItem), m_iTurretRefinery, target.x, target.y, target.z);
 		return true;
 	}
 	RCBOT_DIAG("[RCBOT2] refinery-turret end userid=%d refinery=%d reason=build-rejected\n", userId, m_iTurretRefinery);
@@ -555,10 +584,13 @@ bool CBotEmpires::handleEmpiresTurretUpgrade()
 			return end("map-max", level, 0.0f);
 		}
 	}
-	// Stand, look at the turret body and send the command once the view has settled.
+	// Stand, look at a verified MASK_SHOT point on the turret body (ML turret worldCenter can miss
+	// the studio hitbox) and send the command once the view has settled.
 	cancelNavigationAttempt("turret-upgrade-aim");
 	stopMoving();
-	setLookVector(CBotGlobals::worldCenter(turret));
+	Vector upgradeAim = CBotGlobals::worldCenter(turret);
+	findEmpiresKitAim(turret, getEyePosition(), upgradeAim, false);
+	setLookVector(upgradeAim);
 	setLookAtTask(LOOK_VECTOR);
 	if (m_flTurretUpgradeAimSince <= 0.0f)
 		m_flTurretUpgradeAimSince = now;

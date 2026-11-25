@@ -64,6 +64,7 @@ Player fields (CEmpPlayer): chassis +0x1670, weapons +0x1674[32][3] (int), group
 | `emp_vehicle_armor_levels <front> <rear> <left> <right>` | 5 | inches | 0x64cd40 |
 | `emp_vehicle_engine <slot> <engine>` | 3 | | 0x64a5d0 |
 | `emp_vehicle_build` | 1 | build | 0x652d70 |
+| `emp_change_vehicweap <1..6>` | 2 | select fire group N-1 (`CEmpPlayer::ChangeVehicleWeapon` 0x663160): only the driver (passenger role <= 0), only if the group differs from turret +0x534 (`m_iGroup`) and the tank's group byte +0x904+N-1 is set (group has a weapon); verified in game 2026-11-25 (run 113102) | 0x64c3e0 |
 
 Wrong argument count → the command is silently ignored (e.g. `emp_vehicle_weapon` with only 9 arguments has no effect).
 
@@ -396,3 +397,45 @@ symbols (`GetChangeAccessor`, `g_pSharedChangeInfo`) and stop the plugin from lo
 - `m_hPassengers` always reads 8 entries; seats beyond the chassis seat count read as empty.
 - Measured (`20261121-145414`, NF heavy tank boxed in by barriers): `emp_change_seat 1` moved the
   driver to seat 1, `emp_change_seat 0` back. Without a driver the vehicle stops.
+
+## Missile launcher in the bot loadout (2026-11-25)
+
+- `scripts/vehicle_weapons.txt` "Standard Missile Launcher" (ID 27): size 1, type 3, cost 40, weight 40,
+  damage 40, speed 2300, no gravity entry, `Dumb Missile 1` (flies straight), clip 4 x 6, cycle 1.1 s,
+  heat 6, splash 150. Projectile class `emp_predicted_missile`.
+- Missile slot (type 3): slot 2 on NF light/medium/heavy, BE AFV and BE medium; slot 3 on the BE heavy.
+- Bought in game (runs 111957, 111727): size-1 missile in size-2/3 slots accepted; NF light tank with
+  cannon+MG+missile and armour 2/1/2/2 (estimated 255 of 260) built without `Warning: Weapon`.
+  Whether the chassis weight limit is enforced at build was not tested.
+
+## Machine-gun aim: reference ray from the cannon, not from the driver (expert static inspection, 2026-11-25)
+
+- `CEmpTank::GetWeaponVectors(const char* bone, Vector& org, QAngle& ang, Vector& end, float dist)` 0x69add0
+  (called from `FireWeapons` 0x69c0c2 with dist = 56755.84 = MAX_TRACE_LENGTH, 0x475db3d7):
+  1. `SetCannonAttachment` 0x3e63c0: reference point/angles = attachment `c_weapon_passenger0_forward`
+     (0x975aeb) of the cannon entity (turret `m_hTurret` (tank +0xfcc) -> turret +0x478 = `emp_tank_cannon`);
+     without that attachment it falls back to `c_weapon_passenger0_type1` (0x975b07, the cannon muzzle).
+  2. Weapon origin = GetAttachment(bone) on the entity chosen by the bone prefix: `b_` hull, `t_` turret,
+     `c_` cannon (0x69b2a0..0x69b354).
+  3. Trace from the reference point along its forward vector for `dist`, mask 0x46004003 (MASK_SHOT, includes
+     hitboxes), filter = skip tank + turret (the cannon entity itself is not skipped).
+  4. If fraction < 1: shot angles = VectorAngles(normalize(trace.endpos - weapon origin)) (0x69b189..0x69b240),
+     i.e. every weapon converges on the point the cannon axis hits. Else: reference angles.
+- Driver viewangles only steer turret yaw and cannon pitch: `CEmpTankCannon::SetTargetRotation` 0x3e6d50 sets
+  pitch = clamp(AngleNormalize(view.x), min, max), limits blended front/rear by |yaw-90|/180. The cannon axis is
+  parallel to the view direction and passes through the cannon pivot.
+- Consequence: a bot computing viewangles from a fixed eye (hull origin + 90) shoots along a line offset by
+  (cannon pivot - eye). Cannon pivot height above hull origin (bind pose): NF heavy 143.7, NF medium 151.0
+  (+23.9 lateral), NF APC 130.5, BE heavy 100.3, BE medium 87.3, BE AFV/APC 103.5 (pivot 117 behind hull origin),
+  NF light 58.7. For NF heavy/medium/APC the axis passes 40-61 above the infantry centre; the trace hits ground far
+  behind and the MG converges there. Matches the match data (MG HP/s per fire second: NF heavy 1.6, NF medium 3.0,
+  NF APC 4.5 vs BE heavy 28.3, BE medium 13.8, NF light 14.2) and the 1x hold test (runs 20261125-121856 NF heavy
+  0 damage in 5 fights, 121916 BE heavy hits).
+- `CheckWeaponPenetration` 0x3e6f90 (called by `FireMachineGun` 0x3e7b11): traces from the cannon entity's abs
+  origin to the MG muzzle (mask 0x200400b, ignores tank and turret); if blocked, the MG does not fire.
+- Bot rule: compute the aim direction from the cannon entity's origin (pivot), not from hull origin + 90; use the
+  same point for the line-of-fire check. Attachment positions are bind-pose values from models_legacy_dir.vpk.
+- Measured 2026-11-25 (runs 131604, 131624): `emp_tank_cannon` `m_fMinPitch/m_fMaxPitch` NF heavy -30/+10,
+  BE heavy -20/+8 (AFV -25/+15 earlier); positive = down. A target below max pitch from the pivot is out of reach
+  for every turret weapon (minimum range = pivot height / tan(max)). `m_fDesiredLocalPitch` always reads 0 on the
+  server; `emp_tank_cannon` collision angles stay (0 90 0); turret collision yaw faces local +X.

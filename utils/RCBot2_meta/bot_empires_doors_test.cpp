@@ -132,6 +132,29 @@ void TestDirectionalClipAndBrushPolicies()
 	Expect(!EmpiresDoors::VehicleClipHitBlocks(false, false, false, 0.0f),
 		"vehicle clip miss does not block");
 }
+
+void TestUnbuiltBrushSupportPolicy()
+{
+	// Mvalley unbuilt dam ramp: area at -4268, real ground at -4409 (141 HU gap -> unsupported).
+	Expect(EmpiresDoors::UnbuiltBrushAreaUnsupported(-4268.0f, true, false, -4409.0f),
+		"mvalley unbuilt dam ramp area is unsupported");
+	// Unbuilt bridge over chasm (no ground hit within trace depth -> unsupported).
+	Expect(EmpiresDoors::UnbuiltBrushAreaUnsupported(-200.0f, false, false, 0.0f),
+		"unbuilt bridge with no ground hit is unsupported");
+	// Crossroads unbuilt gate ramp sits flush on road (gap 4 HU -> supported).
+	Expect(!EmpiresDoors::UnbuiltBrushAreaUnsupported(-100.0f, true, false, -104.0f),
+		"crossroads unbuilt ramp on flat road stays supported");
+	// Start-solid in world geometry means solid floor/wall is present -> not floating.
+	Expect(!EmpiresDoors::UnbuiltBrushAreaUnsupported(-100.0f, true, true, -100.0f),
+		"startsolid is not treated as floating");
+	// Escape exits from an unsupported ramp area: bottom exit (-4378) allowed, top (-4160) blocked.
+	Expect(EmpiresDoors::UnbuiltBrushExitAllowed(true, -4409.0f, -4378.0f),
+		"mvalley ramp bottom exit stays open as escape");
+	Expect(!EmpiresDoors::UnbuiltBrushExitAllowed(true, -4409.0f, -4160.0f),
+		"mvalley ramp top exit is blocked while unbuilt");
+	Expect(!EmpiresDoors::UnbuiltBrushExitAllowed(false, 0.0f, -4378.0f),
+		"no exit allowed when there is no ground underneath");
+}
 } // namespace
 
 int main()
@@ -140,6 +163,7 @@ int main()
 	TestCrossroadsTimedGate();
 	TestMvalleyDuplicateButtonNames();
 	TestDirectionalClipAndBrushPolicies();
+	TestUnbuiltBrushSupportPolicy();
 	if (g_failures > 0)
 	{
 		std::fprintf(stderr, "bot_empires_doors_test: %d failure(s)\n", g_failures);

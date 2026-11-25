@@ -80,11 +80,11 @@ namespace
 		const IHandleEntity* m_passEntity;
 	};
 
-	int countEmpiresEngineerMGTurrets(int* highestIndex = nullptr)
+	int countEmpiresEngineerTurrets(const char* turretClass, int* highestIndex = nullptr)
 	{
 		if (highestIndex != nullptr)
 			*highestIndex = -1;
-		if (servertools == nullptr || engine == nullptr)
+		if (servertools == nullptr || engine == nullptr || turretClass == nullptr)
 			return 0;
 
 		int count = 0;
@@ -99,7 +99,7 @@ namespace
 			edict_t* pEdict = pNetworkable != nullptr ?
 				pNetworkable->GetEdict() : nullptr;
 			if (className == nullptr || pEdict == nullptr || pEdict->IsFree() ||
-				std::strcmp(className, "emp_building_mgturret") != 0)
+				std::strcmp(className, turretClass) != 0)
 			{
 				continue;
 			}
@@ -1551,7 +1551,9 @@ void CBotEmpires::failEmpiresEngineerBuildAction(const char* reason)
 	if (logger != nullptr)
 	{
 		int highestIndex = -1;
-		const int turretCount = countEmpiresEngineerMGTurrets(&highestIndex);
+		const char* const turretClass = m_iEmpiresEngineerBuildActionItem == 2 ?
+			"emp_building_mlturret" : "emp_building_mgturret";
+		const int turretCount = countEmpiresEngineerTurrets(turretClass, &highestIndex);
 		logger->Log(LogLevel::WARN,
 			"Empires engineer build=result=FAIL index=%d userid=%d state=%d reason=%s frames=%d target_waypoint=%d baseline_turrets=%d current_turrets=%d baseline_max_index=%d current_max_index=%d attack_submitted=%d",
 			engine != nullptr && m_pEdict != nullptr ? engine->IndexOfEdict(m_pEdict) : -1,
@@ -1649,10 +1651,13 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 		m_bEmpiresEngineerBuildActionBaselineLogged = true;
 	}
 
+	const int wantBuildItem = m_iEmpiresEngineerBuildActionItem == 2 ? 2 : 1;
+	const char* const wantTurretClass = wantBuildItem == 2 ?
+		"emp_building_mlturret" : "emp_building_mgturret";
 	if (m_eEmpiresEngineerBuildActionState ==
 		EmpiresEngineerBuildActionState::WAITING_FOR_ACTIVE)
 	{
-		if (buildItem != 1)
+		if (buildItem != wantBuildItem)
 		{
 			if (!m_bEmpiresEngineerBuildActionCommandRequested)
 			{
@@ -1661,14 +1666,15 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 					failEmpiresEngineerBuildAction("client-command-helper-unavailable");
 					return;
 				}
-				helpers->ClientCommand(m_pEdict, "engSelect 1\n");
+				const char* const selectCmd = wantBuildItem == 2 ? "engSelect 2\n" : "engSelect 1\n";
+				helpers->ClientCommand(m_pEdict, selectCmd);
 				m_bEmpiresEngineerBuildActionCommandRequested = true;
 				m_eEmpiresEngineerBuildActionState =
 					EmpiresEngineerBuildActionState::WAITING_FOR_SELECTION;
 				if (logger != nullptr)
 					logger->Log(LogLevel::INFO,
-						"Empires engineer build=selection-requested index=%d userid=%d command=engSelect 1",
-						engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict));
+						"Empires engineer build=selection-requested index=%d userid=%d command=engSelect %d",
+						engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict), wantBuildItem);
 			}
 			return;
 		}
@@ -1680,7 +1686,7 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 	// successful placement. During result observation, the newly created
 	// turret is the authoritative success signal; do not turn that normal
 	// post-build state back into a selection failure.
-	if (buildItem != 1 &&
+	if (buildItem != wantBuildItem &&
 		m_eEmpiresEngineerBuildActionState !=
 			EmpiresEngineerBuildActionState::OBSERVING_RESULT)
 	{
@@ -1794,7 +1800,7 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 	}
 
 	int highestIndex = -1;
-	const int turretCount = countEmpiresEngineerMGTurrets(&highestIndex);
+	const int turretCount = countEmpiresEngineerTurrets(wantTurretClass, &highestIndex);
 	if (turretCount > m_iEmpiresEngineerBuildActionBaselineTurrets)
 	{
 		int resultIndex = -1;
@@ -1815,7 +1821,7 @@ void CBotEmpires::handleEmpiresEngineerBuildAction()
 			const char* className = pNetworkable != nullptr ?
 				pNetworkable->GetClassName() : nullptr;
 			if (pBuilding == nullptr || pBuilding->IsFree() || className == nullptr ||
-				std::strcmp(className, "emp_building_mgturret") != 0)
+				std::strcmp(className, wantTurretClass) != 0)
 				continue;
 			const int index = engine->IndexOfEdict(pBuilding);
 			if (index > m_iEmpiresEngineerBuildActionBaselineMaxIndex)

@@ -32,6 +32,8 @@ Synergy, FF ... files that Empires does not use). `scripts/` and `tools/` are co
 | `bot_empires_commander_economy.cpp` / `.h` | Automatic commander: seat entry, `emp_build` placement, build order, research, engineer assignment, CV drive/survival. Policy header is engine-free and unit tested. |
 | `bot_empires_commander_orders.cpp`, `bot_empires_commander_order_adapter.*` | Seated commander gives *attack location* orders like a human (`emp_unit_order_list` + `emp_unit_order`); MOVE order adapter and telemetry. |
 | `bot_empires_team_director.cpp` / `.h` | Per-team situation board (phases push/alert/stabilize, goals, alerts), role split, kill-spawn. `.h` is SDK-free. |
+| `bot_empires_priority.h` | Priority tiers 0–4 for engineer work (core, front, map play, comfort); a higher-tier build order preempts a lower-tier job. SDK-free, unit test `scripts/run_priority_tests.sh`. |
+| `bot_empires_match_flow.cpp` | Match-flow telemetry (debug log only): team status every 30 game seconds and building/vehicle events, checked by `scripts/match_flow.py` against `MATCH_FLOW.md`. |
 | `bot_empires_team_economy.h` | Shared money picture (reserve, buyer choice). Pure logic. |
 | `bot_empires_vehicle.cpp` / `bot_empires_vehicle_loadout.h` | Everything vehicles: buy, enter, drive, fight, retreat/repair, ammo, adopt, Bill Nye, test hooks (6900 lines; `tickEmpiresVehicle`). Loadout choice by research/budget in the header. |
 | `bot_empires_lawliet.cpp` / `.h` | Lawliet APC rush: team coordinator (about 0.5 s), crew tasks, UserCmd overrides. Policy in header (unit tested). |

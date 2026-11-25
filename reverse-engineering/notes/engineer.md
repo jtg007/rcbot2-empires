@@ -179,3 +179,21 @@ Static analysis; not measured. Also covers camera/radar (items 4/5).
   through the build action (`isEmpiresEngineerBuildActionActive`). The bot's "first-point" log line is only a timer.
 - Holding attack across several refires calls `BuildWalls` repeatedly; a jittered second aim point would complete a
   one-piece wall next to p0 (n >= 1). A single short press per endpoint is safer.
+
+## Kit clip refill and the repair upgrade during construction (static, 2026-11-25)
+
+- The kit clip is `m_iClip1` (+0x4c8), script `clip_size 100`, ammo type `AMMO_ENGINEER_RESOURCES`.
+  `CWeaponNFEngineerKit::Reload` (0x3be0b0) is a stub (returns 1). The clip only grows in `RegenerateAmmo`
+  (0x3cc830): clip += player +0x12b4 every player +0x12b0 seconds, up to player +0x12b8.
+- The engineer supply crate does **not** refill the clip: `CEngineerCrate::Use` (0x62bc60) calls `TryGiveAmmo`
+  for the active weapon and weapon slots; `GiveAmmo` (0x62bb50) adds a quarter of the class maximum of the weapon's
+  primary ammo type to the player's reserve (vfunc +0x408, table 0xc3547c, doubled with flag +0x1222). The kit never
+  moves reserve into the clip.
+- Construction is the repair path: `PrimaryAttack` calls `CEmpBuilding::Repair(amount)` (0x3d09a6) and then
+  `DeductAmmo(1)` (0x3d0329). `amount` = kit `+0x8f4` ("Repair Amount" 1), multiplied by `+0x8fc` ("Repair Modifier" 2)
+  when the repair-upgrade effect byte +0x121d is set (0x3cf5cd -> 0x3cfc90). The upgrade therefore doubles build HP per
+  clip unit and also the clip-less rate (regenerated units are spent at once). A global at 0xbf9bbc (+0x30 != 0)
+  forces amount 100 (likely a debug/instant-build convar).
+- The bot can choose skills only after its first spawn, so without help the first life ran without the upgrade
+  (Palmbay run 20261125-144235: `active repair=0` for 15 min). The bot now sets the slot-1 effect byte and active
+  slot like a pre-spawn choice (`rcbot_empires_engineer_first_perk_now`).

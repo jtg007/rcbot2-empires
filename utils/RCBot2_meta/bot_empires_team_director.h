@@ -525,6 +525,7 @@ inline int CountNearDeaths(const NearDeathRing& r, const float me[3], float now,
 // Runtime (bot_empires_team_director.cpp). Board of team 2/3 or nullptr before the first update.
 const EmpiresTeamDirector::Board* EmpiresTeamDirectorBoard(int team);
 void EmpiresTeamDirectorLevelReset();
+void EmpiresMatchFlowLevelReset(); // bot_empires_match_flow.cpp
 // TODO 8.1: a team member on foot was killed at pos (rcbot_empires_hot_zones).
 void EmpiresTeamDirectorRecordDeath(int team, float x, float y, float z, int userId, const char* how);
 // Test only (rcbotd empires_test_kill_zone): a living bot of the armed team inside the zone is killed once

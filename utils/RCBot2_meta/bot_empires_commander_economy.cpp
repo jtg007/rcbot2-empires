@@ -1171,6 +1171,7 @@ void CBotEmpires::tickCommanderEconomy()
 	// --- Engineers: living ones, and assignment of unfinished or damaged buildings. ---
 	int livingEngineers = 0;
 	std::vector<CBotEmpires*> freeEngineers;
+	std::vector<CBotEmpires*> engineers; // every living engineer; the priority ladder decides who may be pulled
 	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
 	{
 		CBot* bot = CBots::getBot(slot);
@@ -1181,6 +1182,7 @@ void CBotEmpires::tickCommanderEconomy()
 		if (!engineer->isEmpiresEngineerClass() || EmpiresIsEngibot(bot->getEdict()))
 			continue;
 		++livingEngineers;
+		engineers.push_back(engineer);
 		// A turret job finishes first; so does a claimed vehicle repair call (run 122757: the
 		// econ assignment pulled engineer #8 off a 27/150 tank twice, the tank waited 160 s).
 		if (engineer->m_iBuildAssignStage == 0 && engineer->m_iTurretRefinery == 0 &&
@@ -1416,9 +1418,32 @@ void CBotEmpires::tickCommanderEconomy()
 			return;
 		}
 	}
+	// Unfinished or damaged buildings by priority tier (TODO 9.2): core first, then front, then the rest;
+	// an engineer on a lower-tier job (turret, wall, camera, earlier assignment) can be pulled off.
+	bool haveFinishedBarracks = false;
+	for (const BuildingInfo& info : buildings)
+		haveFinishedBarracks = haveFinishedBarracks || (info.type == Barracks && info.health >= info.maxHealth);
+	std::vector<std::pair<int, const BuildingInfo*>> byTier;
 	for (const BuildingInfo& info : buildings)
 	{
-		if (info.health >= info.maxHealth || (freeEngineers.empty() && !commanderEngineer))
+		if (info.health >= info.maxHealth)
+			continue;
+		edict_t* e = engine->PEntityOfEntIndex(info.entity);
+		bool fullyBuilt = false;
+		const bool damaged = readEmpiresEntityBoolProperty(e, "m_bFullyBuilt", fullyBuilt) && fullyBuilt;
+		byTier.push_back({EmpiresPriority::BuildingTier(e->GetClassName(), !haveFinishedBarracks, damaged), &info});
+	}
+	std::stable_sort(byTier.begin(), byTier.end(), [](const std::pair<int, const BuildingInfo*>& a,
+		const std::pair<int, const BuildingInfo*>& b) { return a.first < b.first; });
+	for (const auto& tiered : byTier)
+	{
+		const BuildingInfo& info = *tiered.second;
+		const int tier = tiered.first;
+		std::vector<CBotEmpires*> candidates;
+		for (CBotEmpires* engineer : engineers)
+			if (EmpiresPriority::Preempts(tier, engineer->empiresEngineerJob()))
+				candidates.push_back(engineer);
+		if (candidates.empty() && !commanderEngineer)
 			continue;
 		edict_t* building = engine->PEntityOfEntIndex(info.entity);
 		bool taken = false;
@@ -1440,14 +1465,27 @@ void CBotEmpires::tickCommanderEconomy()
 			state.assignTries.push_back({info.entity, 0, 0.0f});
 			tries = &state.assignTries.back();
 		}
-		if (tries->tries >= kMaxAssignTries || now < tries->next)
+		if (tries->tries >= kMaxAssignTries)
+		{
+			// Tier 1/2 orders are never given up silently (R2, run 20261125-133129: NF radar given up after
+			// 6 refusals, BE pad and armory likewise): pause, then start the round of tries again.
+			if (!EmpiresPriority::NeverGiveUp(tier))
+				continue;
+			tries->tries = 0;
+			tries->next = now + EmpiresPriority::kRetryPause;
+			++tries->rounds;
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=commander-build stage=%d reason=unaccepted building=%d class=%s tier=%s candidates=%zu\n",
+				tries->rounds, info.entity, building->GetClassName(), EmpiresPriority::TierName(tier), candidates.size());
+			continue;
+		}
+		if (now < tries->next)
 			continue;
 		// The Commander Engineer builds it himself when it is in the safe zone around the CV,
 		// no enemy is near it and no other Engineer is close and not fighting (user 2026-11-12).
 		// Not for a scratch (run 100232: out of the CV for barracks 242/250 and armory 117/125,
 		// minutes to get back in, the vehicle factory never came); free Engineers still take those.
 		const bool scratch = info.health * 4 >= info.maxHealth * 3;
-		if (scratch && freeEngineers.empty())
+		if (scratch && candidates.empty())
 			continue;
 		if (commanderEngineer && !scratch)
 		{
@@ -1487,7 +1525,7 @@ void CBotEmpires::tickCommanderEconomy()
 				const bool goalFound = !drive || CommanderDriveGoal(at, back, cvDistance, goal);
 				if (!goalFound && cvDistance <= kCommanderWalkRange)
 					drive = false;
-				if (!goalFound && drive && freeEngineers.empty())
+				if (!goalFound && drive && candidates.empty())
 				{
 					tries->next = now + 10.0f;
 					continue;
@@ -1510,7 +1548,7 @@ void CBotEmpires::tickCommanderEconomy()
 					return;
 				}
 			}
-			if (freeEngineers.empty())
+			if (candidates.empty())
 			{
 				if (helper < 0 && state.lastSelfBuildSkip != info.entity)
 				{
@@ -1521,18 +1559,30 @@ void CBotEmpires::tickCommanderEconomy()
 				continue;
 			}
 		}
-		std::sort(freeEngineers.begin(), freeEngineers.end(), [&](CBotEmpires* a, CBotEmpires* b)
+		// Idle engineers first, then the one on the lowest-priority job, then the nearest; the engineer that
+		// last held this order goes last when another one exists (a stalled walk is not repeated by him).
+		std::sort(candidates.begin(), candidates.end(), [&](CBotEmpires* a, CBotEmpires* b)
 		{
-			return a->distanceFrom(building) < b->distanceFrom(building);
+			const bool aLast = engine->GetPlayerUserId(a->getEdict()) == tries->lastUserId;
+			const bool bLast = engine->GetPlayerUserId(b->getEdict()) == tries->lastUserId;
+			if (aLast != bLast)
+				return bLast;
+			return EmpiresPriority::BetterCandidate(a->empiresEngineerJob(), a->distanceFrom(building),
+				b->empiresEngineerJob(), b->distanceFrom(building));
 		});
 		++tries->tries;
 		tries->next = now + 10.0f;
-		const bool assigned = freeEngineers.front()->requestEmpiresBuildAssignment(building);
-		RCBOT_DIAG("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d\n",
-			info.entity, building->GetClassName(), info.health, info.maxHealth,
-			engine->GetPlayerUserId(freeEngineers.front()->getEdict()), assigned ? 1 : 0, tries->tries);
+		CBotEmpires* const chosen = candidates.front();
+		const EmpiresPriority::Job job = chosen->empiresEngineerJob();
+		const bool assigned = chosen->requestEmpiresBuildAssignment(building, tier);
 		if (assigned)
-			freeEngineers.erase(freeEngineers.begin());
+			tries->lastUserId = engine->GetPlayerUserId(chosen->getEdict());
+		RCBOT_DIAG("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d tier=%s job=%s\n",
+			info.entity, building->GetClassName(), info.health, info.maxHealth,
+			engine->GetPlayerUserId(chosen->getEdict()), assigned ? 1 : 0, tries->tries, EmpiresPriority::TierName(tier),
+			EmpiresPriority::TierName(job.tier));
+		if (assigned)
+			freeEngineers.erase(std::remove(freeEngineers.begin(), freeEngineers.end(), chosen), freeEngineers.end());
 		break; // one assignment per tick
 	}
 
@@ -2218,7 +2268,11 @@ void CBotEmpires::tickCommanderEconomy()
 		// Forward barracks first (user 2026-11-20): with the nearest own barracks far from the factory
 		// spot, buyers spawn there and walk across the map (Palmbay NF: ~6000 around a cliff ring, buyers
 		// timed out on the way). Build a barracks beside the spot, not in front of the ramp, then the factory.
-		if (type == VehicleFactory && now >= state.forwardBarracksRetryAt && resources >= kCost[Barracks])
+		// Only with room for two unfinished buildings (TODO 9.4b): with one Engineer the factory would wait
+		// for the half-built barracks (Palmbay BE 20261125-144235: +217 s); then the factory goes first and
+		// forward-barracks-after places the barracks beside it once the factory stands.
+		if (type == VehicleFactory && MaxUnfinished(livingEngineers) >= 2 && now >= state.forwardBarracksRetryAt &&
+			resources >= kCost[Barracks])
 		{
 			const Vector vf(at.x, at.y, at.z);
 			float nearestBarracks = 1.0e9f;
@@ -2323,6 +2377,29 @@ bool EmpiresFrontYaw(const Vector& at, int team, float& yaw)
 bool EmpiresTeamResources(int team, float& resources)
 {
 	return ReadTeamResources(team, resources);
+}
+
+// Research state for the match-flow telemetry (MATCH_FLOW.md). allDone also with emp_sv_research_complete 1.
+bool EmpiresReadResearchState(int team, int& active, bool& paused, bool& building, bool& vfDone, bool& allDone)
+{
+	static ConVar* researchComplete = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
+	if (researchComplete != nullptr && researchComplete->GetBool())
+	{
+		active = 0;
+		paused = false;
+		building = true;
+		vfDone = allDone = true;
+		return true;
+	}
+	TeamResearch research;
+	if (!EmpiresBinaryOffsetsTrusted() || !ReadTeamResearch(team, research))
+		return false;
+	active = research.active;
+	paused = research.paused;
+	building = research.building;
+	vfDone = research.done[kResearchVehicleFactory];
+	allDone = NextResearch(research.done, true) == 0;
+	return true;
 }
 
 // Adds delta to the team pool like emp_give_resources / InputModifyNFResources (0x647610 /

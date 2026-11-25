@@ -213,6 +213,27 @@ inline bool BrushStepHitBlocks(bool didHit, bool startSolid, bool allSolid, floa
 		return false;
 	return normalZ < 0.7f;
 }
+
+// True when a navmesh area overlapping an UNBUILT emp_eng_map_brush has no
+// real solid floor within maxGap (40 HU = navmesh max climb) underneath it —
+// e.g. emp_mvalley unbuilt dam ramps or as_escort/emp_isle unbuilt bridges.
+// Flat ground under an unbuilt Crossroads gate ramp stays supported (false).
+inline bool UnbuiltBrushAreaUnsupported(float areaZ, bool groundHit, bool startSolid, float groundZ,
+	float maxGap = 40.0f)
+{
+	if (startSolid)
+		return false;
+	if (!groundHit)
+		return true;
+	return (areaZ - groundZ) > maxGap;
+}
+
+// Outgoing escape links from an unsupported unbuilt-brush area stay open only
+// when the destination lies near or below the real ground under that area.
+inline bool UnbuiltBrushExitAllowed(bool groundHit, float groundZ, float destZ, float maxClimb = 40.0f)
+{
+	return groundHit && destZ <= groundZ + maxClimb;
+}
 } // namespace EmpiresDoors
 
 #endif

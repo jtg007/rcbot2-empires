@@ -3,6 +3,7 @@
 #include "bot_empires_telemetry.h"
 #include "bot_empires_team_director.h"
 #include "bot_empires_lawliet.h"
+#include "bot_empires_seismic_logic.h"
 #include "bot_globals.h"
 #include "bot_buttons.h"
 #include "bot_getprop.h"
@@ -1794,6 +1795,7 @@ void CBotEmpires::abortEmpiresBuildingAction(const char* reason)
 	m_hEmpiresBuildingActionTarget = nullptr;
 	m_iEmpiresBuildingActionMode = 0;
 	m_bEmpiresBuildingActionSeismic = false;
+	m_bEmpiresBuildingActionSeismicRunning = false;
 	m_flEmpiresBuildingActionUntil = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
 	m_flEmpiresSeismicHoldUntil = 0.0f;
@@ -1994,10 +1996,13 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		}
 		if (m_iEmpiresBuildingActionMode == 1)
 		{
-			stopMoving();
+			const bool seismic = m_bEmpiresBuildingActionSeismic;
+			const bool seismicRunning = seismic && m_bEmpiresBuildingActionSeismicRunning &&
+				!m_bEmpiresBuildingActionThrown && m_flEmpiresBuildingActionPressUntil <= 0.0f;
+			if (!seismicRunning)
+				stopMoving();
 			Vector aimPoint = targetCenter;
 			aimPoint.z += (std::min)(120.0f, dist * 0.25f);
-			const bool seismic = m_bEmpiresBuildingActionSeismic;
 			if (seismic)
 			{
 				// Ballistic view pitch from armEmpiresSeismicThrow (bot_empires_seismic.cpp).
@@ -2010,7 +2015,11 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			setLookAtTask(LOOK_VECTOR, 0.25f);
 			setLookVector(aimPoint);
 			if (now < m_flEmpiresBuildingActionReadyAt)
+			{
+				if (seismicRunning)
+					stopMoving();
 				return true;
+			}
 			if (seismic)
 			{
 				if (!m_pSchedules->isEmpty() || m_navigationIntent.active)
@@ -2018,20 +2027,42 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 					cancelNavigationAttempt("seismic-throw");
 					m_pSchedules->freeMemory();
 				}
-				holdEmpiresHealPosition();
+				if (!seismicRunning)
+					holdEmpiresHealPosition();
 			}
 			if (seismic && !m_bEmpiresBuildingActionThrown && m_flEmpiresBuildingActionPressUntil <= 0.0f)
 			{
-				// ThrowGrenade adds the player's velocity: throw only once standing.
-				Vector vel(0, 0, 0);
-				if (CClassInterface::getVelocity(m_pEdict, &vel) && vel.Length2D() > 30.0f)
-					return true;
 				QAngle want;
 				VectorAngles(aimPoint - getEyePosition(), want);
 				float dPitch = std::fabs(AngleNormalize(want.x) - AngleNormalize(m_vViewAngles.x));
 				float dYaw = std::fabs(AngleNormalize(want.y - m_vViewAngles.y));
-				if (dPitch > 2.0f || dYaw > 3.0f)
-					return true;
+				if (seismicRunning)
+				{
+					// Running throw (5.31.1): sprint toward the target until forward velocity reaches
+					// kRunReleaseMinSpeed, then release so the added speed carries the grenade past
+					// an MG turret's 2000-HU range; stop immediately after pressing attack.
+					setMoveTo(m_vSeismicTrackTargetAt);
+					Vector dir2d(m_vSeismicTrackTargetAt.x - getOrigin().x,
+						m_vSeismicTrackTargetAt.y - getOrigin().y, 0.0f);
+					const float dirLen = dir2d.Length2D();
+					Vector vel(0, 0, 0);
+					float fwdSpeed = 0.0f;
+					if (dirLen > 1.0f && CClassInterface::getVelocity(m_pEdict, &vel))
+						fwdSpeed = (vel.x * dir2d.x + vel.y * dir2d.y) / dirLen;
+					const bool runTimeout = (now - m_flEmpiresBuildingActionReadyAt) > 1.25f;
+					if (dPitch > 3.5f || dYaw > 6.0f ||
+						(!runTimeout && fwdSpeed < EmpiresSeismic::kRunReleaseMinSpeed))
+						return true;
+				}
+				else
+				{
+					// ThrowGrenade adds the player's velocity: throw only once standing.
+					Vector vel(0, 0, 0);
+					if (CClassInterface::getVelocity(m_pEdict, &vel) && vel.Length2D() > 30.0f)
+						return true;
+					if (dPitch > 2.0f || dYaw > 3.0f)
+						return true;
+				}
 			}
 			if (!m_bEmpiresBuildingActionThrown)
 			{
@@ -2154,6 +2185,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 			m_flEmpiresBuildingAttackNext = now + (seismic ? 1.0f : 0.8f);
 			m_flEmpiresSeismicHoldUntil = seismic ? now + 1.2f : 0.0f;
 			m_bEmpiresBuildingActionSeismic = false;
+	m_bEmpiresBuildingActionSeismicRunning = false;
 			return false;
 		}
 		if (m_iEmpiresBuildingActionMode == 2)

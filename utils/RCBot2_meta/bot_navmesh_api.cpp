@@ -447,6 +447,104 @@ int BlockSteepBrushEdges(edict_t *brush, const Vector &mins, const Vector &maxs,
 	return count;
 }
 
+int BlockUnsupportedBrushEdges(const Vector &mins, const Vector &maxs, const float seconds, const bool learned)
+{
+	if (!IsLoaded() || enginetrace == nullptr)
+		return 0;
+	class SolidSupportFilter : public CTraceFilter
+	{
+	public:
+		bool ShouldHitEntity(IHandleEntity *entity, int) override
+		{
+			IServerUnknown *unknown = static_cast<IServerUnknown *>(entity);
+			CBaseEntity *base = unknown != nullptr ? unknown->GetBaseEntity() : nullptr;
+			edict_t *e = base != nullptr && servergameents != nullptr ?
+				servergameents->BaseEntityToEdict(base) : nullptr;
+			if (e == nullptr)
+				return true;
+			const char *name = e->GetClassName();
+			if (name == nullptr)
+				return true;
+			if ((std::strcmp(name, "emp_eng_map_brush") == 0 || std::strcmp(name, "emp_eng_map_model") == 0) &&
+				!IsBuiltEmpiresMapObject(e))
+				return false;
+			return std::strcmp(name, "func_vehicleclip") != 0 &&
+				std::strcmp(name, "player") != 0 &&
+				std::strcmp(name, "emp_vehicle") != 0 &&
+				std::strcmp(name, "emp_resource_point") != 0 &&
+				std::strcmp(name, "emp_eng_restrict") != 0 &&
+				std::strcmp(name, "emp_comm_restrict") != 0 &&
+				std::strcmp(name, "emp_building_vehicle_physbox") != 0;
+		}
+	} filter;
+
+	int count = 0;
+	FOR_EACH_VEC(TheNavAreas, i)
+	{
+		CNavArea *area = TheNavAreas[i];
+		if (area == nullptr)
+			continue;
+		const Vector &nw = area->GetCorner(NORTH_WEST);
+		const Vector &se = area->GetCorner(SOUTH_EAST);
+		if (se.x <= mins.x || nw.x >= maxs.x || se.y <= mins.y || nw.y >= maxs.y)
+			continue;
+		const float ovMinX = (std::max)(nw.x, mins.x);
+		const float ovMaxX = (std::min)(se.x, maxs.x);
+		const float ovMinY = (std::max)(nw.y, mins.y);
+		const float ovMaxY = (std::min)(se.y, maxs.y);
+		Vector sample((ovMinX + ovMaxX) * 0.5f, (ovMinY + ovMaxY) * 0.5f, 0.0f);
+		sample.z = area->GetZ(sample);
+		if (sample.z < mins.z - 32.0f || sample.z > maxs.z + 32.0f)
+			continue;
+
+		Ray_t downRay;
+		downRay.Init(sample + Vector(0.0f, 0.0f, 18.0f), sample - Vector(0.0f, 0.0f, 320.0f));
+		trace_t downHit;
+		enginetrace->TraceRay(downRay, MASK_PLAYERSOLID, &filter, &downHit);
+		const bool groundHit = downHit.DidHit();
+		if (!EmpiresDoors::UnbuiltBrushAreaUnsupported(sample.z, groundHit, downHit.startsolid, downHit.endpos.z))
+			continue;
+
+		for (int dir = 0; dir < NUM_DIRECTIONS; ++dir)
+		{
+			const NavDirType navDir = static_cast<NavDirType>(dir);
+			for (int k = 0; k < area->GetAdjacentCount(navDir); ++k)
+			{
+				CNavArea *other = area->GetAdjacentArea(navDir, k);
+				if (other == nullptr)
+					continue;
+				// Block entering this unsupported area from any adjacent area.
+				BlockEdge(other->GetID(), area->GetID(), seconds, learned);
+				++count;
+				// Also block leaving it toward high/unreachable destinations (e.g. dam top or side walls),
+				// while keeping low ground exits open as an escape hatch.
+				Vector portal;
+				float halfWidth = 0.0f;
+				area->ComputePortal(other, navDir, &portal, &halfWidth);
+				const float destZ = other->GetZ(portal);
+				if (!EmpiresDoors::UnbuiltBrushExitAllowed(groundHit, downHit.endpos.z, destZ))
+				{
+					BlockEdge(area->GetID(), other->GetID(), seconds, learned);
+					++count;
+				}
+			}
+			const NavConnectVector *incoming = area->GetIncomingConnections(navDir);
+			if (incoming != nullptr)
+			{
+				FOR_EACH_VEC((*incoming), k)
+				{
+					CNavArea *src = (*incoming)[k].area;
+					if (src == nullptr)
+						continue;
+					BlockEdge(src->GetID(), area->GetID(), seconds, learned);
+					++count;
+				}
+			}
+		}
+	}
+	return count;
+}
+
 int BlockEdgesThroughBox(const Vector &mins, const Vector &maxs, const float seconds, const bool learned,
 	const Vector *keepEscapeFrom, const int keepFromArea)
 {

@@ -375,11 +375,11 @@ namespace
 	constexpr float kEmpiresVehicleTutorialTeleportWait = 5.0f;
 	constexpr float kEmpiresVehicleRouteSearchRange = 16384.0f;
 
-	int countEmpiresEngineerMGTurrets(int* highestIndex = nullptr)
+	int countEmpiresEngineerTurrets(const char* turretClass, int* highestIndex = nullptr)
 	{
 		if (highestIndex != nullptr)
 			*highestIndex = -1;
-		if (servertools == nullptr || engine == nullptr)
+		if (servertools == nullptr || engine == nullptr || turretClass == nullptr)
 			return 0;
 
 		int count = 0;
@@ -394,7 +394,7 @@ namespace
 			edict_t* pEdict = pNetworkable != nullptr ?
 				pNetworkable->GetEdict() : nullptr;
 			if (className == nullptr || pEdict == nullptr || pEdict->IsFree() ||
-				std::strcmp(className, "emp_building_mgturret") != 0)
+				std::strcmp(className, turretClass) != 0)
 			{
 				continue;
 			}
@@ -1039,6 +1039,7 @@ void CBotEmpires::setup()
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
 	m_bEmpiresBuildingActionSeismic = false;
+	m_bEmpiresBuildingActionSeismicRunning = false;
 	m_flEmpiresSeismicHoldUntil = 0.0f;
 	m_iSeismicBurstTarget = 0;
 	m_iSeismicBurstThrows = 0;
@@ -1222,6 +1223,7 @@ void CBotEmpires::setup()
 	m_flEmpiresEngineerBuildSelectionDeadline = 0.0f;
 	m_eEmpiresEngineerBuildActionState = EmpiresEngineerBuildActionState::IDLE;
 	m_iEmpiresEngineerBuildActionTeam = -1;
+	m_iEmpiresEngineerBuildActionItem = 1;
 	m_iEmpiresEngineerBuildActionExpectedIndex = -1;
 	m_iEmpiresEngineerBuildActionExpectedUserId = -1;
 	m_pEmpiresEngineerBuildActionExpectedEdict = nullptr;
@@ -1961,7 +1963,7 @@ void CBotEmpires::handleWeapons()
 	// without this the no-enemy branch below lets IN_ATTACK go before doButtons (expert 15.11.).
 	// Same for engineer deployables (camera/radar/walls, expert 24.11.).
 	if (m_iAmmoCrateStage >= 3 || m_deploy.stage >= 2 || m_iEmpiresBuildingActionMode != 0 || lawlietBlocksWeapons() ||
-		m_bHealAttacking)
+		m_bHealAttacking || m_bWreckClearAttacking)
 		return;
 
 	const bool coverScheduleActive =
@@ -2557,6 +2559,7 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
 	m_bEmpiresBuildingActionSeismic = false;
+	m_bEmpiresBuildingActionSeismicRunning = false;
 	m_flEmpiresSeismicHoldUntil = 0.0f;
 	m_iSeismicBurstTarget = 0;
 	m_iSeismicBurstThrows = 0;
@@ -6292,6 +6295,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		if (handleEmpiresVehicleRepairRequest())
 			return;
 
+		if (handleEmpiresWreckDeconstruct())
+			return;
+
 		if (handleEmpiresAmmoRequest())
 			return;
 
@@ -6308,6 +6314,10 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		if (handleEmpiresEngineerDeployables())
 			return;
 
+		// TODO 8.4: walk with an own tank and repair it at the front.
+		if (handleEmpiresTankEscort())
+			return;
+
 		if (handleEmpiresDoorButton())
 			return;
 
@@ -6315,6 +6325,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			return;
 
 		if (handleEmpiresBuildingAttack())
+			return;
+
+		if (handleEmpiresFactoryBayEnemy())
 			return;
 
 		if (requestEmpiresCaptureApproach())
@@ -6496,6 +6509,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	return;
 }
 
+ConVar rcbot_empires_engineer_first_perk_now("rcbot_empires_engineer_first_perk_now", "1", 0,
+	"1 = an engineer's slot-1 perk (repair/revive) is active from its first life, as if picked before spawning (TODO 9.3)");
+
 // Engineer skill plan (user request 2026-11-11): with two engineers one
 // takes Repair Upgrade first, the other Revive; the second slot gets the
 // other one, the third Turret Upgrade, the fourth Healing Upgrade. Skill codes
@@ -6612,14 +6628,21 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 	// new EngiBot repaired without the upgrade for a whole life. Set what the spawn would set: effect
 	// byte +0x121d (AddSkill 0x66312b, read by the kit 0x3cf5cd) and active slot 1 (+0x11f0)
 	// (user 15.11.: EngiBots have the repair upgrade from the start; RE notes skills.md).
-	if (base != nullptr && EmpiresIsEngibot(m_pEdict) && wanted[0] == kRepair)
+	// Every engineer (TODO 9.3): a human picks the free slot-1 perk before the first spawn; the bot can only
+	// send it afterwards, so its first life (the one that builds the vehicle factory) ran without it
+	// (Palmbay 20261125-144235: active repair=0 for 15 min). The repair upgrade doubles construction per clip
+	// unit and without clip (kit 0x3cf5cd -> CEmpBuilding::Repair(1*2), DeductAmmo(1) at 0x3d0329).
+	if (base != nullptr && (EmpiresIsEngibot(m_pEdict) || rcbot_empires_engineer_first_perk_now.GetBool()))
 	{
 		char* b = reinterpret_cast<char*>(base);
-		if (b[0x121d] == 0)
+		int* active = reinterpret_cast<int*>(b + 0x11f0);
+		const int effect = wanted[0] == kRepair ? 0x121d : (wanted[0] == kRevive ? 0x121f : 0);
+		if (effect != 0 && (*active == 0 || *active == wanted[0]) && b[effect] == 0)
 		{
-			b[0x121d] = 1;
-			*reinterpret_cast<int*>(b + 0x11f0) = kRepair;
-			RCBOT_DIAG("[RCBOT2] engibot repair-upgrade userid=%d set=1\n", myId);
+			b[effect] = 1;
+			*active = wanted[0];
+			RCBOT_DIAG("[RCBOT2] engineer first-perk userid=%d skill=%s engibot=%d\n", myId,
+				wanted[0] == kRepair ? "repair" : "revive", EmpiresIsEngibot(m_pEdict) ? 1 : 0);
 		}
 	}
 	// m_bSkillIncreasedRepair is no SendProp (always read false): read the effect byte instead.
@@ -6665,6 +6688,7 @@ void CBotEmpires::modThink()
 		abortEmpiresBuildingAction("enemy");
 	}
 	tickTeamDirector();
+	tickEmpiresMatchFlow();
 	if (EmpiresTestKillZoneHit(m_pEdict, getTeam(), getOrigin()) && EmpiresVehiclePlayerVehicle(this, m_pEdict) < 0)
 	{
 		const Vector at = getOrigin();
@@ -6687,7 +6711,7 @@ void CBotEmpires::modThink()
 			handleEmpiresRevive();
 		if (m_iReviveTarget == 0)
 			handleEmpiresHeal();
-		if (!handleEmpiresAmmoRequest() && !engibot && !handleEmpiresRefineryTurret())
+		if (!handleEmpiresAmmoRequest() && !handleEmpiresWreckDeconstruct() && !engibot && !handleEmpiresRefineryTurret())
 			handleEmpiresEngineerDeployables();
 		tickEmpiresHealPatient();
 		tickEmpiresSeismicTrack();
@@ -7631,24 +7655,51 @@ bool CBotEmpires::empiresDeployBusy() const
 	return m_deploy.stage >= 2 || (m_deploy.stage == 1 && (getOrigin() - m_deploy.stand).Length2D() < 800.0f);
 }
 
-bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
+// What this engineer is doing, for the priority ladder (TODO 9.2, bot_empires_priority.h). Jobs that are
+// seconds from done (a placement action, an ammo crate, a claimed vehicle repair) are not interrupted.
+EmpiresPriority::Job CBotEmpires::empiresEngineerJob() const
 {
-	// A started refinery-turret job finishes first (user rule 2026-11-12: no detours).
-	if (m_iTurretRefinery != 0 && building != nullptr && !building->IsFree() &&
-		engine != nullptr && engine->IndexOfEdict(building) != m_iTurretBuilding)
-		return false;
-	// So does a taken ammo call (3.10b step 3): the crate takes seconds once there.
-	if (m_iAmmoCrateStage != 0)
-		return false;
-	// And a refinery wall/radar job that is at work or nearly there (match 20261124-124106: 17 jobs taken
-	// away on the way, no wall finished); a far walk still yields to the dispatcher.
-	if (empiresDeployBusy())
-		return false;
-	if (m_iBuildAssignStage != 0 || building == nullptr || building->IsFree() ||
-		building->GetUnknown() == nullptr || m_pSchedules == nullptr || !isAlive() ||
-		isControlledTestOnly() || commanderVehicleEntryActive() || engine == nullptr)
-		return false;
+	using namespace EmpiresPriority;
+	if (m_iAmmoCrateStage != 0 || empiresVehicleRepairClaimed())
+		return Job{TIER_FRONT, false};
+	if (m_bTurretBuildArmed)
+		return Job{TIER_COMFORT, false};
+	if (m_iBuildAssignStage != 0)
+		return Job{m_iBuildAssignTier, true};
+	if (m_iTurretRefinery != 0 || m_iTurretUpgrade != 0 || m_deploy.stage != 0)
+		return Job{TIER_COMFORT, true};
+	return Job{};
+}
 
+bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building, int tier)
+{
+	if (building == nullptr || building->IsFree() || building->GetUnknown() == nullptr || engine == nullptr)
+		return false;
+	// One priority ladder instead of single exceptions (TODO 9.2): a higher-tier order preempts a running
+	// lower-tier job (turret, wall/camera, an earlier assignment); the turret and deploy jobs yield while an
+	// assignment runs and pick up again afterwards. Run 20261125-133129: the NF radar was refused 6x for a
+	// refinery turret and then never built (922 s), the BE pad and armory for a refinery wall.
+	if (tier < 0)
+	{
+		bool fullyBuilt = false;
+		int hp = 0, maxHp = 0;
+		const bool damagedFinished = readEmpiresEntityBoolProperty(building, "m_bFullyBuilt", fullyBuilt) && fullyBuilt &&
+			readEmpiresEntityIntProperty(building, "m_iHealth", hp) && readEmpiresEntityIntProperty(building, "m_iMaxHealth", maxHp) &&
+			hp < maxHp;
+		tier = EmpiresPriority::BuildingTier(building->GetClassName(), false, damagedFinished);
+	}
+	EmpiresPriority::Job job = empiresEngineerJob();
+	const int index = engine->IndexOfEdict(building);
+	// The turret job handing its own placed turret to build-assign is its next step, not a preemption.
+	if (m_iBuildAssignStage == 0 && !m_bTurretBuildArmed && m_iTurretBuilding != 0 && index == m_iTurretBuilding)
+		job = EmpiresPriority::Job{};
+	if (m_iBuildAssignStage != 0 && m_hBuildAssignBuilding.get() == building)
+		return false; // already on it
+	if (!EmpiresPriority::Preempts(tier, job))
+		return false;
+	if (!isAlive() || m_pSchedules == nullptr || isControlledTestOnly() || commanderVehicleEntryActive())
+		return false;
+	const bool preempting = job.tier != EmpiresPriority::TIER_IDLE;
 	int classId = -1;
 	bool classDesired = false;
 	bool classDesiredKnown = false;
@@ -7661,6 +7712,23 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	if (!findEmpiresBuildStandSpot(building, spot))
 		return false;
 
+	if (preempting)
+	{
+		RCBOT_DIAG("[RCBOT2] priority preempt userid=%d building=%d class=%s tier=%s over=%s job=%s\n",
+			engine->GetPlayerUserId(m_pEdict), index, building->GetClassName(), EmpiresPriority::TierName(tier),
+			EmpiresPriority::TierName(job.tier), m_iBuildAssignStage != 0 ? "build-assign" :
+			(m_deploy.stage != 0 ? "deploy" : "turret"));
+		if (m_iBuildAssignStage != 0)
+		{
+			RCBOT_DIAG("[RCBOT2] build-assign result=PREEMPTED userid=%d building=%d tier=%s\n", engine->GetPlayerUserId(m_pEdict),
+				m_hBuildAssignBuilding.get() != nullptr ? engine->IndexOfEdict(m_hBuildAssignBuilding.get()) : -1,
+				EmpiresPriority::TierName(m_iBuildAssignTier));
+			if (isEmpiresEngineerRepairActionActive())
+				failEmpiresEngineerRepairAction("build-assign-preempted");
+			m_iBuildAssignStage = 0;
+		}
+	}
+
 	// A synthetic move (Commander escort toward a resource point) owns getTasks ahead of
 	// the assignment; the building is the reason for the walk, so it takes over.
 	if (m_bEmpiresCommanderMoveTestActive ||
@@ -7670,6 +7738,7 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	m_hBuildAssignBuilding = building;
 	m_vBuildAssignSpot = spot;
 	m_iBuildAssignStage = 1;
+	m_iBuildAssignTier = tier;
 	m_iBuildAssignAttempts = 0;
 	m_fBuildAssignStart = engine->Time();
 	m_fBuildAssignNextTry = 0.0f;
@@ -7682,9 +7751,9 @@ bool CBotEmpires::requestEmpiresBuildAssignment(edict_t* building)
 	cancelNavigationAttempt("build-assignment-replaced");
 	m_pSchedules->freeMemory();
 	queueEmpiresBuildAssignRoute();
-	RCBOT_DIAG("[RCBOT2] build-assign stage=approach userid=%d building=%d distance=%.1f spot=(%.0f %.0f %.0f)\n",
+	RCBOT_DIAG("[RCBOT2] build-assign stage=approach userid=%d building=%d distance=%.1f spot=(%.0f %.0f %.0f) tier=%s\n",
 		engine->GetPlayerUserId(m_pEdict), engine->IndexOfEdict(building),
-		distanceFrom(building), spot.x, spot.y, spot.z);
+		distanceFrom(building), spot.x, spot.y, spot.z, EmpiresPriority::TierName(tier));
 	return true;
 }
 
@@ -12746,11 +12815,12 @@ bool CBotEmpires::requestEmpiresEngineerBuildSelectionOnce()
 }
 
 bool CBotEmpires::requestEmpiresEngineerBuildOnce(const int targetWaypoint,
-	const Vector* targetOverride, const bool requireFullHealth)
+	const Vector* targetOverride, const bool requireFullHealth, const int buildItem)
 {
 	if ((targetOverride == nullptr && (targetWaypoint < 0 ||
 		targetWaypoint >= CWaypoints::MAX_WAYPOINTS)) ||
 		(targetOverride != nullptr && !targetOverride->IsValid()) ||
+		(buildItem != 1 && buildItem != 2) ||
 		isEmpiresEngineerRepairActionActive() ||
 		isEmpiresEngineerBuildSelectionActive() ||
 		isEmpiresEngineerBuildActionActive() || isEmpiresMortarProbeActive() ||
@@ -12789,7 +12859,9 @@ bool CBotEmpires::requestEmpiresEngineerBuildOnce(const int targetWaypoint,
 	}
 
 	int baselineMaxIndex = -1;
-	const int baselineTurrets = countEmpiresEngineerMGTurrets(&baselineMaxIndex);
+	const char* const turretClass = buildItem == 2 ?
+		"emp_building_mlturret" : "emp_building_mgturret";
+	const int baselineTurrets = countEmpiresEngineerTurrets(turretClass, &baselineMaxIndex);
 	if (m_pSchedules != nullptr)
 		m_pSchedules->freeMemory();
 	if (m_pNavigator != nullptr)
@@ -12802,6 +12874,7 @@ bool CBotEmpires::requestEmpiresEngineerBuildOnce(const int targetWaypoint,
 	stopMoving();
 
 	m_iEmpiresEngineerBuildActionTeam = team;
+	m_iEmpiresEngineerBuildActionItem = buildItem;
 	m_iEmpiresEngineerBuildActionExpectedIndex = engine->IndexOfEdict(m_pEdict);
 	m_iEmpiresEngineerBuildActionExpectedUserId = engine->GetPlayerUserId(m_pEdict);
 	m_pEmpiresEngineerBuildActionExpectedEdict = m_pEdict;
@@ -16267,6 +16340,7 @@ void CBotEmpires::freeMapMemory()
 	m_flEmpiresEngineerBuildSelectionDeadline = 0.0f;
 	m_eEmpiresEngineerBuildActionState = EmpiresEngineerBuildActionState::IDLE;
 	m_iEmpiresEngineerBuildActionTeam = -1;
+	m_iEmpiresEngineerBuildActionItem = 1;
 	m_iEmpiresEngineerBuildActionExpectedIndex = -1;
 	m_iEmpiresEngineerBuildActionExpectedUserId = -1;
 	m_pEmpiresEngineerBuildActionExpectedEdict = nullptr;
@@ -16370,6 +16444,7 @@ void CBotEmpires::freeMapMemory()
 	m_iTurretRefinery = 0;
 	m_iTurretAttempt = 0;
 	m_iTurretBuilding = 0;
+	m_iTurretBuildItem = 1;
 	m_iTurretAssignRejects = 0;
 	m_bTurretBuildArmed = false;
 	m_iAmmoCrateStage = 0;
@@ -16381,6 +16456,16 @@ void CBotEmpires::freeMapMemory()
 	m_iHealSkipUserId = -1;
 	m_flHealNextSearch = 0.0f;
 	m_bHealAttacking = false;
+	m_iWreckClearTarget = 0;
+	m_iWreckClearLastHp = -1;
+	m_bWreckClearBay = false;
+	m_bWreckClearAttacking = false;
+	m_bWreckClearProgressLogged = false;
+	m_flWreckClearNextSearch = 0.0f;
+	m_flWreckClearNextNav = 0.0f;
+	m_flWreckClearProgressAt = 0.0f;
+	m_flWreckClearBestDist = 1.0e9f;
+	m_flBayEnemyNextNav = 0.0f;
 	m_vTurretSpot = vec3_origin;
 	m_flTurretYaw = 0.0f;
 	m_flTurretUntil = 0.0f;
@@ -16430,6 +16515,7 @@ void CBotEmpires::freeMapMemory()
 	m_flEmpiresBuildingActionReadyAt = 0.0f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
 	m_bEmpiresBuildingActionSeismic = false;
+	m_bEmpiresBuildingActionSeismicRunning = false;
 	m_flEmpiresSeismicHoldUntil = 0.0f;
 	m_iSeismicBurstTarget = 0;
 	m_iSeismicBurstThrows = 0;

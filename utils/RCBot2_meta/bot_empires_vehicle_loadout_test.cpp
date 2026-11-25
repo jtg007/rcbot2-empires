@@ -126,6 +126,33 @@ int main()
 			"VL-15 BE heavy upgraded refit");
 	}
 
+	// 4b. 3.10f missile launcher: slot 2 (BE heavy slot 3), weight kept, budget respected.
+	{
+		const Loadout nfLight = ChoosePurchaseLoadout(true, false, none, -1.0f, false, true);
+		Require(nfLight.missileSlot == 2 && nfLight.missileWeapon == kWeaponStdMissile &&
+			nfLight.armorLevels[1] == 1 && nfLight.totalWeight == 255 && nfLight.estimatedCost == 274 + 40 - 8,
+			"VL-16 NF light tank drops one rear plate to carry the missile");
+		const Loadout beAfv = ChoosePurchaseLoadout(false, false, none, -1.0f, false, true);
+		Require(beAfv.missileSlot == 2 && beAfv.armorLevels[1] == 2 && beAfv.estimatedCost == 264 &&
+			beAfv.totalWeight <= beAfv.maxWeight, "VL-17 BE AFV missile in slot 2, full armour");
+		const Loadout poor = ChoosePurchaseLoadout(false, false, none, 240.0f, false, true);
+		Require(poor.chassis == 10 && poor.missileSlot == -1, "VL-18 no missile when the budget is short");
+		const Loadout off = ChoosePurchaseLoadout(true, false, none, -1.0f);
+		Require(off.missileSlot == -1 && off.armorLevels[1] == 2, "VL-19 missile off by default");
+		bool full[kResearchItemCount] = {};
+		full[kResearchHeavyTank] = full[kResearchGasTurbineEngine] = true;
+		const Loadout beHeavy = ChoosePurchaseLoadout(false, false, full, 2500.0f, false, true);
+		Require(beHeavy.chassis == 13 && beHeavy.missileSlot == 3 && beHeavy.totalWeight <= beHeavy.maxWeight,
+			"VL-20 BE heavy missile in slot 3");
+		const Loadout nfGas = ChoosePurchaseLoadout(true, false, full, 400.0f, false, true);
+		Require(nfGas.chassis == 2 && nfGas.missileSlot == 2 && nfGas.engine == kEngineLightGas &&
+			nfGas.armorLevels[1] == 2 && nfGas.totalWeight == 260, "VL-21 NF light gas engine keeps full armour");
+		const Loadout refit = ChooseRefitLoadout(true, 2, none, false, 1000.0f, true);
+		Require(refit.missileSlot == 2 && refit.armorLevels[1] == 1, "VL-22 refit keeps the missile loadout");
+		const Loadout apc = ChoosePurchaseLoadout(true, false, none, -1.0f, true, true);
+		Require(apc.isApc() && apc.missileSlot == -1, "VL-23 APC never gets a missile");
+	}
+
 	// 5. Exhaustive weight invariant across all tech & team combinations.
 	for (int team = 0; team < 2; ++team)
 	{
@@ -140,6 +167,11 @@ int main()
 			{
 				const Loadout l = ChoosePurchaseLoadout(team == 0, false, tech, budget);
 				Require(l.totalWeight <= l.maxWeight, "VL-INV weight within chassis max");
+				const Loadout m = ChoosePurchaseLoadout(team == 0, false, tech, budget, false, true);
+				Require(m.totalWeight <= m.maxWeight && (budget < 0.0f || m.estimatedCost <= budget ||
+					m.estimatedCost == l.estimatedCost), "VL-INV missile weight and budget");
+				Require(m.missileSlot < 0 || (m.missileSlot != m.cannonSlot && m.missileSlot != m.mgSlot),
+					"VL-INV missile slot distinct");
 				Require(l.cannonSlot >= 0 && l.mgSlot >= 0 && l.cannonSlot != l.mgSlot,
 					"VL-INV distinct valid weapon slots");
 			}

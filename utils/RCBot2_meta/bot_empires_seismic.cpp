@@ -7,6 +7,7 @@
 #include "bot.h"
 #include "bot_empires.h"
 #include "bot_empires_internal.h"
+#include "bot_empires_seismic_logic.h"
 #include "bot_globals.h"
 #include "bot_getprop.h"
 #include "bot_navmesh_api.h"
@@ -19,11 +20,7 @@ extern IServerGameEnts* servergameents;
 
 namespace
 {
-constexpr float kSeismicMaxRange = 1400.0f; // 2D to the landing point; flat max ~1750 standing (v 750, g 320)
 constexpr int kSeismicNoDamageThrows = 5; // ~2 detonations land while the next throws are in the air
-constexpr float kSeismicMinRange = 170.0f; // radius 300, full damage within 150: keep the thrower out of the worst
-// Measured, not sv_gravity: apex/descent of a traced throw gave g = 317..322 (run 20261123-015951).
-constexpr float kSeismicGravity = 320.0f;
 
 const char* SeismicWeaponName(const int team)
 {
@@ -39,7 +36,16 @@ Vector BuildingCenter(edict_t* e)
 {
 	Vector at = CBotGlobals::entityOrigin(e);
 	if (ICollideable* col = e->GetCollideable())
+	{
+		const char* cls = e->GetClassName();
+		if (EmpiresSeismic::IsMapModelClass(cls))
+		{
+			Vector mn, mx;
+			col->WorldSpaceSurroundingBounds(&mn, &mx);
+			return (mn + mx) * 0.5f;
+		}
 		at = col->GetCollisionOrigin() + (col->OBBMins() + col->OBBMaxs()) * 0.5f;
+	}
 	return at;
 }
 
@@ -48,8 +54,8 @@ float Dist2D(const Vector& a, const Vector& b)
 	return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
 }
 
-// Clear lob path: line from the eye to the floor point in front of the building (where the
-// grenade lands and rolls in). Accepts a hit on the target or on any emp_building part.
+// Clear lob path: line from the eye to the floor point in front of the target (where the
+// grenade lands and rolls in). Accepts a hit on the target or on any eligible building/deployable part.
 bool SeismicLaneClear(edict_t* self, edict_t* target, const Vector& eye, const Vector& land, const char*& hitClass)
 {
 	hitClass = "-";
@@ -63,7 +69,7 @@ bool SeismicLaneClear(edict_t* self, edict_t* target, const Vector& eye, const V
 		if (hit != nullptr && hit->GetClassName() != nullptr)
 		{
 			hitClass = hit->GetClassName();
-			if ((hit == target || std::strncmp(hitClass, "emp_building", 12) == 0) && (tr->endpos - land).Length() < 64.0f)
+			if ((hit == target || EmpiresSeismic::IsSeismicTargetClass(hitClass)) && (tr->endpos - land).Length() < 64.0f)
 				return true;
 		}
 	}
@@ -71,15 +77,29 @@ bool SeismicLaneClear(edict_t* self, edict_t* target, const Vector& eye, const V
 }
 
 // Floor point 12 HU in front of the building's vehicle physbox (or its own box) on the side facing
-// the thrower. Axis-aligned clamp; the physbox reported ang=(0 0 0) on the crossroads barracks.
+// the thrower. Uses WorldSpaceSurroundingBounds for rotated map models.
 Vector SeismicLandPoint(edict_t* building, const Vector& origin, const Vector& eye)
 {
 	Vector mn(-32, -32, 0), mx(32, 32, 0), centre = origin;
+	float floorZ = origin.z;
+	const char* cls = building->GetClassName();
 	if (ICollideable* col = building->GetCollideable())
 	{
-		mn = col->OBBMins();
-		mx = col->OBBMaxs();
-		centre = col->GetCollisionOrigin();
+		if (EmpiresSeismic::IsMapModelClass(cls))
+		{
+			Vector wmin, wmax;
+			col->WorldSpaceSurroundingBounds(&wmin, &wmax);
+			centre = (wmin + wmax) * 0.5f;
+			mn = wmin - centre;
+			mx = wmax - centre;
+			floorZ = wmin.z;
+		}
+		else
+		{
+			mn = col->OBBMins();
+			mx = col->OBBMaxs();
+			centre = col->GetCollisionOrigin();
+		}
 	}
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 	{
@@ -98,51 +118,17 @@ Vector SeismicLandPoint(edict_t* building, const Vector& origin, const Vector& e
 	Vector p(eye.x - centre.x, eye.y - centre.y, 0.0f);
 	const float cx = (std::max)(mn.x, (std::min)(mx.x, p.x));
 	const float cy = (std::max)(mn.y, (std::min)(mx.y, p.y));
-	Vector out(centre.x + cx, centre.y + cy, origin.z + 4.0f);
+	Vector out(centre.x + cx, centre.y + cy, floorZ + 4.0f);
 	Vector toEye(eye.x - out.x, eye.y - out.y, 0.0f);
 	if (toEye.NormalizeInPlace() > 1.0f)
 		out += toEye * 12.0f;
 	return out;
 }
-
-// Target preference. InfantrySeismicResist: turrets -0.7, engineer camera/radar -1.0 (extra damage),
-// wall 0.5 (half), large buildings 0 (full; 20 per hit measured on the barracks).
-float SeismicPreference(const char* cls)
-{
-	if (std::strstr(cls, "turret") != nullptr)
-		return -400.0f;
-	if (std::strstr(cls, "eng_camera") != nullptr || std::strstr(cls, "eng_radar") != nullptr)
-		return -300.0f;
-	if (std::strstr(cls, "wall") != nullptr)
-		return 250.0f;
-	return 0.0f;
-}
 }
 
-// CBaseSDKGrenade::ThrowGrenade (0x445240): view pitch p (Source, + = down) is bent to
-// a = -10 + p * 10/9, speed v = min(750, (90 - a) * 6) along a. Returns the lowest view pitch
-// whose arc reaches (dist, dz) from the eye, ignoring roll after the bounce.
 bool EmpiresSeismicThrowPitch(const float dist, const float dz, float& outPitch, float& outElev, float& outSpeed)
 {
-	for (float p = 60.0f; p >= -80.0f; p -= 0.5f)
-	{
-		const float elev = -(-10.0f + p * (10.0f / 9.0f)); // degrees above horizontal
-		const float v = (std::min)(750.0f, (90.0f + elev) * 6.0f);
-		const float rad = elev * 3.14159265f / 180.0f;
-		const float vx = v * std::cos(rad);
-		if (vx < 1.0f)
-			continue;
-		const float t = dist / vx;
-		const float z = v * std::sin(rad) * t - 0.5f * kSeismicGravity * t * t;
-		if (z >= dz)
-		{
-			outPitch = p;
-			outElev = elev;
-			outSpeed = v;
-			return true;
-		}
-	}
-	return false;
+	return EmpiresSeismic::SolveThrowPitch(dist, dz, 0.0f, outPitch, outElev, outSpeed);
 }
 
 bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, const int team)
@@ -175,6 +161,7 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 	float bestScore = 1.0e9f;
 	float bestDist = 0.0f;
 	float bestPitch = 0.0f, bestElev = 0.0f, bestSpeed = 0.0f;
+	bool bestRunning = false;
 	int bestHealth = 0;
 	Vector bestAt;
 	Vector bestLand;
@@ -190,9 +177,18 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 		if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr || e->GetUnknown() == nullptr)
 			continue;
 		const char* cls = e->GetClassName();
-		if (std::strncmp(cls, "emp_building_", 13) != 0 || std::strstr(cls, "physbox") != nullptr ||
-			std::strstr(cls, "panel") != nullptr)
+		if (!EmpiresSeismic::IsSeismicTargetClass(cls))
 			continue;
+		if (EmpiresSeismic::IsMapModelClass(cls))
+		{
+			// Only throw at built solid obstacles that accept non-grenadier blast damage
+			// (CEngineerMapObject::GetModifiedDamage 0x6329b0 checks m_bGrenadierOnly).
+			if (!RCBotNavMesh::IsBuiltEmpiresMapObject(e))
+				continue;
+			bool grenadierOnly = false;
+			if (readEmpiresEntityBoolProperty(e, "m_bGrenadierOnly", grenadierOnly) && grenadierOnly)
+				continue;
+		}
 		int buildingTeam = -1;
 		if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", buildingTeam) ||
 			(buildingTeam != EMP_TEAM_NF && buildingTeam != EMP_TEAM_BE))
@@ -212,11 +208,11 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 			nearestHealth = health;
 			nearestWhy = healthOk ? "range" : "health";
 		}
-		if (!healthOk || dist > kSeismicMaxRange + 600.0f)
+		if (!healthOk || dist > EmpiresSeismic::kRunningMaxRange + 600.0f)
 			continue;
 		if (index == m_iSeismicSkipTarget && now < m_flSeismicSkipUntil)
 			continue;
-		const float score = dist + SeismicPreference(cls);
+		const float score = dist + EmpiresSeismic::TargetPreference(cls);
 		if (score >= bestScore)
 			continue;
 		// Aim at the floor just in front of the building's vehicle physbox (it stops grenades,
@@ -224,14 +220,14 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 		const Vector origin = CBotGlobals::entityOrigin(e);
 		const Vector land = SeismicLandPoint(e, origin, eye);
 		const float landDist = Dist2D(eye, land);
-		float pitch = 0.0f, elev = 0.0f, speed = 0.0f;
-		if (landDist < kSeismicMinRange || landDist > kSeismicMaxRange)
+		if (landDist < EmpiresSeismic::kMinRange || landDist > EmpiresSeismic::kRunningMaxRange)
 		{
 			if (isNearest)
 				nearestWhy = "range";
 			continue;
 		}
-		if (!EmpiresSeismicThrowPitch(landDist, land.z - eye.z, pitch, elev, speed))
+		const EmpiresSeismic::ThrowSolution sol = EmpiresSeismic::PlanThrow(landDist, land.z - eye.z);
+		if (!sol.valid)
 		{
 			if (isNearest)
 				nearestWhy = "arc";
@@ -251,9 +247,10 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 		bestClass = cls;
 		bestScore = score;
 		bestDist = dist;
-		bestPitch = pitch;
-		bestElev = elev;
-		bestSpeed = speed;
+		bestPitch = sol.pitch;
+		bestElev = sol.elev;
+		bestSpeed = sol.speed;
+		bestRunning = sol.running;
 		bestHealth = health;
 		bestAt = origin;
 		bestLand = land;
@@ -315,21 +312,24 @@ bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, cons
 	m_pSchedules->freeMemory();
 	if (m_bEmpiresNavGoalActive)
 		endEmpiresNavmeshGoal("drop", "seismic", 0.0f);
-	stopMoving();
+	if (!bestRunning)
+		stopMoving();
 	m_hEmpiresBuildingActionTarget = best;
 	m_iEmpiresBuildingActionMode = 1;
 	m_bEmpiresBuildingActionSeismic = true;
+	m_bEmpiresBuildingActionSeismicRunning = bestRunning;
 	m_flEmpiresSeismicPitch = bestPitch;
-	m_flEmpiresBuildingActionUntil = now + 4.0f;
+	m_flEmpiresBuildingActionUntil = now + (bestRunning ? 5.0f : 4.0f);
 	m_flEmpiresBuildingActionReadyAt = now + 0.75f;
 	m_flEmpiresBuildingActionPressUntil = 0.0f;
 	m_bEmpiresBuildingActionThrown = false;
 	m_vSeismicTrackTargetAt = bestLand;
 	selectWeaponName(weaponName);
 	RCBOT_DIAG("[RCBOT2] seismic armed userid=%d target=%d class=%s dist=%.0f dz=%.0f pitch=%.1f elev=%.1f v=%.0f "
-		"health=%d ammo=%d at=(%.0f %.0f %.0f) land=(%.0f %.0f %.0f) land_dist=%.0f\n",
+		"run=%d health=%d ammo=%d at=(%.0f %.0f %.0f) land=(%.0f %.0f %.0f) land_dist=%.0f\n",
 		userId, engine->IndexOfEdict(best), bestClass, bestDist, bestAt.z - eye.z, bestPitch, bestElev, bestSpeed,
-		bestHealth, getAmmo(ammoType), bestAt.x, bestAt.y, bestAt.z, bestLand.x, bestLand.y, bestLand.z, bestLandDist);
+		bestRunning ? 1 : 0, bestHealth, getAmmo(ammoType), bestAt.x, bestAt.y, bestAt.z, bestLand.x, bestLand.y,
+		bestLand.z, bestLandDist);
 	return true;
 }
 

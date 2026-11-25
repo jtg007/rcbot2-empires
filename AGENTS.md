@@ -88,7 +88,8 @@ Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [m
 Gate passage (~1.5 min per batch, 4x): `scripts/dev_gate.sh [east|west] [runs] ["B cvars"]` spawns two BE vehicles north of a Crossroads BE base exit (east: one behind the other) and prints passes, reversals and give-ups per run; every second run gets the B cvars, so a lane or queue change is compared in one batch instead of a 20-minute match.
 Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
 `scripts/dev_team_match.sh [map] [minutes]`. To read the same metrics from a saved match, use
-`scripts/dev_team_match.sh --summarize RUN_DIR`. It reads the log and any saved recorder table.
+`scripts/dev_team_match.sh --summarize RUN_DIR`. It reads the log and any saved recorder table, then checks the
+`match-flow` lines against the milestones and standing rules in `MATCH_FLOW.md` (measurement only).
 Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with
 `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL`, `QUICK_SHOW`; `QUICK_FAIR=1` = both teams start together): `scripts/dev_quick.sh [map] [minutes]`.
 `rcbot_empires_vehicle_shell_trace 1` logs shell flight and impact (`vehicle shell-end`) and turret aim.

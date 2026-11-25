@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Team match check (TODO 5.8 / 5.28): 10 bots, timescale 1, recorder on, then the team-director numbers:
 # role swaps push<->defense (total, max per bot), early lock breaks, alerts, alert at a hold goal,
-# kill-spawns, building stalls (navmesh-building-blocked) and the recorder table (kills, stuck).
+# kill-spawns, building stalls (navmesh-building-blocked), the recorder table (kills, stuck) and the
+# match-flow check against MATCH_FLOW.md (scripts/match_flow.py; measurement only, never changes the exit status).
 # Usage: scripts/dev_team_match.sh [map] [minutes]   (default emp_palmbay 12)
 #        scripts/dev_team_match.sh --summarize RUN_DIR  (read-only, no server start)
 set -euo pipefail
@@ -53,4 +54,5 @@ if [[ -f "$RUN/summary.txt" ]]; then
 else
   echo "Recorder table unavailable (no summary.txt)"
 fi
+python3 -I "$ROOT/scripts/match_flow.py" "$LOG" --flow "$ROOT/MATCH_FLOW.md" || true
 exit "$status"

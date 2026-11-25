@@ -17,6 +17,9 @@ constexpr int kArmorComposite = 1; // cost 40/plate, wt 15/plate, Composite_Armo
 constexpr int kWeaponStdMg = 0;        // type 0, size 1, cost 30, wt 30, no research
 constexpr int kWeaponMedChainGun = 7;  // type 0, size 2, cost 60, wt 50, no research
 constexpr int kWeaponStdCannon = 12;   // type 1, size 1, cost 50, wt 50, no research
+constexpr int kWeaponStdMissile = 27;  // type 3, size 1, cost 40, wt 40, no research (dumb, 2300 u/s)
+constexpr int kMissileCost = 40;
+constexpr int kMissileWeight = 40;
 
 // Engine indices (scripts/vehicle_engines.txt).
 constexpr int kEngineImpJeep = 0;     // type 4, team IMP, cost 10, wt 10
@@ -36,6 +39,8 @@ struct Loadout
 	int cannonWeapon = kWeaponStdCannon;
 	int mgSlot = 1;           // -1 when none (jeep)
 	int mgWeapon = kWeaponStdMg;
+	int missileSlot = -1;     // 3.10f: missile launcher slot, -1 when none
+	int missileWeapon = -1;
 	int armorType = kArmorPlain;
 	int armorLevels[4] = {2, 2, 2, 2}; // front, rear, left, right
 	int engine = kEngineLightStd;
@@ -62,6 +67,7 @@ struct ChassisProfile
 	int stdEngineCost;
 	int gasEngine;
 	int gasEngineCost;
+	int missileSlot; // first type-3 weapon_slot (scripts/vehicle_*.txt)
 };
 
 inline ChassisProfile ProfileForChassis(bool nf, int chassis)
@@ -74,17 +80,18 @@ inline ChassisProfile ProfileForChassis(bool nf, int chassis)
 	//   BE Med   (11): slot 0 cannon (s2), slot 1 MG (s2)
 	//   NF Heavy (5):  slot 0 cannon (s3), slot 1 MG (s3)
 	//   BE Heavy (13): slot 0 cannon (s3), slot 1 cannon (s3), slot 2 MG (s3)
+	// Missile launcher (type 3): slot 2 on all of them, slot 3 on the BE Heavy.
 	if (chassis == 5)
-		return {5, 820, 580, 0, 1, kWeaponMedChainGun, 60, 50, {6, 4, 5, 5}, kEngineHeavyStd, 40, kEngineHeavyGas, 150};
+		return {5, 820, 580, 0, 1, kWeaponMedChainGun, 60, 50, {6, 4, 5, 5}, kEngineHeavyStd, 40, kEngineHeavyGas, 150, 2};
 	if (chassis == 13)
-		return {13, 850, 550, 0, 2, kWeaponMedChainGun, 60, 50, {6, 4, 5, 5}, kEngineHeavyStd, 40, kEngineHeavyGas, 150};
+		return {13, 850, 550, 0, 2, kWeaponMedChainGun, 60, 50, {6, 4, 5, 5}, kEngineHeavyStd, 40, kEngineHeavyGas, 150, 3};
 	if (chassis == 3)
-		return {3, 170, 435, 0, 1, kWeaponMedChainGun, 60, 50, {4, 3, 3, 3}, kEngineMedStd, 30, kEngineMedGas, 90};
+		return {3, 170, 435, 0, 1, kWeaponMedChainGun, 60, 50, {4, 3, 3, 3}, kEngineMedStd, 30, kEngineMedGas, 90, 2};
 	if (chassis == 11)
-		return {11, 220, 380, 0, 1, kWeaponMedChainGun, 60, 50, {4, 3, 3, 3}, kEngineMedStd, 30, kEngineMedGas, 90};
+		return {11, 220, 380, 0, 1, kWeaponMedChainGun, 60, 50, {4, 3, 3, 3}, kEngineMedStd, 30, kEngineMedGas, 90, 2};
 	if (chassis == 10 || (!nf && chassis != 2))
-		return {10, 60, 320, 1, 0, kWeaponStdMg, 30, 30, {2, 2, 2, 2}, kEngineLightStd, 20, kEngineLightGas, 75};
-	return {2, 110, 260, 0, 1, kWeaponStdMg, 30, 30, {2, 2, 2, 2}, kEngineLightStd, 20, kEngineLightGas, 75};
+		return {10, 60, 320, 1, 0, kWeaponStdMg, 30, 30, {2, 2, 2, 2}, kEngineLightStd, 20, kEngineLightGas, 75, 2};
+	return {2, 110, 260, 0, 1, kWeaponStdMg, 30, 30, {2, 2, 2, 2}, kEngineLightStd, 20, kEngineLightGas, 75, 2};
 }
 
 inline Loadout MakeJeepLoadout(bool nf)
@@ -123,7 +130,11 @@ inline Loadout MakeApcLoadout(bool nf)
 	return out;
 }
 
-inline Loadout BuildTankLoadout(const ChassisProfile& p, bool useGasEngine, bool useCompositeArmor)
+// withMissile (3.10f) adds the Standard Missile Launcher. When that exceeds the chassis weight
+// (NF light tank: 270 > 260 with plain engine), rear plates are dropped down to one; if it still
+// does not fit, the missile is left out.
+inline Loadout BuildTankLoadout(const ChassisProfile& p, bool useGasEngine, bool useCompositeArmor,
+	bool withMissile = false)
 {
 	Loadout out;
 	out.chassis = p.chassis;
@@ -145,15 +156,33 @@ inline Loadout BuildTankLoadout(const ChassisProfile& p, bool useGasEngine, bool
 	out.estimatedCost = p.chassisCost + 50 + p.mgCost + engineCost + plates * armorPlateCost;
 	out.totalWeight = 50 + p.mgWeight + engineWeight + plates * 15;
 	out.maxWeight = p.maxWeight;
+	if (withMissile && p.missileSlot >= 0)
+	{
+		Loadout armed = out;
+		armed.missileSlot = p.missileSlot;
+		armed.missileWeapon = kWeaponStdMissile;
+		armed.estimatedCost += kMissileCost;
+		armed.totalWeight += kMissileWeight;
+		while (armed.totalWeight > armed.maxWeight && armed.armorLevels[1] > 1)
+		{
+			--armed.armorLevels[1];
+			armed.totalWeight -= 15;
+			armed.estimatedCost -= armorPlateCost;
+		}
+		if (armed.totalWeight <= armed.maxWeight)
+			return armed;
+	}
 	return out;
 }
 
 // Choose the best affordable chassis and parts for a new purchase.
 // researchDone may be nullptr (treated as no research unlocked).
 // availableBudget < 0 means unlimited (e.g. debug buy or unknown team pool).
+// wantMissile (3.10f) adds the missile launcher when the base build with it is affordable,
+// before engine and armour upgrades.
 inline Loadout ChoosePurchaseLoadout(bool nf, bool wantJeep,
 	const bool researchDone[EmpiresCommanderEconomy::kResearchItemCount], float availableBudget,
-	bool wantApc = false)
+	bool wantApc = false, bool wantMissile = false)
 {
 	if (wantJeep)
 		return MakeJeepLoadout(nf);
@@ -187,12 +216,23 @@ inline Loadout ChoosePurchaseLoadout(bool nf, bool wantJeep,
 			chosen = med;
 	}
 
-	// Layer researched engine and armor upgrades when affordable.
+	// Layer the missile launcher, then researched engine and armor upgrades when affordable.
 	Loadout current = BuildTankLoadout(chosen, false, false);
+	bool missile = false;
+	if (wantMissile)
+	{
+		const Loadout withMissile = BuildTankLoadout(chosen, false, false, true);
+		if (withMissile.missileSlot >= 0 &&
+			(unlimited || static_cast<float>(withMissile.estimatedCost) <= availableBudget))
+		{
+			missile = true;
+			current = withMissile;
+		}
+	}
 	bool useGas = false;
 	if (hasGas)
 	{
-		const Loadout withGas = BuildTankLoadout(chosen, true, false);
+		const Loadout withGas = BuildTankLoadout(chosen, true, false, missile);
 		if (unlimited || static_cast<float>(withGas.estimatedCost) <= availableBudget)
 		{
 			useGas = true;
@@ -201,7 +241,7 @@ inline Loadout ChoosePurchaseLoadout(bool nf, bool wantJeep,
 	}
 	if (hasComp)
 	{
-		const Loadout withComp = BuildTankLoadout(chosen, useGas, true);
+		const Loadout withComp = BuildTankLoadout(chosen, useGas, true, missile);
 		if (unlimited || static_cast<float>(withComp.estimatedCost) <= availableBudget)
 			current = withComp;
 	}
@@ -216,9 +256,11 @@ inline bool IsRefittableTankChassis(int chassis)
 
 // Choose a refit loadout for an existing vehicle on a repair pad (chassis cannot change).
 // When allowUpgrades is false (e.g. ammo-only trip or tight funds), stays on plain/standard
-// so the refit costs 0 difference against a base vehicle.
+// so the refit costs 0 difference against a base vehicle. withMissile keeps (or adds) the missile
+// launcher; the caller decides (3.10f: keep it when the vehicle already carries one).
 inline Loadout ChooseRefitLoadout(bool nf, int currentChassis,
-	const bool researchDone[EmpiresCommanderEconomy::kResearchItemCount], bool allowUpgrades, float availableBudget)
+	const bool researchDone[EmpiresCommanderEconomy::kResearchItemCount], bool allowUpgrades, float availableBudget,
+	bool withMissile = false)
 {
 	if (currentChassis == 0 || currentChassis == 8)
 		return MakeJeepLoadout(currentChassis == 0);
@@ -226,7 +268,7 @@ inline Loadout ChooseRefitLoadout(bool nf, int currentChassis,
 		return MakeApcLoadout(currentChassis == 1);
 
 	const ChassisProfile p = ProfileForChassis(nf, currentChassis);
-	const Loadout base = BuildTankLoadout(p, false, false);
+	const Loadout base = BuildTankLoadout(p, false, false, withMissile);
 	if (!allowUpgrades || researchDone == nullptr)
 		return base;
 
@@ -238,19 +280,19 @@ inline Loadout ChooseRefitLoadout(bool nf, int currentChassis,
 	bool useComp = false;
 	if (hasGas)
 	{
-		const Loadout withGas = BuildTankLoadout(p, true, false);
+		const Loadout withGas = BuildTankLoadout(p, true, false, withMissile);
 		const int delta = withGas.estimatedCost - base.estimatedCost;
 		if (unlimited || static_cast<float>(delta) <= availableBudget)
 			useGas = true;
 	}
 	if (hasComp)
 	{
-		const Loadout withComp = BuildTankLoadout(p, useGas, true);
+		const Loadout withComp = BuildTankLoadout(p, useGas, true, withMissile);
 		const int delta = withComp.estimatedCost - base.estimatedCost;
 		if (unlimited || static_cast<float>(delta) <= availableBudget)
 			useComp = true;
 	}
-	return BuildTankLoadout(p, useGas, useComp);
+	return BuildTankLoadout(p, useGas, useComp, withMissile);
 }
 } // namespace EmpiresVehicleLoadout
 

@@ -235,8 +235,8 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 	EmpiresDeployJob& job = m_deploy;
 	const char* blocked = gpGlobals == nullptr || engine == nullptr || !rcbot_empires_engineer_deployables.GetBool() ||
 		!isEmpiresEngineerClass() || EmpiresIsEngibot(m_pEdict) ? "off" : m_iReviveTarget != 0 ? "revive" :
-		m_iBuildAssignStage > 0 ? "build-assign" : m_iTurretRefinery != 0 || m_iTurretBuilding != 0 || m_bTurretBuildArmed ?
-		"turret" : m_iAmmoCrateStage != 0 ? "ammo-crate" : commanderDutyBlocksSideTasks() ? "commander" : nullptr;
+		m_iBuildAssignStage > 0 ? "build-assign" : m_iTurretRefinery != 0 || m_iTurretBuilding != 0 ||
+		m_bTurretBuildArmed || m_iTurretUpgrade != 0 ? "turret" : m_iAmmoCrateStage != 0 ? "ammo-crate" : commanderDutyBlocksSideTasks() ? "commander" : nullptr;
 	if (blocked != nullptr)
 	{
 		if (job.stage != 0)
@@ -288,9 +288,15 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 		const char* enemyCvClass = team == 2 ? "emp_imp_commander" : "emp_nf_commander";
 		Vector home, enemyHome;
 		bool haveHome = false, haveEnemyHome = false;
+		struct Blocker
+		{
+			Vector at;
+			float clearance;
+		};
 		std::vector<edict_t*> refineries;
 		std::vector<Detector> detectors;
-		std::vector<Vector> walls, blockers;
+		std::vector<Vector> walls;
+		std::vector<Blocker> blockers;
 		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 		{
 			edict_t* e = engine->PEntityOfEntIndex(i);
@@ -309,7 +315,8 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 			else if (std::strcmp(cls, "emp_eng_walls") == 0 && t == team)
 				walls.push_back(CBotGlobals::entityOrigin(e));
 			else if (std::strncmp(cls, "emp_building_", 13) == 0)
-				blockers.push_back(CBotGlobals::entityOrigin(e));
+				blockers.push_back({CBotGlobals::entityOrigin(e),
+					std::strstr(cls, "turret") != nullptr ? 75.0f : 110.0f});
 			else if (!haveHome && std::strcmp(cls, cvClass) == 0)
 			{
 				home = CBotGlobals::entityOrigin(e);
@@ -378,8 +385,8 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 						Vector g0, g1, onMesh;
 						ok = GroundBelow(seg[s][0], g0) && GroundBelow(seg[s][1], g1) &&
 							std::fabs(g0.z - at.z) < 120.0f && std::fabs(g1.z - at.z) < 120.0f;
-						for (const Vector& b : blockers)
-							ok = ok && SegDist2D(b, seg[s][0], seg[s][1]) > 110.0f; // building boxes reach out
+						for (const Blocker& b : blockers)
+							ok = ok && SegDist2D(b.at, seg[s][0], seg[s][1]) > b.clearance; // building boxes reach out
 						ok = ok && (!RCBotNavMesh::IsLoaded() ||
 							RCBotNavMesh::ClosestPointOnMesh(SegmentStand(seg[s], at), 80.0f, onMesh));
 					}
@@ -389,18 +396,19 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 						break;
 					}
 				}
-				if (radius <= 0.0f)
+				if (radius > 0.0f)
 				{
-					++nNoSpot;
+					best = d;
+					pickRefinery = index;
+					pickItem = 6;
+					pickAt = at;
+					pickDir = dir;
+					pickRadius = radius;
 					continue;
 				}
-				best = d;
-				pickRefinery = index;
-				pickItem = 6;
-				pickAt = at;
-				pickDir = dir;
-				pickRadius = radius;
-				continue;
+				++nNoSpot;
+				if (!detectFree)
+					continue;
 			}
 			if (!detectFree)
 			{

@@ -228,25 +228,40 @@ void UpdateInputOnlyDoorBlocks()
 	}
 	// Built engineer map brushes (e.g. Crossroads one-way base ramps): directionally block
 	// links whose hull sweep hits a steep/vertical face while leaving gentle exit ramps and
-	// walkable bridges open. Lowered or unbuilt brushes no longer hit and reopen within 1 s.
+	// walkable bridges open. Unbuilt brushes whose nav areas float without real floor
+	// underneath (e.g. emp_mvalley dam ramps, as_escort bridges) block entry until built.
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 	{
 		edict_t* brush = INDEXENT(index);
 		const char* name = brush != nullptr && !brush->IsFree() ? brush->GetClassName() : nullptr;
-		if (name == nullptr || std::strcmp(name, "emp_eng_map_brush") != 0)
+		if (name == nullptr || std::strcmp(name, "emp_eng_map_brush") != 0 || brush->GetCollideable() == nullptr)
 			continue;
+		Vector mins, maxs;
+		brush->GetCollideable()->WorldSpaceSurroundingBounds(&mins, &maxs);
 		int links = 0;
-		if (RCBotNavMesh::IsBuiltEmpiresMapObject(brush) && brush->GetCollideable() != nullptr)
+		int newState = 0;
+		const char* stateLabel = "open";
+		if (RCBotNavMesh::IsBuiltEmpiresMapObject(brush))
 		{
-			Vector mins, maxs;
-			brush->GetCollideable()->WorldSpaceSurroundingBounds(&mins, &maxs);
 			links = RCBotNavMesh::BlockSteepBrushEdges(brush, mins, maxs, 2.5f, s_closed[index] != 1);
+			if (links > 0)
+			{
+				newState = 1;
+				stateLabel = "blocked";
+			}
 		}
-		const bool blocked = links > 0;
-		if (s_closed[index] != (blocked ? 1 : 0))
-			RCBOT_DIAG("[RCBOT2] navmesh-map-brush brush=%d state=%s links=%d\n", index,
-				blocked ? "blocked" : "open", links);
-		s_closed[index] = blocked ? 1 : 0;
+		else
+		{
+			links = RCBotNavMesh::BlockUnsupportedBrushEdges(mins, maxs, 2.5f, s_closed[index] != 2);
+			if (links > 0)
+			{
+				newState = 2;
+				stateLabel = "unbuilt-blocked";
+			}
+		}
+		if (s_closed[index] != newState)
+			RCBOT_DIAG("[RCBOT2] navmesh-map-brush brush=%d state=%s links=%d\n", index, stateLabel, links);
+		s_closed[index] = newState;
 	}
 }
 
@@ -740,6 +755,7 @@ void Frame()
 									strcmp(name, "emp_comm_restrict") != 0 &&
 									strcmp(name, "emp_building_vehicle_physbox") != 0 &&
 									strcmp(name, "emp_resource_point") != 0 &&
+									strcmp(name, "func_vehicleclip") != 0 &&
 									strcmp(name, "player") != 0);
 							}
 						private:

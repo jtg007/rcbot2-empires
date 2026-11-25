@@ -64,7 +64,7 @@ Each takes `[map] [timescale]` unless noted and ends at the observable result. P
 | `dev_chain.sh` | Commander seat, barracks placement, engineer builds it | 1-2 min |
 | `dev_quick.sh [map] [min]` | Short targeted run: few bots (`QUICK_ROSTER`), instant purchase, 1x; `QUICK_PRE/CMDS/UNTIL/SHOW`, `QUICK_FAIR=1` fair tank start | 1-4 min |
 | `dev_econ.sh [map] [min]` | Production economy until the first driven vehicle, 6 bots, timescale 4 | about 5 min |
-| `dev_team_match.sh [map] [min]` | 10-bot match at 1x with recorder, then director numbers (role swaps, alerts, kill-spawns, building stalls, recorder table). `--summarize RUN_DIR` reads saved numbers without a server | 12-15 min |
+| `dev_team_match.sh [map] [min]` | 10-bot match at 1x with recorder, then director numbers (role swaps, alerts, kill-spawns, building stalls, recorder table) and the match-flow check against `MATCH_FLOW.md`. `--summarize RUN_DIR` reads saved numbers without a server | 12-15 min |
 | `dev_buy.sh` | Vehicle purchase only (instant VF, extra money) | about 30-60 s |
 | `dev_vf_drive.sh [0\|1\|place] [map] [nf\|be] ["x y z"]` | Regular purchase, VF exit, drive; `place` stops at first factory placement; `DEV_VF_APPROACH` | - |
 | `dev_turn.sh <1-4> [map] [nf\|be]` | Steering, handbrake pulse, coast, brake at 1x | - |
