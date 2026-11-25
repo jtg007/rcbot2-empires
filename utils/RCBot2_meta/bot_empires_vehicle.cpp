@@ -4059,19 +4059,27 @@ void CBotEmpires::tickEmpiresVehicle()
 		// Water: the game damages a vehicle (20 HP/s) and stops its engine only when its body centre
 		// (WorldSpaceCenter) is in water; wet wheels do nothing (CEmpTank::CheckWater 0x692040,
 		// reverse-engineering/notes/vehicles.md). Fords up to centre height over ground - 16.
+		// Trace against buildings too (CVehicleSightFilter, not WorldOnly): inside a VF bay
+		// WorldOnly traced through the factory floor to terrain 176+ HU below, clamping BE AFVs
+		// to water_depth=160 so they drove straight into Palmbay sea (9.6, run 20261125-150814).
 		v.waterDepth = 32.0f;
 		if (vehicle->GetCollideable() != nullptr && enginetrace != nullptr)
 		{
 			ICollideable* box = vehicle->GetCollideable();
 			const Vector centre = box->GetCollisionOrigin() +
 				Vector(0, 0, 0.5f * (box->OBBMins().z + box->OBBMaxs().z));
+			const float obbHeight = box->OBBMaxs().z - box->OBBMins().z;
+			const float maxHeight = obbHeight > 10.0f ? 0.5f * obbHeight + 20.0f : 160.0f;
 			Ray_t down;
 			down.Init(centre, centre - Vector(0, 0, 400.0f));
-			CTraceFilterWorldOnly worldOnly;
+			CVehicleSightFilter groundFilter(vehicle);
 			trace_t ground;
-			enginetrace->TraceRay(down, MASK_SOLID, &worldOnly, &ground);
+			enginetrace->TraceRay(down, MASK_SOLID, &groundFilter, &ground);
 			if (ground.fraction < 1.0f && !ground.startsolid)
-				v.waterDepth = (std::max)(0.0f, (std::min)(160.0f, centre.z - ground.endpos.z - 16.0f));
+			{
+				const float height = (std::min)(maxHeight, centre.z - ground.endpos.z);
+				v.waterDepth = (std::max)(0.0f, (std::min)(160.0f, height - 16.0f));
+			}
 		}
 		RCBOT_DIAG("[RCBOT2] vehicle width userid=%d veh=%d chassis=%d width=%.0f water_depth=%.0f\n", userId,
 			v.vehicleIndex, chassis, v.width, v.waterDepth);

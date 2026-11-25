@@ -262,17 +262,33 @@ def check_team(team, events, states, lim, end):
     def no_vehicle(s):
         return s["built"].get("vf", 0) > 0 and s["res"] >= lim["min_vehicle_res"] and s["vehicles"] == 0
 
-    def hoarding(s):
-        return s["res"] > lim["hoard_res"] and (s.get("research") in ("idle", "paused", "none") or
-                                                (s["built"].get("vf", 0) > 0 and s["vehicles"] == 0))
+    run = runs(st, no_vehicle)
+    if run is None:
+        add("R3 vehicle present", "OK", "never")
+    else:
+        span = run[1] - run[0]
+        add("R3 vehicle present", "VIOLATION" if span > lim["no_vehicle_max"] else "OK",
+            "longest %ds (%s-%s)" % (span, fmt(run[0]), fmt(run[1])))
 
-    for name, cond, key in (("R3 vehicle present", no_vehicle, "no_vehicle_max"), ("R4 no hoarding", hoarding, "hoard_max")):
-        run = runs(st, cond)
-        if run is None:
-            add(name, "OK", "never")
-        else:
-            span = run[1] - run[0]
-            add(name, "VIOLATION" if span > lim[key] else "OK", "longest %ds (%s-%s)" % (span, fmt(run[0]), fmt(run[1])))
+    # R4: before a finished VF only stopped research counts (saving with active research is normal);
+    # missing vehicles only count after a finished VF, on their own span.
+    def hoard_research(s):
+        return s["res"] > lim["hoard_res"] and s.get("research") in ("idle", "paused", "none")
+
+    def hoard_vehicles(s):
+        return s["res"] > lim["hoard_res"] and s["built"].get("vf", 0) > 0 and s["vehicles"] == 0
+
+    best_hoard = None
+    for why, cond in (("research stopped", hoard_research), ("no vehicles after VF", hoard_vehicles)):
+        hrun = runs(st, cond)
+        if hrun is not None and (best_hoard is None or hrun[1] - hrun[0] > best_hoard[1] - best_hoard[0]):
+            best_hoard = (hrun[0], hrun[1], why)
+    if best_hoard is None:
+        add("R4 no hoarding", "OK", "never")
+    else:
+        span = best_hoard[1] - best_hoard[0]
+        add("R4 no hoarding", "VIOLATION" if span > lim["hoard_max"] else "OK",
+            "longest %ds (%s-%s, %s)" % (span, fmt(best_hoard[0]), fmt(best_hoard[1]), best_hoard[2]))
 
     # R5 vehicles reach the front
     bought = [e for e in ev if e["event"] == "vehicle-bought"]

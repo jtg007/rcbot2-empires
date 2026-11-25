@@ -45,7 +45,7 @@ Core buildings = refinery, radar, VF, barracks. Turrets and engineer deployables
 | R1 | No core building stays unfinished longer than `core_idle_max` without build progress (`max_idle`; at match end the `rawlist`) |
 | R2 | No build order stays unaccepted longer than `order_accept_max` (`accepted wait`; logs before the `accepted` event use `build-start`) |
 | R3 | With a finished VF and `res ≥ min_vehicle_res`, no team is without a living vehicle longer than `no_vehicle_max` |
-| R4 | No hoarding: `res > hoard_res` longer than `hoard_max` while research stands (`idle`/`paused`/`none`) or, with a finished VF, no vehicle is alive |
+| R4 | No hoarding: `res > hoard_res` longer than `hoard_max` — before a finished VF only while research stands (`idle`/`paused`/`none`; saving while research is `active` is normal); once a VF is finished, also while no vehicle is alive (each condition measured on its own span) |
 | R5 | Every bought vehicle reaches the front ≤ `vehicle_front_max` after purchase; vehicles destroyed before that are counted separately |
 
 R3 and R4 come from the 30 s lines: duration = span from the first to the last line in which the condition held without a break.
@@ -80,7 +80,8 @@ Limits unchanged after the first three runs (25.11.); the deviations below are r
 | `20261125-135805` | Crossroads, dev default | after 9.2: R1 max 59/60 s, R2 max 24/32 s; VF 141/139 s; first vehicle out +34/+60 s; pad +394/+346 s |
 | `20261125-135810` | Palmbay, production values (`emp_sv_research_complete 0`, multipliers 1) | VF research 3:23/3:31, no VF placed (CV drives to a remote site), R4 hoarding 211/180 s; ended at 7:14: the NF CV drove off-route into the sea and drowned (game over, then the server's next map). `match_flow.py` now names this (`event=cv-lost`) |
 | `20261125-144235` | Palmbay, production values, with route-keep/deep-water fix | full 15:31; VF placed 4:33/7:07 (+70/+217 s), built in 157/126 s, 11/7 vehicles; BE VF waited for the forward barracks (one engineer, one unfinished building at a time); R4 hoarding 271/360 s; R5 3 of 11 / 3 of 7 lost before the front |
-| `20261125-150814` | Palmbay, production values, with 9.3 (slot-1 perk from the first life) and 9.4b (factory before forward barracks with one engineer) | full 15:44; VF placed 4:46/4:03 (+111/+63 s), built 47/45 s after the engineer started (before 121/122 s), M3 90/103 s after placement (walk/idle 43/58 s); 9/11 vehicles; R4 240/211 s; R5 BE 8 of 11 lost before the front (open) |
+| `20261125-150814` | Palmbay, production values, with 9.3 (slot-1 perk from the first life) and 9.4b (factory before forward barracks with one engineer) | full 15:44; VF placed 4:46/4:03 (+111/+63 s), built 47/45 s after the engineer started (before 121/122 s), M3 90/103 s after placement (walk/idle 43/58 s); 9/11 vehicles; R4 181/150 s (`research stopped`); R5 BE 8 of 11 lost before the front (6 drowned due to `water_depth=160` traced through VF floor) |
+| `20261125-154912` | Palmbay, production values, with 9.6 (`CVehicleSightFilter` + OBB cap for `waterDepth`) | full 15:31; BE `water_depth` 72–73 (was 160), NF 56 (was 103–126), **0 drownings**; BE R5 **OK** (9 bought: 8 in time, 0 late, 1 combat loss before front); NF 4 bought: 3 in time, 1 late, 0 lost; R4 3:00–5:30/6:00 caused by `NextResearch()` intentionally holding `next=0` until a VF is finished |
 
 - `vf_build` 90 stays: the repair upgrade doubles construction per clip unit and the clip-less rate (RE
   `engineer.md`). With it active from the first life one engineer builds the 300 HP of a vehicle factory in about 45 s

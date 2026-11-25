@@ -110,6 +110,34 @@ class MatchFlowTest(unittest.TestCase):
     def test_report_without_lines(self):
         self.assertIn("no match-flow lines", match_flow.report([], [], self.limits)[0])
 
+    def test_r4_saving_before_vf_and_separate_spans(self):
+        # Saving with active research before VF is finished is normal (not hoarding).
+        saving = [state(t, 2, 1500, research="active", vf=0, vehicles=0) for t in range(30, 300, 30)]
+        events, states = match_flow.parse_log(saving)
+        rows = {r[0]: r for r in match_flow.check_team(2, events, states, self.limits, 270)}
+        self.assertEqual(rows["R4 no hoarding"][1], "OK")
+
+        # Stopped research before VF (90 s) + missing vehicles right after VF (60 s) must not stitch into >120 s.
+        split = [
+            state(180, 2, 1500, research="idle", vf=0, vehicles=0),
+            state(210, 2, 1500, research="idle", vf=0, vehicles=0),
+            state(240, 2, 1500, research="idle", vf=0, vehicles=0),
+            state(270, 2, 1500, research="idle", vf=0, vehicles=0),
+            state(300, 2, 1500, research="active", vf=1, vehicles=0),
+            state(330, 2, 1500, research="active", vf=1, vehicles=0),
+            state(360, 2, 1500, research="active", vf=1, vehicles=0),
+        ]
+        events, states = match_flow.parse_log(split)
+        rows = {r[0]: r for r in match_flow.check_team(2, events, states, self.limits, 360)}
+        self.assertEqual(rows["R4 no hoarding"][1], "OK")
+
+        # Missing vehicles after VF for >120 s IS a violation.
+        after_vf = [state(t, 2, 1500, research="active", vf=1, vehicles=0) for t in range(300, 480, 30)]
+        events, states = match_flow.parse_log(after_vf)
+        rows = {r[0]: r for r in match_flow.check_team(2, events, states, self.limits, 450)}
+        self.assertEqual(rows["R4 no hoarding"][1], "VIOLATION")
+        self.assertIn("no vehicles after VF", rows["R4 no hoarding"][2])
+
 
 if __name__ == "__main__":
     unittest.main()
