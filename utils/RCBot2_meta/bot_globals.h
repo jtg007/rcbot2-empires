@@ -97,6 +97,8 @@ public:
 
 	static int numPlayersPlaying();
 	static int numPlayersOnTeam(int iTeam, bool bAliveOnly);
+	// Human (not fake, not HLTV) players on a playing team (team >= 2).
+	static int numHumansOnPlayingTeam();
 	static int numBotsOnTeam(int iTeam, bool bAliveOnly);
 	static void setMapName ( const char *szMapName );
 	static char *getMapName (); 

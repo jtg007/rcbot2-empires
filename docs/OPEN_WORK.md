@@ -89,7 +89,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
   two vehicles at once, 4x: west exit 10/10 passed, 0 give-ups (lane logic off 10/10, 0; before the
   side-wall fix 7/10, 3); east gate 6/8 passed with the lane logic, 4/8 without. A queue (wait behind a
   moving own vehicle, head-on tie-break) was worse twice (east gate 4/10 vs. 9/11: both vehicles waited
-  for each other) and is not included. In 10-bot matches the jam hardly forms, so the match effect is
+  for each other) and is not included. A single BE heavy (`GATE_VEHICLES=1 scripts/dev_gate.sh east`) still
+  enters `be_gate1` 45-55 degrees skewed from the north-west: the approach point is dropped because its
+  straight run hits the gate wall (`rej_trace` in the `vehicle-nav` log), and the stuck check misses the
+  crawl because turning in place resets it. An earlier crawl check raised give-ups in the two-vehicle
+  test (4 vs. 1 in 4+4 runs) and a shorter run-in added reversals; both were not kept. In 10-bot matches the jam hardly forms, so the match effect is
   not measured; open: a 22-bot match, residual reversals at the lane entry.
 - [ ] **Tank combat (3.21) and vehicle goals (3.24):** tanks hold position and fire
   at static buildings from 550–1500 HU, the fire-line check ignores physboxes, panels
@@ -152,8 +156,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 - [x] **MOVE completion distance (3.18).** Streetsoffire off-mesh orders ended 63 HU from a nearby edge target, 308 HU from a blocked ground target and 196 HU from its roof counterpart on the upper level. The bot reported completion without stalling.
 - [ ] **Team director and bot commander orders (built, measuring, 5.4/5.8/5.28):** per team a small picture every
   1.5 s (phase push / base alert / stabilize, up to two push and two hold goals, alert target, tickets). Free infantry
-  (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense (with `rcbot_empires_lean_defense` no standing
-  defender below 5 free bots; defend/sector spots are patrolled every 12 s with `rcbot_empires_defend_patrol`), at least one
+  (no engineers, EngiBots, drivers, bots with a human order) is split ~50/30/20 push/hold/defense (with `rcbot_empires_lean_defense` 2, the default, no standing
+  defender and no hold goal on the own side while no alert is active; defend/sector spots are patrolled every 12 s with `rcbot_empires_defend_patrol`), at least one
   defender on a base alert; the seated bot commander gives each group an *attack location* order on its goal
   (`commander-sector`), bots stay within 450 of it. Without reachable flags push goals are the nearest enemy
   refinery / forward barracks and the free resource point nearest the middle of the map. Defenders spawn and walk
@@ -588,6 +592,7 @@ When the following cases recur, compare the relevant trace and route.
 - All 22 multiplayer maps in the test inventory have a navmesh. On `emp_mvalley`, the 65,621-area mesh loads and a vehicle route scan rejects the clipped dam crossing. Verify vehicle behavior in matches and infantry routing after engineers finish the ramps. Training maps remain open.
 - District changed maps after NF ticket depletion. Sudden death and the remaining Conquest and escort round-end cases still need verification.
 - Long run done (22.11., `20261122-131813`): 18 bots, 32 minutes at 1x on Crossroads, then `changelevel emp_coast`, 0 crashes. Quota bots (`min_bots`/`max_bots`) that join after a map change now get a class and spawn.
+- Bot joins (26.11.): automatic filling waits for a human on a team (`rcbot_wait_for_human_team`; the live trigger with a human is not yet verified). Each bot now costs one start ticket instead of two and joins its team once (10-bot match `20261126-135448`: 10 joins, 195/196 tickets with 5 bots per team, before 190).
 - Generated maps: the NF command vehicle entry failure was fixed in the map export by
   raising the NF vehicle origin. With a 90-unit height, both commanders entered and
   the run recorded zero path errors (`tg_nfcv1_20261116`). Revisit bot-side entry

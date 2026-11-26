@@ -119,3 +119,24 @@ In the tested Linux binary, `CBarracks::SetHealth(int)` creates NF spawn points 
 `emp_info_player_Imp` (reference at 0x61497b). `CEmpTank::AddSpawnPoint` uses
 lowercase class names. Bot spawn searches compare class names case-insensitively
 so both dynamic variants are found.
+
+## Join tickets and the shared bot round record (2026-11-26)
+
+Static analysis plus runtime trace (runs `20261126-1323*`, `-132502`), same binary.
+
+- `CEmpGameRules::FPlayerCanRespawn` 0x39a4f0: after `ValidateLoadout`, it returns false while
+  `CEmpPlayer +0x1428 > curtime` (0x39a576, the respawn time gate; +0x1424 counts the refusals and
+  prints a countdown to humans only). Past that gate, the ticket code subtracts 1.0
+  (0x942048) from `CEmpTeam tickets_balance` (+0x3cc, 0x39aba6).
+- A bot that joins a team dead (plugin join-dead fix above) is respawnable at once. The first
+  `PlayerDeathThink` after `jointeam` took a ticket although the spawn failed (bot stayed
+  `m_lifeState` 2), and the real spawn after `emp_spawn_select` took a second one: every bot cost
+  2 tickets at join, later respawns 1. Holding `+0x1428` from `jointeam` until `emp_spawn_select`
+  brings the join to 1 ticket.
+- `CEmpParams::RetrievePlayerRoundStats` 0x645670, called from `CEmpPlayer::InitialSpawn`, looks up
+  the round record by network ID (`CEmpParams +0x33bc` -> record array at +0, count at +0xc; record
+  +0x3c team, +0x40 ID string) and calls `ChangeTeam(record team)` (vtable +0x178).
+  `StorePlayerRoundStats` 0x648e10 runs on every `Spawn`, `Event_Killed`, rank-up and vehicle build.
+  All fake clients have the ID `BOT`, so each new bot inherited the previous bot's team: the log
+  shows `Team -> Unassigned -> Team` on join. The plugin renames stored `BOT` records before
+  creating a bot. This alone did not change the ticket count.

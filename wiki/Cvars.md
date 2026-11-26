@@ -72,7 +72,7 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_vehicle_narrow_cost` | 1500 | Fixed route cost per navmesh area too narrow for the vehicle, so short pillar gaps are not cheaper than the wide lane. | `bot_navmesh_api.cpp` |
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: one Scout takes a jeep, rams enemy vehicles off the map, stuns them when stuck, runs over infantry. -1 = NF on maps named `*rainbowroad*`, 0 off, 2 NF, 3 BE. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_lawliet` | 1 | Lawliet mode (desperation APC rush on the enemy CV): 0 off, 1 auto when behind in research and map control (or tickets), 2 force NF, 3 force BE. | `bot_empires_lawliet.cpp/.h` |
-| `rcbot_empires_lean_defense` | 1 | The team director keeps a standing defender at the base (no alert) only from 5 free infantry bots (floor 20 %; minima from 8/12 team bots stay). 0 = round 20 %, so 3 free bots become push/hold/defense. | `bot_empires_team_director.h` |
+| `rcbot_empires_lean_defense` | 2 | 2: without an alert (calm PUSH phase) no standing defender at all and no hold goal on the own side (front share < 0.35); alerts and STABILIZE as before. 1: the team director keeps a standing defender at the base (no alert) only from 5 free infantry bots (floor 20 %; minima from 8/12 team bots stay). 0 = round 20 %, so 3 free bots become push/hold/defense. | `bot_empires_team_director.h` |
 | `rcbot_empires_defend_patrol` | 1 | A bot holding a defend or sector spot moves on to another spot around it after 12 s instead of standing 30 s, and must walk to within 100 of the spot (0 = 30 s hold, 250 arrive radius). | `bot_empires_objective.cpp` |
 | `rcbot_empires_hot_zones` | 1 | Three deaths of a team on foot within 30 s and 700 HU make the spot hot for 90 s (renewed by each death there); that team's routes pay 1500 to enter and 3x per unit inside. | `bot_empires_team_director.cpp`, `bot_navmesh_api.cpp` |
 | `rcbot_empires_self_preservation` | 1 | Two teammates killed by the enemy within 8 s and 600 HU of a bot make it fall back 300-450 HU from the killer (preferably out of sight) or back off out of the fight for 5 s; 20 s cooldown. |
@@ -107,6 +107,7 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | Cvar | Default | Meaning |
 |---|---:|---|
 | `rcbot_bot_quota_interval` | 10 | Seconds between bot-quota checks; 0 or lower disables the quota (`config/bot_quota.ini` maps human count to bot count). `min_bots` / `max_bots` (config.ini) clamp the target; EngiBots do not count. |
+| `rcbot_wait_for_human_team` | 1 | Automatic bot filling (quota and `min_bots`/`max_bots`) waits until a human is on a playing team (team ≥ 2); manual `rcbotd addbot` is not affected. `0` = fill as soon as the server counts players. |
 | `rcbot_bot_squads_percent` | 50 | Percentage of time bots form squads with other bots (set in `config.ini`: `rcbot_bots_form_squads 1`). |
 | `eta_nav_learning`, `eta_recovery_active`, `eta_local_yielding` | 0 | Experimental kill switches: learned navigation edge costs, bot-local active recovery for captures, deterministic WAIT-only ally yielding. Passive telemetry stays on. |
 | `rcbot_analysis_*` | - | Console commands (not cvars): recorder start/stop/mark/status, see [Console commands](Console-Commands.md). |

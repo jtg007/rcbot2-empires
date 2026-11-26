@@ -82,6 +82,24 @@ int main()
 			}
 		}
 	}
+	{
+		struct Lean { int n, teamBots, phase, p, h, d; const char* what; };
+		const Lean lean2[] = {
+			{ 8, 11, PHASE_PUSH, 5, 3, 0, "lean 2: no standing defender in 11 bots" },
+			{ 10, 12, PHASE_PUSH, 6, 4, 0, "lean 2: no minimum from 12 team bots" },
+			{ 8, 11, PHASE_BASE_ALERT, 3, 2, 3, "lean 2: alert still takes defenders" },
+			{ 8, 11, PHASE_STABILIZE, 3, 4, 1, "lean 2: stabilize keeps a defender" },
+		};
+		for (const Lean& c : lean2)
+		{
+			const RoleSplit s = SplitRoles(c.n, c.teamBots, c.phase, true, 2);
+			if (s.push != c.p || s.hold != c.h || s.defense != c.d)
+			{
+				std::printf("FAIL %s: got %d/%d/%d want %d/%d/%d\n", c.what, s.push, s.hold, s.defense, c.p, c.h, c.d);
+				++g_failures;
+			}
+		}
+	}
 
 	// Stable assignment: previous roles are kept while they fit.
 	{

@@ -64,7 +64,9 @@ struct RoleSplit
 // the hold share pushes. leanDefense: the standing defender share is floor(0.2 n), so 3-4 free bots all go
 // forward without an alert (crossroads 165502: 3 free bots per team as push/hold/defense, the defenders
 // gave half of all 30 s defend-holds, 27 of 52, idle at home).
-inline RoleSplit SplitRoles(int eligible, int teamBots, int phase, bool haveHold, bool leanDefense = false)
+// leanDefense 2: no standing defender at all in the calm PUSH phase (11v11 20261126-114928: 1 defense +
+// hold at the base refinery parked bots at home with no enemy known); STABILIZE and alerts as before.
+inline RoleSplit SplitRoles(int eligible, int teamBots, int phase, bool haveHold, int leanDefense = 0)
 {
 	RoleSplit split;
 	if (eligible <= 0)
@@ -74,6 +76,8 @@ inline RoleSplit SplitRoles(int eligible, int teamBots, int phase, bool haveHold
 		defense = 1;
 	if (teamBots >= 12 && defense < 2)
 		defense = 2;
+	if (leanDefense >= 2 && phase == PHASE_PUSH)
+		defense = 0;
 	if (phase == PHASE_STABILIZE && eligible >= 3 && defense < 1)
 		defense = 1;
 	if (defense > eligible - 1)

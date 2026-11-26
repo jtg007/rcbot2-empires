@@ -1357,7 +1357,9 @@ void RCBotPluginMeta::BotQuotaCheck() {
 			}
 			notify = true;
 		}
-		else if ((bot_target > bot_count) && ( CBots::getAddKickBotTime() < engine->Time() )) {
+		else if ((bot_target > bot_count) && ( CBots::getAddKickBotTime() < engine->Time() ) &&
+			// Automatic filling waits for a human on a team; `addbot` bypasses this.
+			!(rcbot_wait_for_human_team.GetBool() && CBotGlobals::numHumansOnPlayingTeam() == 0)) {
 			const int bot_diff = bot_target - bot_count;
 
 			for (int i = 0; i < bot_diff; ++i) {

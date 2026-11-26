@@ -59,6 +59,7 @@
 #endif
 
 #include "bot.h"
+#include "bot_empires_binary.h"
 #include "bot_cvars.h"
 #include "bot_schedule.h"
 #include "bot_task.h"
@@ -4642,6 +4643,14 @@ bool CBots :: createBot (const char *szClass, const char *szTeam, const char *sz
 		pBotProfile->m_iTeam = pMod->getTeamByName(szTeam);
 	SET_PROFILE_STRING(szName,szOVName,m_szName)
 
+	// Empires: a new fake client would inherit the previous bot's stored round record (team + ticket).
+	if ((CBotGlobals::getCurrentMod() != nullptr && CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES))
+	{
+		const int forgotten = EmpiresForgetBotRoundStats();
+		if (forgotten > 0)
+			logger->Log(LogLevel::INFO, "[RCBOT2] bot-roundstats forgot=%d", forgotten);
+	}
+
 	edict_t* pEdict = g_pBotManager->CreateBot(szOVName);
 
 	if ( pEdict == nullptr)
@@ -4681,6 +4690,9 @@ int CBots::createDefaultBot(const char* szName) {
 		logger->Log(LogLevel::WARN, "Empires controlled test rejected default bot creation while probe is active");
 		return -1;
 	}
+
+	if ((CBotGlobals::getCurrentMod() != nullptr && CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES))
+		EmpiresForgetBotRoundStats();
 
 	edict_t* pEdict = g_pBotManager->CreateBot(szName);
 
@@ -5294,6 +5306,10 @@ bool CBots :: needToAddBot ()
 	if (rcbot_bot_quota_interval.GetFloat() > 0.0f) {
 		return false;
 	}
+
+	// Automatic filling waits for a human on a team; `addbot` bypasses this.
+	if (rcbot_wait_for_human_team.GetBool() && CBotGlobals::numHumansOnPlayingTeam() == 0)
+		return false;
 
 	const int engibots = CountEmpiresEngibots();
 	const int iBots = CBots::numBots() - engibots;

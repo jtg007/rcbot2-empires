@@ -3,6 +3,7 @@
 # same time and drive to the enemy through it, timescale 4, 3 game minutes (~1.5 min real per batch).
 # Runs are started in parallel; half of them with an extra cvar set (A/B), e.g. the 3.16b lane logic off.
 # Usage: scripts/dev_gate.sh [east|west] [runs] ["cvars for the B half"]
+#   GATE_VEHICLES=1: only one BE vehicle (single pass, no queue).
 #   scripts/dev_gate.sh west 6 "rcbot_empires_vehicle_wall_clearance 0;rcbot_empires_vehicle_narrow_cost 0"
 # Prints per run: vehicles north of the gate, passes, reversals and give-ups in the gate zone.
 set -euo pipefail
@@ -17,13 +18,18 @@ case "$side" in
 esac
 out="$(mktemp -d)"
 base="sv_cheats 1;rcbot_empires_auto_commander 0;rcbot_empires_vehicle_debug_team 3;rcbot_empires_vehicles 0"
+roster="2:1 3:1 3:1"
 cmds="wait 6;rcbotd empires_test_botcmd 3 1 setpos $a;rcbotd empires_test_botcmd 4 1 setpos $b;wait 1;rcbot_empires_vehicles 1"
+if [[ "${GATE_VEHICLES:-2}" == 1 ]]; then
+  roster="2:1 3:1"
+  cmds="wait 6;rcbotd empires_test_botcmd 3 1 setpos $a;wait 1;rcbot_empires_vehicles 1"
+fi
 port0="${DEV_PORT:-49925}"
 scripts/dev_build.sh >/dev/null
 for ((i = 1; i <= runs; i++)); do
   pre="$base"
   [[ -n "$alt" && $((i % 2)) == 0 ]] && pre+=";$alt"
-  (DEV_PORT=$((port0 + i * 10)) DEV_SKIP_BUILD=1 DEV_TIMESCALE=4 QUICK_ROSTER="2:1 3:1 3:1" \
+  (DEV_PORT=$((port0 + i * 10)) DEV_SKIP_BUILD=1 DEV_TIMESCALE=4 QUICK_ROSTER="$roster" \
     QUICK_PRE="$pre" QUICK_CMDS="$cmds" QUICK_SHOW='vehicle (bought|give-up )' \
     scripts/dev_quick.sh emp_crossroads 3 > "$out/run$i.log" 2>&1 || true) &
   sleep 3
@@ -39,7 +45,7 @@ import re, sys
 path, x0, x1, south, north = sys.argv[1], *map(float, sys.argv[2:])
 drive = re.compile(r'vehicle drive userid=(\d+) veh=(\d+) .*?pos=\((-?\d+) (-?\d+) ')
 pos = re.compile(r'pos=\((-?\d+) (-?\d+) ')
-above, passed, rev, gu = set(), set(), 0, 0
+above, passed, rev, gu, crawl = set(), set(), 0, 0, 0
 for line in open(path, errors='replace'):
     m = drive.search(line)
     if m:
@@ -52,7 +58,8 @@ for line in open(path, errors='replace'):
     if p and x0 < float(p.group(1)) < x1 and south - 100 < float(p.group(2)) < north + 800:
         rev += 'stuck-reverse' in line
         gu += 'vehicle give-up ' in line
-print(f"north={len(above)} passed={len(passed)} reversals={rev} give-ups={gu}")
+        crawl += 'crawl-stuck' in line
+print(f"north={len(above)} passed={len(passed)} reversals={rev} give-ups={gu} crawl={crawl}")
 EOF
   grep -h "Crashes: YES" "$out/run$i.log" || true
 done

@@ -2601,13 +2601,17 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 	// Enter a tight lane straight: when the route turns right before it, add a point on the lane axis
 	// behind the entry so the hull is aligned before its corners reach the walls.
 	int approachPoints = 0;
+	int rejTight = 0, rejAngle = 0, rejLead = 0, rejArea = 0, rejTrace = 0;
 	if (rcbot_empires_vehicle_wall_clearance.GetBool())
 	{
 		for (std::size_t i = 2; i < path.points.size(); ++i)
 		{
 			const Vector entry = path.points[i - 1];
 			if (!VehicleLaneTight(path.points[i], entry, width * 0.5f))
+			{
+				++rejTight;
 				continue;
+			}
 			// Lane axis over at least one vehicle width: the next point alone can be a few units away and
 			// sideways after the wall shift (crossroads BE west exit: 30 HU, axis 50 degrees off, approach
 			// point put against the lane wall, run 20261124-224450).
@@ -2624,14 +2628,23 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 			lane /= lane.Length2D();
 			in /= in.Length2D();
 			if (lane.x * in.x + lane.y * in.y > 0.94f) // already within ~20 degrees
+			{
+				++rejAngle;
 				continue;
+			}
 			const float lead = (std::min)(width * 1.2f, 0.8f * (entry - path.points[i - 2]).Length2D());
 			if (lead < 48.0f)
+			{
+				++rejLead;
 				continue;
+			}
 			Vector approach = entry - lane * lead;
 			const CNavArea* area = TheNavMesh->GetNavArea(approach + Vector(0.0f, 0.0f, 40.0f), 120.0f);
 			if (area == nullptr || std::fabs(area->GetZ(approach) - entry.z) > 40.0f)
+			{
+				++rejArea;
 				continue;
+			}
 			approach.z = area->GetZ(approach);
 			{
 				// The straight run to the entry must be clear for most of the hull.
@@ -2643,7 +2656,10 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 				trace_t hit;
 				enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
 				if (hit.startsolid || hit.fraction < 1.0f)
+				{
+					++rejTrace;
 					continue;
+				}
 			}
 			path.precisePoints.push_back(approach);
 			path.precisePoints.push_back(entry);
@@ -2653,7 +2669,8 @@ PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, fl
 		}
 	}
 	if (wallShifts > 0 || approachPoints > 0)
-		RCBOT_DIAG("[RCBOT2] vehicle-nav wall-shifts=%d approach-points=%d\n", wallShifts, approachPoints);
+		RCBOT_DIAG("[RCBOT2] vehicle-nav wall-shifts=%d approach-points=%d rej_angle=%d rej_lead=%d rej_area=%d rej_trace=%d loose=%d\n",
+			wallShifts, approachPoints, rejAngle, rejLead, rejArea, rejTrace, rejTight);
 	AppendPoint(path, path.walkGoal);
 	g_detourHalf = (std::max)(16.0f, width * 0.5f);
 	ApplyBuildingDetours(path, true, drivenVehicle);

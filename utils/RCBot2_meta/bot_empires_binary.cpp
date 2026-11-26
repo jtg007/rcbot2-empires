@@ -5,6 +5,9 @@
 #include "miniz.h"
 #include <cstdio>
 #include <cstring>
+#include "toolframework/itoolentity.h"
+
+extern IServerTools* servertools;
 
 namespace
 {
@@ -84,4 +87,45 @@ bool EmpiresBinaryOffsetsTrusted()
 			"Set rcbot_empires_force_offsets 1 to use them anyway.\n");
 	}
 	return false;
+}
+
+int EmpiresForgetBotRoundStats()
+{
+	if (!EmpiresBinaryOffsetsTrusted() || servertools == nullptr)
+		return -1;
+
+	char* params = nullptr;
+	for (CBaseEntity* pEntity = servertools->FirstEntity(); pEntity != nullptr && params == nullptr;
+		pEntity = servertools->NextEntity(pEntity))
+	{
+		IServerUnknown* unknown = reinterpret_cast<IServerUnknown*>(pEntity);
+		IServerNetworkable* net = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
+		edict_t* edict = net != nullptr ? net->GetEdict() : nullptr;
+		if (edict != nullptr && !edict->IsFree() && edict->GetClassName() != nullptr &&
+			std::strcmp(edict->GetClassName(), "emp_info_params") == 0)
+			params = reinterpret_cast<char*>(pEntity);
+	}
+	if (params == nullptr)
+		return -1;
+
+	// CEmpParams +0x33bc: round stats; +0x0 record pointer array, +0xc count (0x645682..0x6456cc).
+	// Record: +0x3c team, +0x40 network ID string.
+	char* stats = *reinterpret_cast<char**>(params + 0x33bc);
+	if (stats == nullptr)
+		return 0;
+	char** records = *reinterpret_cast<char***>(stats);
+	const int count = *reinterpret_cast<int*>(stats + 0xc);
+	if (records == nullptr || count <= 0 || count > 4096)
+		return 0;
+	int renamed = 0;
+	for (int i = 0; i < count; ++i)
+	{
+		char* id = records[i] != nullptr ? records[i] + 0x40 : nullptr;
+		if (id != nullptr && std::strcmp(id, "BOT") == 0)
+		{
+			id[0] = '#'; // "#OT" never matches a network ID
+			++renamed;
+		}
+	}
+	return renamed;
 }

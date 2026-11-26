@@ -1054,6 +1054,11 @@ void CBotEmpires::tickTeamDirector()
 		// The base itself is the defenders' spot, not a hold goal.
 		if (homeKnown && Dist2D(c.spot, home) < 1500.0f)
 			continue;
+		// leanDefense 2: without an alert, nobody holds a building on the own side (the base refinery
+		// was the first hold goal on crossroads, 11v11 20261126-114928).
+		if (rcbot_empires_lean_defense.GetInt() >= 2 && board.phase != PHASE_BASE_ALERT && homeKnown &&
+			enemyCvKnown && FrontShare(Dist2D(c.spot, home), Dist2D(c.spot, enemyCv)) < 0.35f)
+			continue;
 		SetGoal(board.hold[board.holdCount++], c.entity, c.spot, c.kind);
 	}
 
@@ -1103,7 +1108,7 @@ void CBotEmpires::tickTeamDirector()
 		for (int g = 0; g < board.holdCount; ++g)
 			if (board.hold[g].entity >= 0 && board.hold[g].entity == board.alert.entity)
 				alertHold = g;
-	const bool leanDefense = rcbot_empires_lean_defense.GetBool();
+	const int leanDefense = rcbot_empires_lean_defense.GetInt();
 	board.split = SplitRoles(count, teamBots, board.phase, board.holdCount > 0, leanDefense);
 	const RoleSplit calm = SplitRoles(count, teamBots, PHASE_PUSH, board.holdCount > 0, leanDefense);
 	if (alertHold >= 0 && calm.hold > 0)

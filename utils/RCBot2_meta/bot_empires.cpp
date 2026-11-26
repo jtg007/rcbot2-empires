@@ -6838,6 +6838,7 @@ void CBotEmpires::updateEmpiresEngineerSkills()
 
 void CBotEmpires::modThink()
 {
+
 	updateEmpiresEngineerSkills();
 	if (isEmpiresEngineerClass())
 	{
@@ -15808,8 +15809,19 @@ bool CBotEmpires::suppressBotThink()
 	return true;
 }
 
+// CEmpPlayer +0x1428: respawn time gate of CEmpGameRules::FPlayerCanRespawn (0x39a576).
+void SetEmpiresRespawnGate(edict_t* e, float until)
+{
+	if (e == nullptr || e->IsFree() || !EmpiresBinaryOffsetsTrusted())
+		return;
+	CBaseEntity* base = e->GetUnknown() != nullptr ? e->GetUnknown()->GetBaseEntity() : nullptr;
+	if (base != nullptr)
+		*reinterpret_cast<float*>(reinterpret_cast<char*>(base) + 0x1428) = until;
+}
+
 bool CBotEmpires::startGame()
 {
+
 	if (isControlledTestOnly())
 	{
 		if (!m_bStartGameGateLogged)
@@ -16049,6 +16061,13 @@ bool CBotEmpires::startGame()
 		// This is the public Empires command route. Only team selection is
 		// performed here; class, loadout and spawn are separate stages.
 		helpers->ClientCommand(m_pEdict, command);
+		// The dead bot on its new team is respawnable at once: PlayerDeathThink runs
+		// CEmpGameRules::FPlayerCanRespawn 0x39a4f0, which takes a ticket (tickets_balance -1.0,
+		// 0x39aba6) although the class/spawn stages have not run and the spawn fails, then the real
+		// spawn takes a second one (trace 20261126-1323: 200->199 at team-confirmed, ->198 at spawn).
+		// Hold its respawn gate (+0x1428, checked at 0x39a576 before any ticket code) until
+		// emp_spawn_select releases it.
+		SetEmpiresRespawnGate(m_pEdict, engine->Time() + 5.0f);
 		m_bNormalTeamCommandPending = true;
 		m_iNormalTeam = requestedTeam;
 		m_iNormalTeamFrames = 0;
@@ -16164,6 +16183,7 @@ bool CBotEmpires::startGame()
 
 			char command[64];
 			snprintf(command, sizeof(command), "emp_spawn_select %d\n", spawnId);
+			SetEmpiresRespawnGate(m_pEdict, 0.0f); // release the hold set at jointeam
 			logger->Log(LogLevel::INFO,
 				"Empires normal spawn request index=%d userid=%d team=%d class=%d spawn_id=%d spawn_edict=%p command=%s",
 				engine->IndexOfEdict(m_pEdict), engine->GetPlayerUserId(m_pEdict),

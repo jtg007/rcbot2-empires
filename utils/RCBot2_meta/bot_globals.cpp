@@ -199,6 +199,28 @@ int CBotGlobals ::numPlayersPlaying()
 	return num;
 }
 
+int CBotGlobals ::numHumansOnPlayingTeam()
+{
+	int num = 0;
+
+	for ( int i = 1; i <= usableClientLimit(); i ++ )
+	{
+		edict_t* pEdict = INDEXENT(i);
+
+		if ( pEdict == nullptr || pEdict->IsFree() || playerinfomanager == nullptr )
+			continue;
+
+		IPlayerInfo* p = playerinfomanager->GetPlayerInfo(pEdict);
+		if (p == nullptr || !p->IsConnected() || !p->IsPlayer() || p->IsHLTV() || p->IsFakeClient())
+			continue;
+
+		if ( CBotGlobals::entityIsValid(pEdict) && CClassInterface::getTeam(pEdict) >= 2 )
+			num++;
+	}
+
+	return num;
+}
+
 int CBotGlobals ::numPlayersOnTeam(const int iTeam, const bool bAliveOnly)
 {
 	int num = 0;
