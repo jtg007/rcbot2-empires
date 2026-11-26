@@ -310,7 +310,6 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 - **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
-- **Server hitches:** with 20+ bots the building detour planning (`nav-detour`) still takes up to ~290 ms in single frames (rainbowroad 22 bots: 41 plans over 100 ms in 20 minutes), felt as short lags.
 - **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.
 - **Platform coverage:** Only Linux dedicated servers have been tested.
 
@@ -384,6 +383,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 
 **Test-only cvars & internals:**
 - `rcbot_empires_vehicle_debug_team 2|3` (restrict vehicle purchases to one team).
+- `rcbot_empires_nav_detour_fast` (default `1`): building detour planning evaluates grid cells only when the search reaches them, shares them per building for 15 s across all bots, looks for the start cell only near the entry and stops A* at the first clear exit (same exit rule as before). Rainbowroad, 22 bots, 8 minutes: plans over 50 ms 96 → 0, longest 115 → 27 ms, planning time 22.2 → 2.2 s. `0` = old full-grid planner, `2` = plan both and log `nav-detour-compare`.
 - `rcbot_empires_vehicle_wall_clearance` (default `1`): vehicle route points keep half the vehicle width off world walls running along the route (a wall ahead hit at an angle does not count), are centred in lanes barely wider than the vehicle, and get a straight approach point before such a lane; the driver must reach these points within 90 HU and does not look past them (8 s fallback). `rcbot_empires_vehicle_narrow_cost` (default `1500`): fixed route cost per navmesh area too narrow for the vehicle, so short pillar gaps are no longer cheaper than the wide lane.
 - `rcbot_empires_vehicle_maneuvers`, `rcbot_empires_vehicle_curve_speed`, `rcbot_empires_vehicle_turn_test` (experimental driving, default `0`; measurements in [docs/OPEN_WORK.md](docs/OPEN_WORK.md)).
 - `rcbot_analysis_start` records bot telemetry ([EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md)).

@@ -27,6 +27,8 @@
 // emp_crossroads be_gate1 east/centre lanes, 20261124-205837) cheaper than the wide lane next to them.
 ConVar rcbot_empires_vehicle_wall_clearance("rcbot_empires_vehicle_wall_clearance", "1", 0,
 	"Shift vehicle route points sideways away from world walls closer than half the vehicle width");
+ConVar rcbot_empires_nav_detour_fast("rcbot_empires_nav_detour_fast", "1", 0,
+	"1 = building detour planning evaluates grid cells on demand, shares them per building for 15 s, searches the start cell only near the entry and runs A* to the first exit (same choice as 0); 0 = old full-grid planning; 2 = plan both, use the fast one, log nav-detour-compare");
 ConVar rcbot_empires_vehicle_narrow_cost("rcbot_empires_vehicle_narrow_cost", "1500", 0,
 	"Fixed route cost per navmesh area too narrow for the vehicle (0 = old per-distance penalty only)");
 #include "engine/IStaticPropMgr.h"
@@ -1263,7 +1265,7 @@ bool HullHitsWorld(const Vector& point)
 	return hit.startsolid;
 }
 
-bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
+bool PlanDetourLegacy(const Vector& from, const Vector& target, float planeZ,
 	const BuildingBox& box, const std::vector<BuildingBox>& allBoxes,
 	std::vector<Vector>& detour)
 {
@@ -1286,6 +1288,8 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 				boxes.push_back(other);
 	}
 
+	const auto planStart = std::chrono::steady_clock::now();
+	int planTraces = 0;
 	std::vector<float> cellZ(width * height, planeZ);
 	const auto cellPoint = [&](int x, int y)
 	{
@@ -1303,6 +1307,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 			const auto solidAt = [&](float z) {
 				cellZ[y * width + x] = z;
 				const Vector point = cellPoint(x, y);
+				++planTraces;
 				if (HullHitsWorld(point))
 					return true;
 				for (const BuildingBox& other : boxes)
@@ -1337,6 +1342,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 			blocked[y * width + x] = solid;
 		}
 
+	const auto gridDone = std::chrono::steady_clock::now();
 	// Enter the grid where the segment reaches it; a start inside stays put.
 	Vector entry(from.x, from.y, planeZ);
 	float enter = 0.0f;
@@ -1489,6 +1495,8 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		return false;
 	}
 
+	const auto searchDone = std::chrono::steady_clock::now();
+	int smoothTraces = 0;
 	std::vector<int> cells;
 	for (int cell = exitCell; cell != -1; cell = parent[cell])
 		cells.push_back(cell);
@@ -1508,6 +1516,7 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		ray.Init(start, end, Vector(-16, -16, 0), Vector(16, 16, 72));
 		CTraceFilterWorldOnly filter;
 		trace_t hit;
+		++smoothTraces;
 		enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &filter, &hit);
 		if (hit.startsolid || hit.fraction < 1.0f)
 			return false;
@@ -1539,7 +1548,409 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 		detour.push_back(corner);
 		anchor = furthest;
 	}
+	{
+		const auto done = std::chrono::steady_clock::now();
+		const auto us = [](auto a, auto b) { return static_cast<long long>(std::chrono::duration_cast<std::chrono::microseconds>(b - a).count()); };
+		if (us(planStart, done) >= 20000)
+			RCBOT_DIAG("[RCBOT2] nav-detour-cost building=%s cells=%d grid_us=%lld grid_traces=%d search_us=%lld smooth_us=%lld smooth_traces=%d path_cells=%zu\n",
+				box.className, width * height, us(planStart, gridDone), planTraces, us(gridDone, searchDone), us(searchDone, done),
+				smoothTraces, cells.size());
+	}
 	return true;
+}
+
+// Human test 26.11. (22 bots, hitches up to 290 ms): the old planner traced every cell of the grid around the
+// building on every request (~3000 hull traces) and looked for the start cell among all cells with a building
+// trace each. Like 0 A.D. (static obstructions rasterised once into the navcell grid, not per path): cells are
+// evaluated only when the search reaches them and kept per building for 15 s for every bot; the start cell is
+// searched only within the 4 cells the old planner accepted; A* with the straight 2D distance to the target
+// pops exits in the old order (cost + distance), so the first clear exit is the old choice.
+namespace
+{
+struct DetourGridCache
+{
+	int bx0, by0, bx1, by1, planeZ, half, sig;
+	float until;
+	int width, height;
+	float originX, originY;
+	std::vector<signed char> state; // -1 unknown, 0 free, 1 blocked
+	std::vector<float> cellZ;
+};
+std::vector<DetourGridCache> g_detourGridCache;
+}
+
+bool PlanDetourFast(const Vector& from, const Vector& target, float planeZ,
+	const BuildingBox& box, const std::vector<BuildingBox>& allBoxes,
+	std::vector<Vector>& detour)
+{
+	const float originX = box.mins.x - DetourMargin();
+	const float originY = box.mins.y - DetourMargin();
+	const int width = static_cast<int>((box.maxs.x - box.mins.x + 2.0f * DetourMargin()) / kDetourCell) + 1;
+	const int height = static_cast<int>((box.maxs.y - box.mins.y + 2.0f * DetourMargin()) / kDetourCell) + 1;
+	if (width <= 0 || height <= 0 || width * height > kDetourMaxCells)
+		return false;
+	const auto planStart = std::chrono::steady_clock::now();
+	int planTraces = 0, evaluated = 0;
+
+	std::vector<BuildingBox> boxes;
+	int sig = 0;
+	{
+		const float pad = g_detourHalf + 32.0f;
+		const float gx0 = originX - pad, gy0 = originY - pad;
+		const float gx1 = originX + (width - 1) * kDetourCell + pad, gy1 = originY + (height - 1) * kDetourCell + pad;
+		for (const BuildingBox& other : allBoxes)
+			if (other.maxs.x >= gx0 && other.mins.x <= gx1 && other.maxs.y >= gy0 && other.mins.y <= gy1)
+			{
+				boxes.push_back(other);
+				sig = sig * 31 + int(other.mins.x) + 7 * int(other.mins.y) + 13 * int(other.maxs.x) +
+					17 * int(other.maxs.y) + 19 * int(other.mins.z) + 23 * int(other.maxs.z);
+			}
+	}
+
+	// A bot starting inside the padded box (spawn floor above the mesh) gets its own heights: not shared.
+	const float ceiling = InPaddedBox(from, box, 0.0f) ?
+		(std::max)(planeZ, (std::min)(planeZ + 128.0f, from.z + kDetourFloorClearance)) : planeZ;
+	const bool shareable = ceiling <= planeZ + 0.1f;
+	DetourGridCache local;
+	DetourGridCache* grid = nullptr;
+	const float now = gpGlobals != nullptr ? gpGlobals->curtime : 0.0f;
+	// 15 s: a building under construction can change its collision without changing its box (compare run
+	// 20261126-222139: 1 of 824 plans failed only with the shared grid, right after an armory appeared).
+	constexpr float kGridSeconds = 15.0f;
+	if (shareable)
+	{
+		const int key[7] = {int(box.mins.x), int(box.mins.y), int(box.maxs.x), int(box.maxs.y), int(std::floor(planeZ)),
+			int(g_detourHalf), sig};
+		g_detourGridCache.erase(std::remove_if(g_detourGridCache.begin(), g_detourGridCache.end(),
+			[&](const DetourGridCache& c) { return now >= c.until || now < c.until - kGridSeconds; }), g_detourGridCache.end());
+		for (DetourGridCache& c : g_detourGridCache)
+			if (c.bx0 == key[0] && c.by0 == key[1] && c.bx1 == key[2] && c.by1 == key[3] && c.planeZ == key[4] &&
+				c.half == key[5] && c.sig == key[6] && c.width == width && c.height == height)
+			{
+				grid = &c;
+				break;
+			}
+		if (grid == nullptr)
+		{
+			if (g_detourGridCache.size() >= 48)
+				g_detourGridCache.erase(g_detourGridCache.begin());
+			g_detourGridCache.push_back({key[0], key[1], key[2], key[3], key[4], key[5], key[6], now + kGridSeconds,
+				width, height, originX, originY, std::vector<signed char>(width * height, -1),
+				std::vector<float>(width * height, planeZ)});
+			grid = &g_detourGridCache.back();
+		}
+	}
+	else
+	{
+		local = {0, 0, 0, 0, 0, 0, 0, 0.0f, width, height, originX, originY,
+			std::vector<signed char>(width * height, -1), std::vector<float>(width * height, planeZ)};
+		grid = &local;
+	}
+	std::vector<signed char>& state = grid->state;
+	std::vector<float>& cellZ = grid->cellZ;
+	const auto cellPoint = [&](int x, int y)
+	{
+		return Vector(originX + x * kDetourCell, originY + y * kDetourCell, cellZ[y * width + x]);
+	};
+	// Same test as the old planner, for one cell.
+	const auto evalCell = [&](int x, int y)
+	{
+		const int idx = y * width + x;
+		if (state[idx] >= 0)
+			return state[idx] != 0;
+		++evaluated;
+		const auto solidAt = [&](float z) {
+			cellZ[idx] = z;
+			const Vector point = cellPoint(x, y);
+			++planTraces;
+			if (HullHitsWorld(point))
+				return true;
+			for (const BuildingBox& other : boxes)
+				if (InPaddedBox(point, other, 24.0f + g_detourHalf - 16.0f) && !HullClearOfBuilding(point, point, other))
+					return true;
+			return false;
+		};
+		float clearZ = -1.0e9f;
+		float coarse = planeZ;
+		for (; coarse <= ceiling + 0.1f; coarse += 16.0f)
+			if (!solidAt(coarse))
+			{
+				clearZ = coarse;
+				break;
+			}
+		if (clearZ < -1.0e8f && coarse - 16.0f < ceiling - 0.1f && !solidAt(ceiling))
+			clearZ = ceiling;
+		signed char solid = 1;
+		if (clearZ > -1.0e8f)
+		{
+			for (float z = clearZ - 12.0f; z < clearZ; z += 4.0f)
+				if (z >= planeZ && !solidAt(z))
+				{
+					clearZ = z;
+					break;
+				}
+			cellZ[idx] = clearZ;
+			solid = 0;
+		}
+		state[idx] = solid;
+		return solid != 0;
+	};
+
+	Vector entry(from.x, from.y, planeZ);
+	float enter = 0.0f;
+	if (SegmentHitsBox(from, target, box, DetourMargin() - kDetourCell, &enter) && enter > 0.0f)
+	{
+		const Vector along = from + (target - from) * enter;
+		entry = Vector(along.x, along.y, planeZ);
+	}
+	Vector actualEntry(entry.x, entry.y, (std::max)(entry.z, from.z + kDetourFloorClearance));
+	const auto entrySolid = [&](const Vector& point)
+	{
+		for (const BuildingBox& other : boxes)
+			if (!HullClearOfBuilding(point, point, other))
+				return true;
+		return HullHitsWorld(point);
+	};
+	while (actualEntry.z - 4.0f >= entry.z && entrySolid(actualEntry))
+		actualEntry.z -= 4.0f;
+	std::vector<char> startOverlaps(boxes.size(), 0);
+	for (size_t i = 0; i < boxes.size(); ++i)
+		startOverlaps[i] = HullClearOfBuilding(actualEntry, actualEntry, boxes[i]) ? 0 : 1;
+
+	// Start cell: the old planner took the nearest reachable free cell and refused one farther than 4 cells.
+	int startCell = -1;
+	float startDistance = (std::numeric_limits<float>::max)();
+	{
+		const int ex = static_cast<int>(std::floor((entry.x - originX) / kDetourCell));
+		const int ey = static_cast<int>(std::floor((entry.y - originY) / kDetourCell));
+		std::vector<std::pair<float, int>> near;
+		for (int y = (std::max)(0, ey - 5); y <= (std::min)(height - 1, ey + 6); ++y)
+			for (int x = (std::max)(0, ex - 5); x <= (std::min)(width - 1, ex + 6); ++x)
+			{
+				if (evalCell(x, y))
+					continue;
+				const float distance = (cellPoint(x, y) - entry).Length();
+				if (distance <= kDetourCell * 4.0f)
+					near.push_back({distance, y * width + x});
+			}
+		std::sort(near.begin(), near.end());
+		for (const auto& candidate : near)
+		{
+			const Vector point = cellPoint(candidate.second % width, candidate.second / width);
+			bool reachable = true;
+			for (size_t i = 0; i < boxes.size() && reachable; ++i)
+				if (!startOverlaps[i] && !HullClearOfBuilding(actualEntry, point, boxes[i]))
+					reachable = false;
+			if (reachable)
+			{
+				startCell = candidate.second;
+				startDistance = candidate.first;
+				break;
+			}
+		}
+	}
+	if (startCell < 0)
+	{
+		RCBOT_DIAG("[RCBOT2] nav-detour-fail reason=no-start entry=(%.0f %.0f %.0f) nearest=%.0f box=(%.0f %.0f)-(%.0f %.0f)\n",
+			entry.x, entry.y, actualEntry.z, startDistance, box.mins.x, box.mins.y, box.maxs.x, box.maxs.y);
+		return false;
+	}
+	const auto gridDone = std::chrono::steady_clock::now();
+
+	const Vector targetAtPlane(target.x, target.y, planeZ);
+	const bool targetInBox = InPaddedBox(target, box, 48.0f);
+	const auto heuristic = [&](int cell)
+	{
+		if (targetInBox)
+			return 0.0f;
+		const float dx = originX + (cell % width) * kDetourCell - target.x;
+		const float dy = originY + (cell / width) * kDetourCell - target.y;
+		return std::sqrt(dx * dx + dy * dy);
+	};
+	std::vector<float> cost(width * height, (std::numeric_limits<float>::max)());
+	std::vector<int> parent(width * height, -1);
+	using QueueEntry = std::pair<float, int>;
+	std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> open;
+	cost[startCell] = 0.0f;
+	open.push({heuristic(startCell), startCell});
+	int exitCell = -1;
+	int exitChecks = 0;
+	while (!open.empty())
+	{
+		const QueueEntry current = open.top();
+		open.pop();
+		const int cur = current.second;
+		if (current.first - heuristic(cur) > cost[cur] + 0.01f)
+			continue;
+		const int cx = cur % width;
+		const int cy = cur / width;
+		if (!targetInBox)
+		{
+			const Vector point = cellPoint(cx, cy);
+			if (!InPaddedBox(point, box, 48.0f))
+			{
+				++exitChecks;
+				if (HullClearOfBuilding(point, targetAtPlane, box))
+				{
+					exitCell = cur;
+					break;
+				}
+			}
+		}
+		for (int dy = -1; dy <= 1; ++dy)
+			for (int dx = -1; dx <= 1; ++dx)
+			{
+				if (dx == 0 && dy == 0)
+					continue;
+				const int nx = cx + dx;
+				const int ny = cy + dy;
+				if (nx < 0 || ny < 0 || nx >= width || ny >= height || evalCell(nx, ny))
+					continue;
+				if (dx != 0 && dy != 0 && (evalCell(nx, cy) || evalCell(cx, ny)))
+					continue;
+				const float rise = cellZ[ny * width + nx] - cellZ[cur];
+				if (rise > 40.0f || rise < -200.0f)
+					continue;
+				const float step = (dx != 0 && dy != 0) ? 1.4142f : 1.0f;
+				const float nextCost = cost[cur] + step * kDetourCell;
+				const int next = ny * width + nx;
+				if (nextCost < cost[next])
+				{
+					cost[next] = nextCost;
+					parent[next] = cur;
+					open.push({nextCost + heuristic(next), next});
+				}
+			}
+	}
+	if (targetInBox)
+	{
+		// Same as the old planner: the free reachable cell nearest to the target.
+		const bool targetSolid = !HullClearOfBuilding(targetAtPlane, targetAtPlane, box);
+		float nearest = targetSolid ? (std::numeric_limits<float>::max)() : kDetourCell * 2.0f;
+		for (int cell = 0; cell < width * height; ++cell)
+		{
+			if (cost[cell] == (std::numeric_limits<float>::max)())
+				continue;
+			const float distance = (cellPoint(cell % width, cell / width) - targetAtPlane).Length();
+			if (distance < nearest)
+			{
+				nearest = distance;
+				exitCell = cell;
+			}
+		}
+	}
+	if (exitCell < 0)
+	{
+		RCBOT_DIAG("[RCBOT2] nav-detour-fail reason=no-exit exits=%d z=%.0f target=(%.0f %.0f %.0f) box=(%.0f %.0f)-(%.0f %.0f)\n",
+			exitChecks, planeZ, target.x, target.y, target.z, box.mins.x, box.mins.y, box.maxs.x, box.maxs.y);
+		return false;
+	}
+	const auto searchDone = std::chrono::steady_clock::now();
+
+	std::vector<int> cells;
+	for (int cell = exitCell; cell != -1; cell = parent[cell])
+		cells.push_back(cell);
+	std::reverse(cells.begin(), cells.end());
+	Vector first = cellPoint(startCell % width, startCell / width);
+	first.z -= kDetourFloorClearance;
+	detour.push_back(first);
+
+	int smoothTraces = 0;
+	const auto lineFree = [&](int fromCell, int toCell)
+	{
+		const Vector start = cellPoint(fromCell % width, fromCell / width);
+		const Vector end = cellPoint(toCell % width, toCell / width);
+		// Grid samples first (cheap, and on demand), traces only for lines the grid allows.
+		const int steps = (std::max)(1, static_cast<int>((end - start).Length() / 8.0f));
+		for (int i = 0; i <= steps; ++i)
+		{
+			const Vector sample = start + (end - start) * (static_cast<float>(i) / steps);
+			const int x = static_cast<int>((sample.x - originX) / kDetourCell + 0.5f);
+			const int y = static_cast<int>((sample.y - originY) / kDetourCell + 0.5f);
+			if (x < 0 || y < 0 || x >= width || y >= height || evalCell(x, y))
+				return false;
+		}
+		for (const BuildingBox& other : boxes)
+			if (!HullClearOfBuilding(start, end, other))
+				return false;
+		Ray_t ray;
+		ray.Init(start, end, Vector(-16, -16, 0), Vector(16, 16, 72));
+		CTraceFilterWorldOnly filter;
+		trace_t hit;
+		++smoothTraces;
+		enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &filter, &hit);
+		return !hit.startsolid && hit.fraction >= 1.0f;
+	};
+	std::size_t anchor = 0;
+	while (anchor + 1 < cells.size())
+	{
+		std::size_t furthest = anchor + 1;
+		for (std::size_t probe = cells.size() - 1; probe > anchor + 1; --probe)
+			if (lineFree(cells[anchor], cells[probe]))
+			{
+				furthest = probe;
+				break;
+			}
+		Vector corner = cellPoint(cells[furthest] % width, cells[furthest] / width);
+		corner.z -= kDetourFloorClearance;
+		detour.push_back(corner);
+		anchor = furthest;
+	}
+	{
+		const auto done = std::chrono::steady_clock::now();
+		const auto us = [](auto a, auto b) { return static_cast<long long>(std::chrono::duration_cast<std::chrono::microseconds>(b - a).count()); };
+		if (us(planStart, done) >= 20000)
+			RCBOT_DIAG("[RCBOT2] nav-detour-cost fast=1 building=%s cells=%d evaluated=%d grid_us=%lld grid_traces=%d search_us=%lld smooth_us=%lld smooth_traces=%d path_cells=%zu shared=%d\n",
+				box.className, width * height, evaluated, us(planStart, gridDone), planTraces, us(gridDone, searchDone),
+				us(searchDone, done), smoothTraces, cells.size(), shareable ? 1 : 0);
+	}
+	return true;
+}
+
+bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
+	const BuildingBox& box, const std::vector<BuildingBox>& allBoxes,
+	std::vector<Vector>& detour)
+{
+	const int mode = rcbot_empires_nav_detour_fast.GetInt();
+	if (mode != 2)
+		return mode != 0 ? PlanDetourFast(from, target, planeZ, box, allBoxes, detour) :
+			PlanDetourLegacy(from, target, planeZ, box, allBoxes, detour);
+	// 2 = check: plan both ways, use the fast result, log how far the old corners are from the new ones.
+	std::vector<Vector> old;
+	const auto t0 = std::chrono::steady_clock::now();
+	const bool fastOk = PlanDetourFast(from, target, planeZ, box, allBoxes, detour);
+	const auto t1 = std::chrono::steady_clock::now();
+	const bool oldOk = PlanDetourLegacy(from, target, planeZ, box, allBoxes, old);
+	const auto t2 = std::chrono::steady_clock::now();
+	float maxGap = 0.0f;
+	if (fastOk && oldOk)
+	{
+		const auto gapTo = [](const Vector& p, const std::vector<Vector>& line)
+		{
+			float best = (std::numeric_limits<float>::max)();
+			for (std::size_t i = 0; i + 1 < line.size(); ++i)
+			{
+				const Vector a = line[i], b = line[i + 1];
+				const Vector ab(b.x - a.x, b.y - a.y, 0.0f);
+				const float len2 = ab.x * ab.x + ab.y * ab.y;
+				float t = len2 > 0.0f ? ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2 : 0.0f;
+				t = (std::max)(0.0f, (std::min)(1.0f, t));
+				const float dx = p.x - (a.x + ab.x * t), dy = p.y - (a.y + ab.y * t);
+				best = (std::min)(best, std::sqrt(dx * dx + dy * dy));
+			}
+			if (line.size() == 1)
+				best = std::sqrt((p.x - line[0].x) * (p.x - line[0].x) + (p.y - line[0].y) * (p.y - line[0].y));
+			return best;
+		};
+		for (const Vector& p : old)
+			maxGap = (std::max)(maxGap, gapTo(p, detour));
+		for (const Vector& p : detour)
+			maxGap = (std::max)(maxGap, gapTo(p, old));
+	}
+	const auto us = [](auto a, auto b) { return static_cast<long long>(std::chrono::duration_cast<std::chrono::microseconds>(b - a).count()); };
+	RCBOT_DIAG("[RCBOT2] nav-detour-compare building=%s fast_ok=%d old_ok=%d fast_corners=%zu old_corners=%zu max_gap=%.0f fast_us=%lld old_us=%lld\n",
+		box.className, fastOk ? 1 : 0, oldOk ? 1 : 0, detour.size(), old.size(), maxGap, us(t0, t1), us(t1, t2));
+	return fastOk;
 }
 
 void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false, const edict_t* drivenVehicle = nullptr)
