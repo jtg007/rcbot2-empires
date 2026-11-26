@@ -324,6 +324,11 @@ struct Board
 	RoleSplit split;
 	int role[kMaxClients] = {};
 	int goal[kMaxClients] = {};   // index into push[] / hold[] for the role
+	// Squad flanks (rcbot_empires_squad_flanks): side of each goal and of each bot's squad (FLANK_*).
+	bool flanks = false;
+	int pushSide[kMaxGoals] = {};
+	int holdSide[kMaxGoals] = {};
+	int flank[kMaxClients] = {};
 	float lastKillSpawn = -1.0e9f;
 };
 
@@ -523,6 +528,93 @@ inline int CountNearDeaths(const NearDeathRing& r, const float me[3], float now,
 		for (int k = 0; k < 3; ++k)
 			threatOut[k] /= static_cast<float>(count);
 	return count;
+}
+
+// Squad flanks (rcbot_empires_squad_flanks): seen from the own base towards the enemy base, odd squads
+// (Alpha 1, Charlie 3) take the push/hold goal left of that axis, even squads (Bravo 2, Delta 4) the one
+// right of it. Bots without a squad or in a human-led squad are spread as before. Only goals at least
+// kFlankMinOffset off the axis count as a side, so a linear map (emp_rainbowroad) keeps its rank order;
+// small teams (fewer than kFlankMinFree free infantry bots) stay together.
+enum FlankSide
+{
+	FLANK_NONE = 0,
+	FLANK_A,  // left of the base axis
+	FLANK_B   // right of the base axis
+};
+constexpr float kFlankMinOffset = 1000.0f;
+constexpr int kFlankMinFree = 3;
+
+inline const char* FlankName(int side)
+{
+	return side == FLANK_A ? "A" : (side == FLANK_B ? "B" : "-");
+}
+
+// Side of p relative to the 2D axis home -> enemy; FLANK_NONE within minOffset of the axis.
+inline int FlankSideOf(const float home[3], const float enemy[3], const float p[3], float minOffset = kFlankMinOffset)
+{
+	const float ax = enemy[0] - home[0];
+	const float ay = enemy[1] - home[1];
+	const float length = std::sqrt(ax * ax + ay * ay);
+	if (length < 1.0f)
+		return FLANK_NONE;
+	const float lateral = (ax * (p[1] - home[1]) - ay * (p[0] - home[0])) / length;
+	if (lateral >= minOffset)
+		return FLANK_A;
+	if (lateral <= -minOffset)
+		return FLANK_B;
+	return FLANK_NONE;
+}
+
+inline int SquadFlank(int squad, bool humanLed)
+{
+	if (squad <= 0 || humanLed)
+		return FLANK_NONE;
+	return (squad % 2) != 0 ? FLANK_A : FLANK_B;
+}
+
+inline bool FlanksActive(bool enabled, int freeInfantry)
+{
+	return enabled && freeInfantry >= kFlankMinFree;
+}
+
+// From count candidates in rank order (side[] per candidate) pick up to kMaxGoals: with flanks the best
+// A and the best B candidate (kept in rank order) when both exist, else the first kMaxGoals as before.
+// pick[] gets candidate indices; returns how many.
+inline int PickFlankGoals(const int* side, int count, bool flanks, int* pick)
+{
+	if (flanks)
+	{
+		int a = -1, b = -1;
+		for (int i = 0; i < count; ++i)
+		{
+			if (side[i] == FLANK_A && a < 0)
+				a = i;
+			else if (side[i] == FLANK_B && b < 0)
+				b = i;
+		}
+		if (a >= 0 && b >= 0)
+		{
+			pick[0] = a < b ? a : b;
+			pick[1] = a < b ? b : a;
+			return 2;
+		}
+	}
+	int n = 0;
+	for (int i = 0; i < count && n < kMaxGoals; ++i)
+		pick[n++] = i;
+	return n;
+}
+
+// Goal index on the bot's squad side, -1 when the bot has no side or no goal lies there (caller spreads
+// it like a bot without a squad).
+inline int FlankGoal(const int* goalSide, int goalCount, int botSide)
+{
+	if (botSide == FLANK_NONE)
+		return -1;
+	for (int g = 0; g < goalCount; ++g)
+		if (goalSide[g] == botSide)
+			return g;
+	return -1;
 }
 } // namespace EmpiresTeamDirector
 

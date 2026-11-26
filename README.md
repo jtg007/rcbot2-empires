@@ -204,6 +204,14 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 > [!TIP]
 > Bots will hand over their wages to any teammate who types `wages` in chat.
 
+### Bot names
+
+Bots get a fixed name in Battlefield style for the whole match: a tag, an initial and a plain surname from their faction's list (NF e.g. `[AI] M. Berg`, BE e.g. `[AI] J. Morales`). The class is not part of the name because roles change. A bot without a team is `Bot <n>` until it joins; a team switch gives it a name from the new faction's list. Names passed to `addbot` or set in bot profiles stay.
+
+| Cvar | Default | Description |
+|---|---:|---|
+| `rcbot_empires_bot_name_tag` | `[AI]` | Tag in front of generated names; empty = no tag. Applies to bots named after the change |
+
 ### Commander
 
 | Cvar | Default | Description |
@@ -236,6 +244,7 @@ Human commanders can buy dedicated base-building engineer bots in chat with `/bu
 | `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
 | `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
 | `rcbot_empires_lean_defense` | `2` | `2` = no standing base defender and no hold goal on the own side without an alert; `1` = standing defender only from 5 free infantry bots; `0` = from 3 |
+| `rcbot_empires_squad_flanks` | `0` | `1` = from 3 free infantry bots per team the director picks one push and one hold goal left and one right of the axis between both bases (each at least 1000 units off it, else rank order as before); odd squads (Alpha, Charlie) take the left goal, even squads (Bravo, Delta) the right one; bots without a squad or in a human-led squad are spread as before |
 | `rcbot_empires_defend_patrol` | `1` | Defend/sector spot held 12 s, then the next spot around it (arrive within 100); 0 = 30 s hold, 250 radius |
 | `rcbot_empires_hot_zones` | `1` | Hot zones: 3 deaths on foot within 30 s / 700 units make the spot hot for 90 s (renewed by each death there); routes pay to enter and per unit inside |
 | `rcbot_empires_self_preservation` | `1` | Two teammates killed by the enemy within 8 s / 600 units of a bot: it falls back from the killer or backs off out of the fight for 5 s (20 s cooldown) |

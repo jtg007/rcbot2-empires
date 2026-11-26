@@ -6,6 +6,12 @@ Sources: `utils/RCBot2_meta/bot_cvars.cpp` (authoritative: definitions, defaults
 63 `rcbot_empires_*` cvars exist: 46 in `bot_cvars.cpp`, 14 in `bot_empires_vehicle.cpp`, 2 in `bot_navmesh_api.cpp` and 1 in `bot_empires.cpp`. The README documents the player-facing ones;
 this page lists all of them, including test and development switches. Set them on the server console, in `server.cfg`, or with `DEV_PRE="cvar value;..."` in the dev harness.
 
+## Bot names
+
+| Cvar | Default | Meaning | Read in |
+|---|---:|---|---|
+| `rcbot_empires_bot_name_tag` | [AI] | Tag in front of generated names (`[AI] M. Berg`, initial + surname from the faction's list); empty = no tag. | `bot.cpp` |
+
 ## Commander
 
 | Cvar | Default | Meaning | Read in |
@@ -73,6 +79,7 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_billnye` | -1 | Bill Nye mode: one Scout takes a jeep, rams enemy vehicles off the map, stuns them when stuck, runs over infantry. -1 = NF on maps named `*rainbowroad*`, 0 off, 2 NF, 3 BE. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_lawliet` | 1 | Lawliet mode (desperation APC rush on the enemy CV): 0 off, 1 auto when behind in research and map control (or tickets), 2 force NF, 3 force BE. | `bot_empires_lawliet.cpp/.h` |
 | `rcbot_empires_lean_defense` | 2 | 2: without an alert (calm PUSH phase) no standing defender at all and no hold goal on the own side (front share < 0.35); alerts and STABILIZE as before. 1: the team director keeps a standing defender at the base (no alert) only from 5 free infantry bots (floor 20 %; minima from 8/12 team bots stay). 0 = round 20 %, so 3 free bots become push/hold/defense. | `bot_empires_team_director.h` |
+| `rcbot_empires_squad_flanks` | 0 | 1: from 3 free infantry bots per team the director picks one push and one hold goal left and one right of the axis between both bases (each at least 1000 HU off it, else rank order as before); odd squads (Alpha, Charlie) take the left goal, even squads (Bravo, Delta) the right one; bots without a squad or in a human-led squad are spread as before. Off by default: two 22-bot Crossroads pairs showed no clear gain. | `bot_empires_team_director.h/.cpp` |
 | `rcbot_empires_defend_patrol` | 1 | A bot holding a defend or sector spot moves on to another spot around it after 12 s instead of standing 30 s, and must walk to within 100 of the spot (0 = 30 s hold, 250 arrive radius). | `bot_empires_objective.cpp` |
 | `rcbot_empires_hot_zones` | 1 | Three deaths of a team on foot within 30 s and 700 HU make the spot hot for 90 s (renewed by each death there); that team's routes pay 1500 to enter and 3x per unit inside. | `bot_empires_team_director.cpp`, `bot_navmesh_api.cpp` |
 | `rcbot_empires_self_preservation` | 1 | Two teammates killed by the enemy within 8 s and 600 HU of a bot make it fall back 300-450 HU from the killer (preferably out of sight) or back off out of the fight for 5 s; 20 s cooldown. |

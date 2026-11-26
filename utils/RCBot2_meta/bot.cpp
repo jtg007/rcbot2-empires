@@ -4553,44 +4553,102 @@ bool CBots::controlBot(const char* szOldName, const char* szName, const char* sz
 }
 
 // createBotFromEdict renames every bot to its profile name; without profiles all are "RCBot",
-// "(1)RCBot", ... (user 2026-11-15: names to tell bots apart). An explicit name stays; otherwise
-// Empires bots get "<team> <class> <n>" (e.g. "NF Engineer 2"), others "RCBot <n>".
+// "(1)RCBot", ... (user 2026-11-15: names to tell bots apart). An explicit name stays. Empires bots
+// with a team get a fixed name in Battlefield style, initial + plain surname from their faction's list,
+// optionally tagged ("[AI] M. Berg", user 2026-11-26); the class is left out because roles change.
+// Bots without a team yet are "Bot <n>" until EmpiresEngibotFrame renames them; others "RCBot <n>".
+namespace
+{
+const char* const kNfSurnames[] = {"Berg", "Lindqvist", "Halvorsen", "Dahl", "Nystrom", "Eklund", "Vik", "Aalto", "Brandt", "Kessler",
+	"Holm", "Larsen", "Falk", "Strand", "Wolff", "Engel", "Miller", "Sorensen", "Hagen", "Kowalski"};
+const char* const kBeSurnames[] = {"Morales", "Moretti", "Valenti", "Ferrante", "Rossi", "Bellini", "Marchetti", "Costa", "Novak", "Romano",
+	"Duarte", "Vidal", "Ricci", "Santos", "Lazar", "Sato", "Petrov", "Navarro", "Conti", "Horvat"};
+constexpr int kSurnameCount = static_cast<int>(sizeof(kNfSurnames) / sizeof(kNfSurnames[0]));
+static_assert(sizeof(kBeSurnames) == sizeof(kNfSurnames), "equal surname lists");
+
+// Surname of a generated name ("[AI] M. Berg" -> "Berg"), nullptr if the name has no ". " part.
+const char* GeneratedSurname(const char* name)
+{
+	const char* dot = name != nullptr ? std::strstr(name, ". ") : nullptr;
+	return dot != nullptr && dot > name && dot[-1] >= 'A' && dot[-1] <= 'Z' ? dot + 2 : nullptr;
+}
+}
+
+// 2 or 3 if the name is a generated name from that faction's list, else 0.
+int EmpiresBotNameTeam(const char* name)
+{
+	const char* surname = GeneratedSurname(name);
+	for (int i = 0; surname != nullptr && i < kSurnameCount; ++i)
+	{
+		if (std::strcmp(surname, kNfSurnames[i]) == 0)
+			return 2;
+		if (std::strcmp(surname, kBeSurnames[i]) == 0)
+			return 3;
+	}
+	return 0;
+}
+
 void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int botClass)
 {
+	(void)botClass;
 	if (pEdict == nullptr || engine == nullptr || playerinfomanager == nullptr)
 		return;
 	char name[48];
-	auto taken = [pEdict](const char* candidate) {
+	// Another connected player has this exact name (whole=true) or this generated surname.
+	auto taken = [pEdict](const char* candidate, bool whole) {
 		for (int i = 1; i <= gpGlobals->maxClients; ++i)
 		{
 			edict_t* e = engine->PEntityOfEntIndex(i);
 			IPlayerInfo* info = e != nullptr && e != pEdict && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
-			if (info != nullptr && info->IsConnected() && info->GetName() != nullptr && std::strcmp(info->GetName(), candidate) == 0)
+			const char* other = info != nullptr && info->IsConnected() ? info->GetName() : nullptr;
+			if (other == nullptr)
+				continue;
+			const char* compare = whole ? other : GeneratedSurname(other);
+			if (compare != nullptr && std::strcmp(compare, candidate) == 0)
 				return true;
 		}
 		return false;
 	};
+	const bool empires = CBotGlobals::getCurrentMod() != nullptr &&
+		CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES;
 	if (szName != nullptr && *szName != '\0')
 	{
 		snprintf(name, sizeof(name), "%s", szName);
-		for (int n = 2; n < 100 && taken(name); ++n)
+		for (int n = 2; n < 100 && taken(name, true); ++n)
 			snprintf(name, sizeof(name), "%s (%d)", szName, n);
+	}
+	else if (empires && (team == 2 || team == 3))
+	{
+		static const char kInitials[] = "ABCDEFGHJKLMNPRSTVW";
+		const char* const* surnames = team == 2 ? kNfSurnames : kBeSurnames;
+		const char* tag = rcbot_empires_bot_name_tag.GetString();
+		const char* space = tag != nullptr && *tag != '\0' ? " " : "";
+		// Prefer a surname nobody uses yet; a full list falls back to unique initial + surname.
+		const int start = randomInt(0, kSurnameCount - 1);
+		int pick = start;
+		for (int k = 0; k < kSurnameCount; ++k)
+			if (!taken(surnames[(start + k) % kSurnameCount], false))
+			{
+				pick = (start + k) % kSurnameCount;
+				break;
+			}
+		const int initials = static_cast<int>(sizeof(kInitials)) - 1;
+		const int firstInitial = randomInt(0, initials - 1);
+		for (int k = 0; k < initials * kSurnameCount; ++k)
+		{
+			snprintf(name, sizeof(name), "%s%s%c. %s", tag != nullptr ? tag : "", space,
+				kInitials[(firstInitial + k) % initials], surnames[(pick + k / initials) % kSurnameCount]);
+			if (!taken(name, true))
+				break;
+		}
 	}
 	else
 	{
-		static const char* const kClasses[] = {"Scout", "Rifleman", "Grenadier", "Engineer"};
-		const bool empires = CBotGlobals::getCurrentMod() != nullptr &&
-			CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES;
-		char base[32];
-		if (empires)
-			snprintf(base, sizeof(base), "%s%s%s", team == 2 ? "NF " : team == 3 ? "BE " : "",
-				botClass >= 0 && botClass <= 3 ? kClasses[botClass] : "Bot", "");
-		else
-			snprintf(base, sizeof(base), "RCBot");
+		const char* base = empires ? "Bot" : "RCBot";
 		for (int n = 1; n < 100; ++n)
 		{
 			snprintf(name, sizeof(name), "%s %d", base, n);
-			if (!taken(name))
+			if (!taken(name, true))
 				break;
 		}
 	}

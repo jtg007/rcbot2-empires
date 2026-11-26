@@ -271,6 +271,42 @@ int main()
 		Check(CountNearDeaths(r, me, 10 + kShakenWindow + 0.5f, -1.0f, newest, threat) == 1, "old death runs out");
 	}
 
+	// Squad flanks.
+	{
+		const float home[3] = { 0, 0, 0 }, enemy[3] = { 10000, 0, 0 };
+		const float left[3] = { 5000, 2000, 0 }, right[3] = { 5000, -1500, 0 }, axis[3] = { 5000, 600, 0 };
+		Check(FlankSideOf(home, enemy, left) == FLANK_A, "left of the axis is A");
+		Check(FlankSideOf(home, enemy, right) == FLANK_B, "right of the axis is B");
+		Check(FlankSideOf(home, enemy, axis) == FLANK_NONE, "near the axis is no side");
+		Check(FlankSideOf(home, home, left) == FLANK_NONE, "no axis without two bases");
+		const float enemyRev[3] = { -10000, 0, 0 };
+		Check(FlankSideOf(home, enemyRev, left) == FLANK_B, "side follows the view towards the enemy");
+		Check(SquadFlank(1, false) == FLANK_A && SquadFlank(3, false) == FLANK_A, "odd squads A");
+		Check(SquadFlank(2, false) == FLANK_B && SquadFlank(4, false) == FLANK_B, "even squads B");
+		Check(SquadFlank(0, false) == FLANK_NONE && SquadFlank(-1, false) == FLANK_NONE, "no squad no side");
+		Check(SquadFlank(1, true) == FLANK_NONE, "human-led squad no side");
+		Check(!FlanksActive(true, 2) && FlanksActive(true, 3) && !FlanksActive(false, 8), "flanks from 3 free bots");
+
+		int pick[kMaxGoals];
+		const int sides1[4] = { FLANK_A, FLANK_A, FLANK_NONE, FLANK_B };
+		Check(PickFlankGoals(sides1, 4, true, pick) == 2 && pick[0] == 0 && pick[1] == 3, "best A and best B");
+		Check(PickFlankGoals(sides1, 4, false, pick) == 2 && pick[0] == 0 && pick[1] == 1, "flanks off: rank order");
+		const int linear[3] = { FLANK_NONE, FLANK_NONE, FLANK_A };
+		Check(PickFlankGoals(linear, 3, true, pick) == 2 && pick[0] == 0 && pick[1] == 1, "linear map keeps rank order");
+		const int one[1] = { FLANK_B };
+		Check(PickFlankGoals(one, 1, true, pick) == 1 && pick[0] == 0, "single candidate");
+		Check(PickFlankGoals(one, 0, true, pick) == 0, "no candidate");
+		const int sides2[3] = { FLANK_B, FLANK_NONE, FLANK_A };
+		Check(PickFlankGoals(sides2, 3, true, pick) == 2 && pick[0] == 0 && pick[1] == 2, "rank order kept");
+
+		const int goals[2] = { FLANK_B, FLANK_A };
+		Check(FlankGoal(goals, 2, FLANK_A) == 1 && FlankGoal(goals, 2, FLANK_B) == 0, "squad finds its side");
+		Check(FlankGoal(goals, 2, FLANK_NONE) == -1, "no squad: spread");
+		const int onlyA[2] = { FLANK_A, FLANK_NONE };
+		Check(FlankGoal(onlyA, 2, FLANK_B) == -1, "empty side: spread");
+		Check(FlankGoal(goals, 0, FLANK_A) == -1, "no goals");
+	}
+
 	if (g_failures == 0)
 		std::printf("team director tests PASS\n");
 	return g_failures == 0 ? 0 : 1;

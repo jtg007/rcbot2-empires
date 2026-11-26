@@ -23,6 +23,7 @@ bool EmpiresTeamResources(int team, float& resources);
 bool EmpiresModifyTeamResources(int team, float delta);
 bool EmpiresBinaryOffsetsTrusted();
 void ApplyDistinctBotName(edict_t* pEdict, const char* szName, int team, int botClass); // bot.cpp
+int EmpiresBotNameTeam(const char* name); // bot.cpp
 
 // Turret on the commander's order: "Attack location" (m_iCommandType 2) to an EngiBot. The order
 // consumer walks it there; on arrival it places an MG turret facing the enemy and builds it up.
@@ -712,8 +713,8 @@ void EmpiresEngibotFrame()
 	if (gpGlobals == nullptr || engine == nullptr || gpGlobals->curtime < s_next)
 		return;
 	s_next = gpGlobals->curtime + 10.0f;
-	// Bots created without team/class are named "Bot <n>"; once they play, name them after both
-	// ("NF Rifleman 2") so they can be told apart (user 2026-11-15).
+	// Bots created without a team are named "Bot <n>"; once they play, they get a name from their
+	// faction's list ("[AI] M. Berg"), again after a team switch (user 2026-11-15, 2026-11-26).
 	for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
 	{
 		CBot* bot = CBots::getBot(slot);
@@ -747,7 +748,7 @@ void CBotEmpires::applyEmpiresTeamClassName()
 	IPlayerInfo* info = playerinfomanager->GetPlayerInfo(m_pEdict);
 	if (info == nullptr || !info->IsConnected() || info->IsDead() || !isAlive())
 		return;
-	// Only names from ApplyDistinctBotName without a team: "Bot <n>" or "<Class> <n>".
+	// Only generic names ("Bot <n>", older "<Class> <n>") and generated names of the other faction.
 	const char* name = info->GetName();
 	static const char* const kPrefixes[] = {"Bot ", "Scout ", "Rifleman ", "Grenadier ", "Engineer "};
 	bool generic = false;
@@ -756,7 +757,8 @@ void CBotEmpires::applyEmpiresTeamClassName()
 		const std::size_t n = std::strlen(prefix);
 		generic = generic || (name != nullptr && std::strncmp(name, prefix, n) == 0 && name[n] >= '0' && name[n] <= '9');
 	}
-	if (!generic)
+	const int nameTeam = EmpiresBotNameTeam(name);
+	if (!generic && (nameTeam == 0 || nameTeam == getTeam()))
 		return;
 	const int team = getTeam();
 	int classId = -1;

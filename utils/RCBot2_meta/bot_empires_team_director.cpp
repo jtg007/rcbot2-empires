@@ -74,6 +74,7 @@ struct TeamState
 	std::unordered_map<int, FlagPushProgress> flagProgress;
 	std::unordered_map<int, float> pushAvoid;   // flag entity -> avoided until
 	int lastRole[kMaxClients] = {};
+	int lastGoalEntity[kMaxClients] = {};      // flank diagnostic: last logged goal entity (-2 = none)
 	DeathMemory deaths;        // TODO 8.1 hot zones
 	float roleSince[kMaxClients] = {};          // game time the current role was given
 	std::unordered_map<int, int> flagOwner;     // flag entity -> last known owner (gain/loss log)
@@ -943,6 +944,74 @@ void CBotEmpires::tickTeamDirector()
 	}
 	board.phase = alert ? PHASE_BASE_ALERT : (now <= state.stabilization.until ? PHASE_STABILIZE : PHASE_PUSH);
 
+	// --- Roles of the free infantry bots (stable by client index).
+	int clients[kMaxClients];
+	int prev[kMaxClients];
+	bool locked[kMaxClients];
+	int squads[kMaxClients];
+	int count = 0;
+	for (int i = 1; i <= gpGlobals->maxClients && i < kMaxClients; ++i)
+	{
+		board.role[i] = ROLE_NONE;
+		board.goal[i] = -1;
+		board.flank[i] = FLANK_NONE;
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
+		if (info == nullptr || !info->IsConnected() || !info->IsFakeClient() || info->GetTeamIndex() != team ||
+			EmpiresIsEngibot(e))
+			continue;
+		CBot* bot = CBots::getBotPointer(e);
+		if (bot == nullptr)
+			continue;
+		const CBotEmpires* emp = static_cast<const CBotEmpires*>(bot);
+		if (emp->m_iCommanderEntryStage != 0 || emp->m_iCommanderBuildStage != 0 ||
+			emp->m_vehicle.stage != EmpiresVehicleStage::NONE ||
+			EmpiresLawlietIsCrew(team, i))
+			continue;
+		int classId = -1;
+		bool desired = false, desiredKnown = false;
+		const char* classProperty = nullptr;
+		if ((readEmpiresClass(e, classId, desired, desiredKnown, classProperty) && classId == EMP_CLASS_ENGINEER) ||
+			emp->m_iDesiredClass == EMP_CLASS_ENGINEER)
+			continue;
+		if (!info->IsDead() && EmpiresVehiclePlayerVehicle(this, e) >= 0)
+			continue;
+		int order = 0;
+		if (readEmpiresIntProperty(e, "m_iCommandType", order) && order != 0 && !EmpiresCommanderOrderIsOurs(team, i))
+			continue; // a human (or anyone else) ordered this bot: hands off
+		clients[count] = i;
+		int squad = 0;
+		squads[count] = readEmpiresIntProperty(e, "m_iSquad", squad) ? squad : 0;
+		prev[count] = state.lastRole[i];
+		locked[count] = state.lastRole[i] != ROLE_NONE && now - state.roleSince[i] < kRoleMinSeconds;
+		++count;
+	}
+	// Squad flanks: human-led squads (leader not a bot) keep their own way.
+	bool humanLed[kMaxClients] = {};
+	for (int i = 1; i <= gpGlobals->maxClients && i < kMaxClients; ++i)
+	{
+		edict_t* e = engine->PEntityOfEntIndex(i);
+		IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
+		if (info == nullptr || !info->IsConnected() || info->IsFakeClient() || info->GetTeamIndex() != team)
+			continue;
+		int squad = 0, position = -1;
+		bool leader = false;
+		if (!readEmpiresIntProperty(e, "m_iSquad", squad) || squad <= 0 || squad >= kMaxClients)
+			continue;
+		const bool leaderKnown = readEmpiresBoolProperty(e, "m_bSquadLeader", leader);
+		if ((leaderKnown && leader) || (!leaderKnown && readEmpiresIntProperty(e, "m_iSquadPosition", position) && position == 0))
+			humanLed[squad] = true;
+	}
+	board.flanks = FlanksActive(rcbot_empires_squad_flanks.GetBool(), count) && homeKnown && enemyCvKnown;
+	auto flankOf = [&](const Vector& spot)
+	{
+		if (!homeKnown || !enemyCvKnown)
+			return static_cast<int>(FLANK_NONE);
+		const float h[3] = { home.x, home.y, home.z }, en[3] = { enemyCv.x, enemyCv.y, enemyCv.z };
+		const float p[3] = { spot.x, spot.y, spot.z };
+		return FlankSideOf(h, en, p);
+	};
+
 	// --- Push goals: open / enemy flags nearest home; without flags enemy refineries, forward barracks
 	// and free resource points; the enemy CV last.
 	auto reachable = [&](const Vector& spot)
@@ -1026,12 +1095,18 @@ void CBotEmpires::tickTeamDirector()
 			push.push_back({ enemyCvEntity, spot, enemyCvFromAnchor ? "enemy-base" : "enemy-cv", 0.0f });
 	}
 	std::sort(push.begin(), push.end(), [](const Candidate& a, const Candidate& b) { return a.sortKey < b.sortKey; });
-	board.pushCount = 0;
-	for (const Candidate& c : push)
 	{
-		if (board.pushCount >= kMaxGoals)
-			break;
-		SetGoal(board.push[board.pushCount++], c.entity, c.spot, c.kind);
+		std::vector<int> sides;
+		for (const Candidate& c : push)
+			sides.push_back(flankOf(c.spot));
+		int pick[kMaxGoals];
+		board.pushCount = PickFlankGoals(sides.data(), static_cast<int>(push.size()), board.flanks, pick);
+		for (int g = 0; g < board.pushCount; ++g)
+		{
+			const Candidate& c = push[pick[g]];
+			SetGoal(board.push[g], c.entity, c.spot, c.kind);
+			board.pushSide[g] = sides[pick[g]];
+		}
 	}
 
 	// --- Hold goals: own flags, refineries and forward barracks nearest the front.
@@ -1046,11 +1121,9 @@ void CBotEmpires::tickTeamDirector()
 	for (Candidate& c : hold)
 		c.sortKey = frontKnown ? Dist2D(c.spot, front) : (homeKnown ? -Dist2D(c.spot, home) : 0.0f);
 	std::sort(hold.begin(), hold.end(), [](const Candidate& a, const Candidate& b) { return a.sortKey < b.sortKey; });
-	board.holdCount = 0;
+	std::vector<Candidate> holdEligible;
 	for (const Candidate& c : hold)
 	{
-		if (board.holdCount >= kMaxGoals)
-			break;
 		// The base itself is the defenders' spot, not a hold goal.
 		if (homeKnown && Dist2D(c.spot, home) < 1500.0f)
 			continue;
@@ -1059,47 +1132,22 @@ void CBotEmpires::tickTeamDirector()
 		if (rcbot_empires_lean_defense.GetInt() >= 2 && board.phase != PHASE_BASE_ALERT && homeKnown &&
 			enemyCvKnown && FrontShare(Dist2D(c.spot, home), Dist2D(c.spot, enemyCv)) < 0.35f)
 			continue;
-		SetGoal(board.hold[board.holdCount++], c.entity, c.spot, c.kind);
+		holdEligible.push_back(c);
+	}
+	{
+		std::vector<int> sides;
+		for (const Candidate& c : holdEligible)
+			sides.push_back(flankOf(c.spot));
+		int pick[kMaxGoals];
+		board.holdCount = PickFlankGoals(sides.data(), static_cast<int>(holdEligible.size()), board.flanks, pick);
+		for (int g = 0; g < board.holdCount; ++g)
+		{
+			const Candidate& c = holdEligible[pick[g]];
+			SetGoal(board.hold[g], c.entity, c.spot, c.kind);
+			board.holdSide[g] = sides[pick[g]];
+		}
 	}
 
-	// --- Roles of the free infantry bots (stable by client index).
-	int clients[kMaxClients];
-	int prev[kMaxClients];
-	bool locked[kMaxClients];
-	int count = 0;
-	for (int i = 1; i <= gpGlobals->maxClients && i < kMaxClients; ++i)
-	{
-		board.role[i] = ROLE_NONE;
-		board.goal[i] = -1;
-		edict_t* e = engine->PEntityOfEntIndex(i);
-		IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
-		if (info == nullptr || !info->IsConnected() || !info->IsFakeClient() || info->GetTeamIndex() != team ||
-			EmpiresIsEngibot(e))
-			continue;
-		CBot* bot = CBots::getBotPointer(e);
-		if (bot == nullptr)
-			continue;
-		const CBotEmpires* emp = static_cast<const CBotEmpires*>(bot);
-		if (emp->m_iCommanderEntryStage != 0 || emp->m_iCommanderBuildStage != 0 ||
-			emp->m_vehicle.stage != EmpiresVehicleStage::NONE ||
-			EmpiresLawlietIsCrew(team, i))
-			continue;
-		int classId = -1;
-		bool desired = false, desiredKnown = false;
-		const char* classProperty = nullptr;
-		if ((readEmpiresClass(e, classId, desired, desiredKnown, classProperty) && classId == EMP_CLASS_ENGINEER) ||
-			emp->m_iDesiredClass == EMP_CLASS_ENGINEER)
-			continue;
-		if (!info->IsDead() && EmpiresVehiclePlayerVehicle(this, e) >= 0)
-			continue;
-		int order = 0;
-		if (readEmpiresIntProperty(e, "m_iCommandType", order) && order != 0 && !EmpiresCommanderOrderIsOurs(team, i))
-			continue; // a human (or anyone else) ordered this bot: hands off
-		clients[count] = i;
-		prev[count] = state.lastRole[i];
-		locked[count] = state.lastRole[i] != ROLE_NONE && now - state.roleSince[i] < kRoleMinSeconds;
-		++count;
-	}
 	board.teamBots = teamBots;
 	// Alert at a hold goal (a forward own refinery): the hold bots answer it, no extra defenders are
 	// pulled from the push (palmbay 164001: the only pusher became defender at every such alert).
@@ -1132,10 +1180,19 @@ void CBotEmpires::tickTeamDirector()
 	{
 		const int i = clients[k];
 		board.role[i] = roles[k];
+		const int squad = squads[k];
+		board.flank[i] = board.flanks ? SquadFlank(squad, squad > 0 && squad < kMaxClients && humanLed[squad]) : FLANK_NONE;
 		if (roles[k] == ROLE_PUSH)
-			board.goal[i] = board.pushCount > 0 ? pushIndex++ % board.pushCount : -1;
+		{
+			const int side = FlankGoal(board.pushSide, board.pushCount, board.flank[i]);
+			board.goal[i] = side >= 0 ? side : (board.pushCount > 0 ? pushIndex++ % board.pushCount : -1);
+		}
 		else if (roles[k] == ROLE_HOLD)
-			board.goal[i] = alertHold >= 0 ? alertHold : (board.holdCount > 0 ? holdIndex++ % board.holdCount : -1);
+		{
+			const int side = FlankGoal(board.holdSide, board.holdCount, board.flank[i]);
+			board.goal[i] = alertHold >= 0 ? alertHold :
+				(side >= 0 ? side : (board.holdCount > 0 ? holdIndex++ % board.holdCount : -1));
+		}
 		if (roles[k] != state.lastRole[i])
 		{
 			const Goal* goal = RoleGoal(board, i);
@@ -1144,6 +1201,20 @@ void CBotEmpires::tickTeamDirector()
 				goal != nullptr ? goal->kind : "-", goal != nullptr ? goal->entity : -1, now,
 				state.lastRole[i] != ROLE_NONE ? now - state.roleSince[i] : 0.0f);
 			state.roleSince[i] = now;
+		}
+		// Goal changes (also inside a role) for the flank measurement.
+		const Goal* goal = RoleGoal(board, i);
+		const int goalEntity = roles[k] == ROLE_PUSH || roles[k] == ROLE_HOLD ? (goal != nullptr ? goal->entity : -1) : -2;
+		if (goalEntity != state.lastGoalEntity[i])
+		{
+			const int goalSide = goal == nullptr || board.goal[i] < 0 ? FLANK_NONE :
+				(roles[k] == ROLE_PUSH ? board.pushSide[board.goal[i]] : board.holdSide[board.goal[i]]);
+			if (goalEntity != -2)
+				RCBOT_DIAG("[RCBOT2] team-director goal team=%d userid=%d role=%s squad=%d flank=%s goal=%s:%d side=%s flanks=%d\n",
+					team, engine->GetPlayerUserId(engine->PEntityOfEntIndex(i)), RoleName(roles[k]), squad,
+					FlankName(board.flank[i]), goal != nullptr ? goal->kind : "-", goalEntity, FlankName(goalSide),
+					board.flanks ? 1 : 0);
+			state.lastGoalEntity[i] = goalEntity;
 		}
 	}
 	// Keep a stall timer only while a living attacker is assigned to this flag.
@@ -1195,17 +1266,22 @@ void CBotEmpires::tickTeamDirector()
 	char pushText[96], holdText[96];
 	goalText(board.push, board.pushCount, pushText, sizeof(pushText));
 	goalText(board.hold, board.holdCount, holdText, sizeof(holdText));
-	snprintf(sig, sizeof(sig), "%s|%s|%s|%d|%d/%d/%d", PhaseName(board.phase), pushText, holdText, board.alert.entity,
-		board.split.push, board.split.hold, board.split.defense);
+	char sideText[16];
+	snprintf(sideText, sizeof(sideText), "%s%s/%s%s", board.pushCount > 0 ? FlankName(board.pushSide[0]) : "",
+		board.pushCount > 1 ? FlankName(board.pushSide[1]) : "", board.holdCount > 0 ? FlankName(board.holdSide[0]) : "",
+		board.holdCount > 1 ? FlankName(board.holdSide[1]) : "");
+	snprintf(sig, sizeof(sig), "%s|%s|%s|%d|%d/%d/%d|%d|%s", PhaseName(board.phase), pushText, holdText, board.alert.entity,
+		board.split.push, board.split.hold, board.split.defense, board.flanks ? 1 : 0, sideText);
 	if (state.lastSignature != sig || now >= state.nextLog)
 	{
 		state.lastSignature = sig;
 		state.nextLog = now + kLogEvery;
-		RCBOT_DIAG("[RCBOT2] team-director team=%d phase=%s push=%s hold=%s alert=%s:%d reason=%s override=%d alert-hold=%d stabilize=%s roles=%d/%d/%d free=%d bots=%d tickets=%.0f/%.0f known=%d\n",
+		RCBOT_DIAG("[RCBOT2] team-director team=%d phase=%s push=%s hold=%s alert=%s:%d reason=%s override=%d alert-hold=%d stabilize=%s roles=%d/%d/%d free=%d bots=%d tickets=%.0f/%.0f known=%d flanks=%d sides=%s\n",
 			team, PhaseName(board.phase), pushText, holdText, board.alert.kind, board.alert.entity, board.alertReason,
 			alertOverride, alertHold,
 			board.phase == PHASE_STABILIZE ? state.stabilization.reason : "-", board.split.push, board.split.hold,
-			board.split.defense, count, teamBots, board.tickets, board.ticketsMax, board.ticketsKnown ? 1 : 0);
+			board.split.defense, count, teamBots, board.tickets, board.ticketsMax, board.ticketsKnown ? 1 : 0,
+			board.flanks ? 1 : 0, sideText);
 		if (fair)
 		{
 			// sources since the last line: report=bot sight report, then IntelSource 1..4

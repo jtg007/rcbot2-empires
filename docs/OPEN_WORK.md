@@ -593,6 +593,7 @@ When the following cases recur, compare the relevant trace and route.
 - District changed maps after NF ticket depletion. Sudden death and the remaining Conquest and escort round-end cases still need verification.
 - Long run done (22.11., `20261122-131813`): 18 bots, 32 minutes at 1x on Crossroads, then `changelevel emp_coast`, 0 crashes. Quota bots (`min_bots`/`max_bots`) that join after a map change now get a class and spawn.
 - Bot joins (26.11.): automatic filling waits for a human on a team (`rcbot_wait_for_human_team`; the live trigger with a human is not yet verified). Each bot now costs one start ticket instead of two and joins its team once (10-bot match `20261126-135448`: 10 joins, 195/196 tickets with 5 bots per team, before 190).
+- Squad flanks (`rcbot_empires_squad_flanks`, default 0): odd squads take a goal left, even squads one right of the base axis. Two 22-bot Crossroads A/B pairs at 1x (15 minutes): flanks active in 93-95 % of director updates, goals on both sides in 64 % of those; kills 180/182, stuck seconds 351/469, idle 4328/3979 s, navmesh stuck lines 403/330 (on/off). No clear gain, so it stays off; reacting to pressure on one flank and a human test are open. These runs used the test server's fast economy (resources x10, all research complete).
 - Generated maps: the NF command vehicle entry failure was fixed in the map export by
   raising the NF vehicle origin. With a 90-unit height, both commanders entered and
   the run recorded zero path errors (`tg_nfcv1_20261116`). Revisit bot-side entry
