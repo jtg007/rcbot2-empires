@@ -242,6 +242,8 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 3. Driving and intermittent bugs
 
+- [ ] **Server hitches from building detours with many bots.** With 22 bots on Crossroads, grid detours around buildings took up to 0.4-0.9 s per route. Planned detours are now reused for 30 s, only nearby buildings are tested and the height scan is coarser: in an 8-minute 22-bot run detours over 50 ms fell from 271 to 61 and the longest from 412 to 232 ms. Single factory detours of 100-130 ms and routes through a whole base remain.
+
 - [x] **CV arrival and reverse turns (Palmbay):** the CV now slows to about 250 u/s in the last
   800 units before its goal (it used to arrive at 520-570 u/s and slide down the slope behind the NF
   build site), and reverse turns no longer restart while a vehicle still rolls backwards or keep

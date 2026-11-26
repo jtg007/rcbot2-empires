@@ -2939,7 +2939,9 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 		};
 		if (std::strcmp(args[0], "list") == 0)
 		{
-			for (int i = 1; i < gpGlobals->maxEntities; ++i)
+			// CEmpTeam is never a player slot; a client slot punted while the server hibernated keeps a
+			// dangling networkable (crash in ReadTeamTickets on wake-up, run 20261126-114539).
+			for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 			{
 				edict_t* e = engine->PEntityOfEntIndex(i);
 				const char* raw = rawEntity(e);

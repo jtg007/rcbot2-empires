@@ -669,6 +669,13 @@ void CClassInterfaceValue :: getData ( void *edict, const bool bIsEdict )
 		static IServerUnknown *pUnknown;
 		edict_t *pEdict = static_cast<edict_t*>(edict);
 
+		if (CBotGlobals::clientSlotStale(pEdict))
+		{
+			m_data = nullptr;
+			m_berror = true;
+			return;
+		}
+
 		pUnknown = pEdict->GetUnknown();
 
 		if (!pUnknown)

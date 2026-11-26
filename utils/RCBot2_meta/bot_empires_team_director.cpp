@@ -173,7 +173,9 @@ bool BuildingTeam(const CBotEmpires* reader, edict_t* e, const char* cls, int& t
 // CEmpLogicTicketListener::GetTeamCount 0x63cd50 reports). Team number from m_iTeamNum, raw +0x3a8.
 bool ReadTeamTickets(const CBotEmpires* reader, int team, float& tickets)
 {
-	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	// CEmpTeam is never a player slot; a client slot punted while the server hibernated keeps a
+	// dangling networkable (crash in ReadTeamTickets on wake-up, run 20261126-114539).
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
 		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)

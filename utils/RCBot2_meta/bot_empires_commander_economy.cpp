@@ -727,7 +727,9 @@ bool BlocksLane(const Vector& at, float yaw, const Vector& mins, const Vector& m
 // CEmpTeam +0x3b4 -> ledger, +0x30 float (emp_give_resources, server_srv.so 0x647610).
 bool ReadTeamResources(int team, float& resources)
 {
-	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	// CEmpTeam is never a player slot; a client slot punted while the server hibernated keeps a
+	// dangling networkable (crash in ReadTeamTickets on wake-up, run 20261126-114539).
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
 		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)
@@ -761,7 +763,9 @@ struct TeamResearch
 
 bool ReadTeamResearch(int team, TeamResearch& out)
 {
-	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	// CEmpTeam is never a player slot; a client slot punted while the server hibernated keeps a
+	// dangling networkable (crash in ReadTeamTickets on wake-up, run 20261126-114539).
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
 		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)
@@ -2522,7 +2526,9 @@ bool EmpiresModifyTeamResources(int team, float delta)
 {
 	if (!EmpiresBinaryOffsetsTrusted())
 		return false;
-	for (int i = 1; i < gpGlobals->maxEntities; ++i)
+	// CEmpTeam is never a player slot; a client slot punted while the server hibernated keeps a
+	// dangling networkable (crash in ReadTeamTickets on wake-up, run 20261126-114539).
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
 		edict_t* e = engine->PEntityOfEntIndex(i);
 		if (e == nullptr || e->IsFree() || e->GetNetworkable() == nullptr)

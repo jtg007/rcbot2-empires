@@ -823,6 +823,14 @@ int CBotGlobals :: numClients ()
 	return iCount;
 }
 
+bool CBotGlobals :: clientSlotStale ( edict_t *pEntity )
+{
+	if (pEntity == nullptr || engine == nullptr || gpGlobals == nullptr)
+		return false;
+	const int index = engine->IndexOfEdict(pEntity);
+	return index >= 1 && index <= gpGlobals->maxClients && engine->GetPlayerUserId(pEntity) <= 0;
+}
+
 bool CBotGlobals :: entityIsAlive ( edict_t *pEntity )
 {
 	static short int index;
@@ -831,6 +839,8 @@ bool CBotGlobals :: entityIsAlive ( edict_t *pEntity )
 
 	if ( index && index <= gpGlobals->maxClients )
 	{
+		if (clientSlotStale(pEntity))
+			return false;
 		IPlayerInfo *p = playerinfomanager->GetPlayerInfo(pEntity);
 
 		if ( !p )

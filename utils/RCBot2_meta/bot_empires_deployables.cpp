@@ -1004,8 +1004,11 @@ bool CBotEmpires::handleEmpiresEngineerDeployables()
 			for (int i = 1; i < gpGlobals->maxEntities; ++i)
 			{
 				edict_t* e = engine->PEntityOfEntIndex(i);
-				if (e == nullptr || e->IsFree() || e == m_pEdict || e->GetCollideable() == nullptr ||
-					e->GetCollideable()->GetSolid() == SOLID_NONE || (i <= gpGlobals->maxClients && !CBotGlobals::entityIsAlive(e)))
+				// Client slots only while the engine still has the client (a slot punted during hibernation
+				// keeps a dangling networkable, run 20261126-114539).
+				if (e == nullptr || e->IsFree() || e == m_pEdict ||
+					(i <= gpGlobals->maxClients && (engine->GetPlayerUserId(e) <= 0 || !CBotGlobals::entityIsAlive(e))) ||
+					e->GetCollideable() == nullptr || e->GetCollideable()->GetSolid() == SOLID_NONE)
 					continue;
 				const float d = SegDist2D(CBotGlobals::entityOrigin(e), pts[job.segment - 1], pts[job.segment]);
 				if (d < nearDist)

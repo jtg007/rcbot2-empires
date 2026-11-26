@@ -1264,7 +1264,7 @@ bool HullHitsWorld(const Vector& point)
 }
 
 bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
-	const BuildingBox& box, const std::vector<BuildingBox>& boxes,
+	const BuildingBox& box, const std::vector<BuildingBox>& allBoxes,
 	std::vector<Vector>& detour)
 {
 	const float originX = box.mins.x - DetourMargin();
@@ -1273,6 +1273,18 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 	const int height = static_cast<int>((box.maxs.y - box.mins.y + 2.0f * DetourMargin()) / kDetourCell) + 1;
 	if (width <= 0 || height <= 0 || width * height > kDetourMaxCells)
 		return false;
+
+	// Only buildings whose box reaches the grid can block a cell or a segment inside it. Testing every
+	// building of the map per cell cost up to 0.9 s per plan with 38 buildings (22 bots, 20261126-114928).
+	std::vector<BuildingBox> boxes;
+	{
+		const float pad = g_detourHalf + 32.0f;
+		const float gx0 = originX - pad, gy0 = originY - pad;
+		const float gx1 = originX + (width - 1) * kDetourCell + pad, gy1 = originY + (height - 1) * kDetourCell + pad;
+		for (const BuildingBox& other : allBoxes)
+			if (other.maxs.x >= gx0 && other.mins.x <= gx1 && other.maxs.y >= gy0 && other.mins.y <= gy1)
+				boxes.push_back(other);
+	}
 
 	std::vector<float> cellZ(width * height, planeZ);
 	const auto cellPoint = [&](int x, int y)
@@ -1288,16 +1300,39 @@ bool PlanDetour(const Vector& from, const Vector& target, float planeZ,
 			// hull up to the spawn height, retaining ground level outside.
 			const float ceiling = InPaddedBox(from, box, 0.0f) ?
 				(std::max)(planeZ, (std::min)(planeZ + 128.0f, from.z + kDetourFloorClearance)) : planeZ;
-			for (float z = planeZ; z <= ceiling + 0.1f; z += 4.0f)
-			{
+			const auto solidAt = [&](float z) {
 				cellZ[y * width + x] = z;
 				const Vector point = cellPoint(x, y);
-				solid = HullHitsWorld(point) ? 1 : 0;
+				if (HullHitsWorld(point))
+					return true;
 				for (const BuildingBox& other : boxes)
-					if (!solid && InPaddedBox(point, other, 24.0f + g_detourHalf - 16.0f) &&
-						!HullClearOfBuilding(point, point, other))
-						solid = 1;
-				if (!solid) break;
+					if (InPaddedBox(point, other, 24.0f + g_detourHalf - 16.0f) && !HullClearOfBuilding(point, point, other))
+						return true;
+				return false;
+			};
+			// Lowest clear height in 4 steps, searched in 16 steps first and refined below the first clear one:
+			// a cell inside a building is solid at every height and cost 33 traces (NF factory bay start,
+			// 20261126-123257: failed plans of 0.36-0.44 s).
+			float clearZ = -1.0e9f;
+			float coarse = planeZ;
+			for (; coarse <= ceiling + 0.1f; coarse += 16.0f)
+				if (!solidAt(coarse))
+				{
+					clearZ = coarse;
+					break;
+				}
+			if (clearZ < -1.0e8f && coarse - 16.0f < ceiling - 0.1f && !solidAt(ceiling))
+				clearZ = ceiling;
+			if (clearZ > -1.0e8f)
+			{
+				for (float z = clearZ - 12.0f; z < clearZ; z += 4.0f)
+					if (z >= planeZ && !solidAt(z))
+					{
+						clearZ = z;
+						break;
+					}
+				cellZ[y * width + x] = clearZ;
+				solid = 0;
 			}
 			blocked[y * width + x] = solid;
 		}
@@ -1570,19 +1605,45 @@ void ApplyBuildingDetours(Path& path, bool skipGoalBuilding = false, const edict
 					f.ax == key.ax && f.ay == key.ay && f.tx == key.tx && f.ty == key.ty);
 			if (knownBad)
 				continue;
+			// A planned detour is asked again and again by the same and other bots (crossroads 22 bots,
+			// 20261126-114928: one pad detour 15x at > 200 ms each). Reuse it 30 s for the same building box
+			// (mins and maxs, so a rebuilt or moved building misses), start and goal cell, as long as the first
+			// leg from this start is still clear of the building. curtime restarts on a new map: entries whose
+			// window does not contain now are dead.
+			struct Planned { int bx, by, bx2, by2, ax, ay, tx, ty; float until; std::vector<Vector> corners; };
+			static std::vector<Planned> plannedCache;
+			constexpr float kPlannedSeconds = 30.0f;
+			const int bx2 = int(box.maxs.x) / 64, by2 = int(box.maxs.y) / 64;
 			std::vector<Vector> detour;
-			const bool planned = PlanDetour(a, path.points[last], planeZ, box, boxes, detour);
+			bool cached = false;
+			for (const Planned& p : plannedCache)
+				if (now < p.until && now >= p.until - kPlannedSeconds && p.bx == key.bx && p.by == key.by &&
+					p.bx2 == bx2 && p.by2 == by2 && p.ax == key.ax && p.ay == key.ay && p.tx == key.tx && p.ty == key.ty &&
+					!p.corners.empty() &&
+					HullClearOfBuilding(Vector(a.x, a.y, planeZ), Vector(p.corners[0].x, p.corners[0].y, planeZ), box))
+				{
+					detour = p.corners;
+					cached = true;
+					break;
+				}
+			const bool planned = cached || PlanDetour(a, path.points[last], planeZ, box, boxes, detour);
 			if (!planned)
 			{
 				failed.erase(std::remove_if(failed.begin(), failed.end(),
 					[&](const Failed& f) { return now >= f.until || now < f.until - 15.0f; }), failed.end());
 				failed.push_back(key);
 			}
+			else if (!cached)
+			{
+				plannedCache.erase(std::remove_if(plannedCache.begin(), plannedCache.end(),
+					[&](const Planned& p) { return now >= p.until || now < p.until - kPlannedSeconds; }), plannedCache.end());
+				plannedCache.push_back({key.bx, key.by, bx2, by2, key.ax, key.ay, key.tx, key.ty, now + kPlannedSeconds, detour});
+			}
 			const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - started).count();
-			RCBOT_DIAG("[RCBOT2] nav-detour building=%s planned=%d corners=%zu from=(%.0f %.0f) to=(%.0f %.0f) us=%lld\n",
+			RCBOT_DIAG("[RCBOT2] nav-detour building=%s planned=%d corners=%zu from=(%.0f %.0f) to=(%.0f %.0f) us=%lld cached=%d\n",
 				box.className, planned ? 1 : 0, detour.size(), a.x, a.y,
-				path.points[last].x, path.points[last].y, static_cast<long long>(micros));
+				path.points[last].x, path.points[last].y, static_cast<long long>(micros), cached ? 1 : 0);
 			if (planned)
 			{
 				const Vector finalPt = path.points[last];

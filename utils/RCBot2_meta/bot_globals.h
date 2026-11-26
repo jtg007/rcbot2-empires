@@ -106,9 +106,14 @@ public:
 
 	static bool isNetworkable ( edict_t *pEntity );
 
+	// A client slot (1..maxClients) whose client the engine no longer has. A bot punted while the
+	// server hibernated keeps a dangling networkable there until the slot is reused; touching it
+	// crashed on wake-up (run 20261126-114539, ReadTeamTickets at edict 2).
+	static bool clientSlotStale ( edict_t *pEntity );
+
 	static bool entityIsValid ( edict_t *pEntity )
 	{
-		return pEntity && !pEntity->IsFree() && pEntity->GetNetworkable() != nullptr && pEntity->GetIServerEntity() != nullptr && pEntity->m_NetworkSerialNumber != 0;	
+		return pEntity && !pEntity->IsFree() && !clientSlotStale(pEntity) && pEntity->GetNetworkable() != nullptr && pEntity->GetIServerEntity() != nullptr && pEntity->m_NetworkSerialNumber != 0;	
 	}
 
 	static void serverSay (const char* fmt, ... );
@@ -172,7 +177,7 @@ public:
 	////////
 	static Vector entityOrigin ( edict_t *pEntity )
 	{
-		if (pEntity == nullptr)
+		if (pEntity == nullptr || clientSlotStale(pEntity))
 			return Vector();
 
 		IServerEntity *pServerEnt = pEntity->GetIServerEntity();
