@@ -222,6 +222,7 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 | `rcbot_empires_fair_intel` | `1` | Fair team knowledge: team director, commander, infantry goals, tank/APC goals and the Lawliet rush use only enemies the team could know (game spotting, own radar 1800 / camera 1200 with line of sight, a living teammate's sight up to 3500, bot sight reports; memory 10 s infantry, 20 s vehicles, 180 s buildings) plus the enemy base's start position (tanks and the Lawliet rush drive to the last known CV position, else that start position). Base alerts on building damage stay immediate. `0` off (bots read the full entity list), `1` both teams, `2` NF only, `3` BE only |
 | `rcbot_empires_commander_drive_from` | `1000` | Distance beyond which the commander drives the CV to build sites |
 | `rcbot_empires_commander_boomtank` | `1` | Commander runs over base intruders (`0` off, `1` on except rainbowroad, `2` everywhere) |
+| `rcbot_empires_commander_build_lift` | `1` | The commander's `emp_build` request is lifted above the ground (turrets 14, other buildings 10 units) so bot buildings stand where a human commander's do; at the ground they had ended up that far sunk in |
 
 ### Engineers & EngiBots
 
@@ -243,6 +244,8 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 | `rcbot_empires_vehicle_drivers` | `-1` | Max vehicle drivers per team (`-1` = 40% of team bots, minimum 2) |
 | `rcbot_empires_billnye` | `-1` | Bill Nye ramming mode (`-1` NF on rainbowroad, `0` off, `2` NF, `3` BE) |
 | `rcbot_empires_lawliet` | `1` | Lawliet mode, a desperation APC rush on the enemy CV (`0` off, `1` auto when behind in research & map control or tickets, `2` force NF, `3` force BE) |
+| `rcbot_empires_vehicle_mg_no_damage` | `1` | A vehicle MG that fires 1.2 s at a soldier without damage aims at the body on the ground (e.g. a soldier revived lying); after 3 s without damage it takes another target for 10 s |
+| `rcbot_empires_vehicle_runover` | `1` | An armed vehicle runs a soldier over when its MG did no damage in 2 s or he is below the gun, if the straight way (< 1500 units, level, ground ahead) is safe; at most 6 s, then it leaves him for 10 s |
 | `rcbot_empires_lean_defense` | `2` | `2` = no standing base defender and no hold goal on the own side without an alert; `1` = standing defender only from 5 free infantry bots; `0` = from 3 |
 | `rcbot_empires_squad_flanks` | `0` | `1` = from 3 free infantry bots per team the director picks one push and one hold goal left and one right of the axis between both bases (each at least 1000 units off it, else rank order as before); odd squads (Alpha, Charlie) take the left goal, even squads (Bravo, Delta) the right one; bots without a squad or in a human-led squad are spread as before |
 | `rcbot_empires_defend_patrol` | `1` | Defend/sector spot held 12 s, then the next spot around it (arrive within 100); 0 = 30 s hold, 250 radius |
@@ -280,6 +283,12 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 | `rcbot_empires_grenadier_rpg` | `1` | A grenadier with rockets keeps 550–1300 units from an enemy vehicle and fires the RPG; at least 400 units from soldiers |
 | `rcbot_empires_engineer_rear` | `1` | An engineer in a fight stays behind the teammate closest to the enemy (up to 1600 units) |
 | `rcbot_empires_calm_look` | `1` | A bot standing without a route looks toward the last enemy (20 s) or calmly around its facing, not at random points |
+| `rcbot_empires_move_look_own_sight` | `1` | A walking bot turns its view toward the last enemy only if it saw him itself; a teammate's report still sends it there but it keeps looking ahead |
+| `rcbot_empires_target_keep` | `600` | Units a newly seen enemy must be closer than the current target before the bot switches (no flicking between enemies firing in bursts) |
+| `rcbot_empires_target_switch_reaction` | `1` | A target switch during a fight waits 0.05–0.15 s instead of the first-sight reaction of 0.20–0.55 s |
+| `rcbot_empires_hurt_look` | `1` | A bot hit by a shooter it does not see turns toward the damage origin for 1–1.5 s; seeing an enemy ends the turn at once |
+| `rcbot_empires_revive_getup` | `2` | A revived bot (revived lying) presses duck until it stands (`1` jump, `2` duck, `3` both; jump does not get it up) |
+| `rcbot_empires_sniper_aim` | `1` | A bot with a scoped rifle scopes in from about 700 units, crouches, lets its aim settle 0.6–1.1 s on a new target and fires at most every 1.7–2.2 s; the aim itself is unchanged |
 
 ### Diagnostics & Offsets
 
@@ -301,6 +310,7 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 - **`emp_palmbay`:** Bots capture the boat flags by swimming to a boat ladder and climbing it; in a 10-bot 1x match they climbed onto the deck and started a capture, and no ladder blockage lasted over 20 s, with no APCs lost in water. In 6 single-bot runs one bot stayed at the hull beside the ladder. NF finds no factory spot near its CV and builds remotely; NF commander entry can stall at spawn. Vehicles no longer chain reverse turns while still rolling backwards (the NF CV used to back off a cliff that way); the NF CV once wedged its nose under a static structure beside its refinery and could not back out.
 - **`emp_coast`:** Engineers have left refineries unfinished at 50/150 HP. The work-spot search now ignores vehicle-only building collision proxies; completion on Coast remains unverified.
 - **`emp_rainbowroad`:** Refinery turret placement is intermittent, and the Bill Nye jeep occasionally drives off edges.
+- **Server hitches:** with 20+ bots the building detour planning (`nav-detour`) still takes up to ~290 ms in single frames (rainbowroad 22 bots: 41 plans over 100 ms in 20 minutes), felt as short lags.
 - **Blocked vehicle exits:** A bot boxed in on all sides stays seated and retries exiting every ~15 s.
 - **Platform coverage:** Only Linux dedicated servers have been tested.
 

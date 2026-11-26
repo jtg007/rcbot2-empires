@@ -84,3 +84,10 @@ Measurements (emp_streetsoffire, NF CV at (-7548 -14179 -192), probe `empires_co
 - So a damaged finished building stays "fully built"; use the flag, not `hp >= maxHp`, to tell finished from under construction.
   Unverified: map-placed buildings that reach full health without `SetHealth` might keep the flag false, so the bot also treats full HP as built.
 - `BuildAmmoCrate` passes the owner's team to a virtual (vtable +0x178, likely `ChangeTeam`) at 0x3ce86c-0x3ce878; crate team reads match the placer at runtime (`lawliet ammo-crate placed team=2`, run 20261122-195944).
+
+## Turret pose and height (2026-11-26)
+
+- `Command_emp_build` (0x651890) sets the given position with `SetAbsOrigin`, no ground trace or height correction. Bot commander sends the ground z (rainbowroad: 256.03); the created turret origin reads 242 (other buildings 246), world_mins z 241.8.
+- `CTurret::Spawn` (0x6887c0) starts the sequence `"deploy"`; `CTurret::SetHealth` (0x688df0) switches to `"idle"` and the think once health reaches max. An unfinished turret (commander-placed at 25/100) is folded and looks sunk into the ground; finished it stands on its base (human test 26.11., confirmed by the user in game).
+- Map-placed turrets (as_escort, 10 inside the navmesh, BSP `level` 1 or 3) have their origin 0-5 above the nav ground; commander-built ones end up 14 below the requested ground z. A finished commander-built NF MG turret still stands visibly on its base (user screenshot 26.11.), so the offset is the game's and needs no bot fix.
+- Confirmed 26.11. (rainbowroad, ground 256): the user's own commander-placed MG and ML turrets have world_mins z 255.8 (origin on the ground), the bot commander's (request z = ground) 241.8. So bot turrets sat 14 lower than a human can place them. The user also saw all other bot buildings too deep: they land 10 below the requested ground (origin 246; radar, armory, factory, repair pad, barracks). Fix: `rcbot_empires_commander_build_lift` (1) adds 14 for turrets and 10 for the others to the requested z; refineries (`emp_build 0 <resIndex>`) are placed on the resource point by the game.

@@ -1174,6 +1174,7 @@ void CBotEmpires::setup()
 	m_flEmpiresNextLastKnownMineTime = 0.0f;
 	m_flEmpiresNextVisibleMortarTime = 0.0f;
 	m_flEmpiresReactionUntil = 0.0f;
+	m_bEmpiresLastEnemyReported = false;
 	m_eEmpiresMortarActionState = EmpiresMortarActionState::IDLE;
 	m_iEmpiresMortarActionTeam = -1;
 	m_iEmpiresMortarActionExpectedIndex = -1;
@@ -1422,6 +1423,11 @@ float CBotEmpires::getEnemyFactor(edict_t* pEnemy)
 	if (!pInfo->IsFakeClient())
 		factor -= 128.0f;
 
+	// Keep the current target unless another is clearly better: enemies firing in bursts flipped
+	// the -512 "pressing attack" bonus every few frames, and each switch restarted the reaction delay.
+	if (pEnemy == m_pOldEnemy.get())
+		factor -= (std::max)(0.0f, rcbot_empires_target_keep.GetFloat());
+
 	const bool enemyPressingAttack =
 		(pInfo->GetLastUserCommand().buttons & IN_ATTACK) != 0;
 	if (getDesiredClass() == EMP_CLASS_SCOUT)
@@ -1456,9 +1462,18 @@ float CBotEmpires::getEnemyFactor(edict_t* pEnemy)
 
 void CBotEmpires::enemyFound(edict_t* pEnemy)
 {
+	// A switch in a running fight (an enemy seen within 1.5 s) only needs a re-aim, not the
+	// surprise of a first sighting (human test 26.11.: a bot in a group hardly fired).
+	const bool inFight = engine != nullptr && m_fLastSeeEnemy > 0.0f && m_pLastEnemy.get() != nullptr &&
+		!m_bEmpiresLastEnemyReported && engine->Time() - m_fLastSeeEnemy < 1.5f;
 	CBot::enemyFound(pEnemy);
+	m_bEmpiresLastEnemyReported = false;
+	// A hurt look locks the view for seconds; once the shooter is in sight, the fight takes the view.
+	if (m_iLookTask == LOOK_HURT_ORIGIN && rcbot_empires_hurt_look.GetBool())
+		m_fLookSetTime = 0.0f;
 	m_flEmpiresReactionUntil = engine != nullptr ?
-		engine->Time() + randomFloat(0.20f, 0.55f) : 0.0f;
+		engine->Time() + ((inFight && rcbot_empires_target_switch_reaction.GetBool()) ?
+			randomFloat(0.05f, 0.15f) : randomFloat(0.20f, 0.55f)) : 0.0f;
 	EmpiresTeamIntelReportSight(this, pEnemy); // 3.20: a bot's own sight is fair team knowledge
 
 	if (logger == nullptr || pEnemy == nullptr || playerinfomanager == nullptr)
@@ -1513,6 +1528,7 @@ void CBotEmpires::receiveEmpiresSpottedEnemy(edict_t* pEnemy, const int sourceIn
 		return;
 
 	setLastEnemy(pEnemy);
+	m_bEmpiresLastEnemyReported = true;
 	m_bLookedForEnemyLast = false;
 	logger->Log(LogLevel::INFO,
 		"Empires gameplay team-alert=accepted source_index=%d target_index=%d target_userid=%d target_team=%d response=last-known-approach",
@@ -1712,7 +1728,10 @@ void CBotEmpires::updateConditions()
 		isEnemy(pPreviouslyVisibleEnemy, false))
 	{
 		if (m_pLastEnemy != pPreviouslyVisibleEnemy || m_fLastSeeEnemy <= 0.0f)
+		{
 			setLastEnemy(pPreviouslyVisibleEnemy);
+			m_bEmpiresLastEnemyReported = false;
+		}
 
 		removeCondition(CONDITION_SEE_CUR_ENEMY);
 		removeCondition(CONDITION_SEE_ENEMY_HEAD);
@@ -1819,6 +1838,24 @@ void CBotEmpires::pollEmpiresHurt(int health, bool worldDamage, const Vector* da
 bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	const bool bDontHide)
 {
+	// Human test 26.11.: bots did not react when shot from outside their view. A polled hit from an
+	// unseen shooter has no attacker, and CBot::hurt returns before its turn; use the damage origin.
+	if (pAttacker == nullptr && m_bPolledHurt && m_bPolledHurtOriginValid && rcbot_empires_hurt_look.GetBool() &&
+		engine != nullptr && !hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && !empiresVehicleOwnsBot() &&
+		m_iCommanderEntryStage == 0 && m_iCommanderBuildStage == 0)
+	{
+		m_vHurtOrigin = m_vPolledHurtOrigin + Vector(0, 0, 48);
+		m_fLookSetTime = 0.0f;
+		setLookAtTask(LOOK_HURT_ORIGIN);
+		m_fLookSetTime = engine->Time() + randomFloat(1.0f, 1.5f);
+		if (gpGlobals != nullptr && gpGlobals->curtime >= m_flHurtLookLogAt)
+		{
+			m_flHurtLookLogAt = gpGlobals->curtime + 2.0f;
+			RCBOT_DIAG("[RCBOT2] hurt-look userid=%d origin=(%.0f %.0f %.0f) dist=%.0f\n",
+				engine->GetPlayerUserId(m_pEdict), m_vPolledHurtOrigin.x, m_vPolledHurtOrigin.y, m_vPolledHurtOrigin.z,
+				m_vPolledHurtOrigin.DistTo(getOrigin()));
+		}
+	}
 	// A Commander MOVE is authoritative even when damage would normally make
 	// the generic bot schedule a hide task.  Keep the normal damage bookkeeping
 	// but suppress the autonomous cover interruption until the order completes.
@@ -2162,6 +2199,7 @@ void CBotEmpires::handleWeapons()
 
 	if (!validTarget)
 	{
+		relaxEmpiresSniperScope();
 		if (m_bEmpiresCombatEngaged || (m_iButtons & IN_ATTACK) != 0)
 		{
 			logger->Log(LogLevel::INFO,
@@ -2221,8 +2259,87 @@ void CBotEmpires::handleWeapons()
 		m_bEmpiresCombatEngaged = true;
 	}
 
+	if (rcbot_empires_sniper_aim.GetBool() && pWeapon->getWeaponInfo() != nullptr &&
+		pWeapon->getWeaponInfo()->isScoped() && !empiresSniperReady(pEnemy, pWeapon))
+	{
+		if (m_pButtons != nullptr)
+			m_pButtons->letGo(IN_ATTACK);
+		m_iButtons &= ~IN_ATTACK;
+		wantToShoot(false);
+		setLookAtTask(LOOK_ENEMY);
+		return;
+	}
+
 	wantToShoot(true);
 	CBot::handleWeapons();
+}
+
+// Human test 26.11.: scout snipers fired every cycle without the scope, fast and inaccurate. Weapon
+// scripts (scout_rifle / imp_rifle3): CycleTime 1.28, spread standing 0.08 (+0.04 per shot, max 0.3),
+// ducking 0.04 (max 0.1), iron sights (secondary attack = CEmpWeaponBase::ToggleIronSights, state
+// m_bInIronSights) halve spread and kick. Like a player: scope in from 700 units, crouch, let the
+// aim settle, one shot, wait for kick and spread to come back. Not a perfect shooter: the aim stays
+// the normal bot aim; only the timing changes.
+bool CBotEmpires::empiresSniperReady(edict_t* pEnemy, CBotWeapon* pWeapon)
+{
+	if (engine == nullptr || pEnemy == nullptr || pWeapon == nullptr || m_pButtons == nullptr)
+		return true;
+	const float now = engine->Time();
+	const float dist = distanceFrom(pEnemy);
+	const int enemyIndex = engine->IndexOfEdict(pEnemy);
+	m_flSniperLastAim = now;
+	if (enemyIndex != m_iSniperTarget)
+	{
+		m_iSniperTarget = enemyIndex;
+		m_flSniperSettleUntil = now + randomFloat(0.6f, 1.1f);
+		m_iSniperShots = 0;
+	}
+	bool scoped = false;
+	const bool stateKnown = pWeapon->getWeaponEntity() != nullptr &&
+		readEmpiresEntityBoolProperty(pWeapon->getWeaponEntity(), "m_bInIronSights", scoped);
+	const bool wantScope = scoped ? dist >= 600.0f : dist >= 750.0f; // hysteresis around 700
+	if (stateKnown && wantScope != scoped && m_iSniperToggleFails < 3 && now >= m_flSniperToggleAt)
+	{
+		if (m_flSniperToggleAt > 0.0f && m_bSniperToggleExpect == wantScope)
+			++m_iSniperToggleFails; // the last press for this same state did not take
+		m_pButtons->tap(IN_ATTACK2);
+		m_bSniperToggleExpect = wantScope;
+		m_flSniperToggleAt = now + 0.6f;
+		m_flSniperSettleUntil = (std::max)(m_flSniperSettleUntil, now + randomFloat(0.5f, 0.8f));
+		return false;
+	}
+	if (wantScope)
+		m_pButtons->duck(0.3f);
+	if (now < m_flSniperSettleUntil || now < m_flSniperNextShot)
+		return false;
+	m_flSniperNextShot = now + 1.28f + randomFloat(0.4f, 0.9f);
+	++m_iSniperShots;
+	if (gpGlobals != nullptr && gpGlobals->curtime >= m_flSniperLogAt)
+	{
+		m_flSniperLogAt = gpGlobals->curtime + 5.0f;
+		RCBOT_DIAG("[RCBOT2] sniper shot userid=%d target=%d dist=%.0f scoped=%d state_known=%d shots=%d toggle_fails=%d\n",
+			engine->GetPlayerUserId(m_pEdict), enemyIndex, dist, scoped ? 1 : 0, stateKnown ? 1 : 0, m_iSniperShots,
+			m_iSniperToggleFails);
+	}
+	return true;
+}
+
+// Leave the scope 2 s after the last aimed shot so the bot walks and looks around normally.
+void CBotEmpires::relaxEmpiresSniperScope()
+{
+	if (engine == nullptr || m_pButtons == nullptr || m_flSniperLastAim <= 0.0f ||
+		engine->Time() - m_flSniperLastAim < 2.0f || engine->Time() < m_flSniperToggleAt)
+		return;
+	CBotWeapon* weapon = getCurrentWeapon();
+	bool scoped = false;
+	if (weapon != nullptr && weapon->getWeaponEntity() != nullptr &&
+		readEmpiresEntityBoolProperty(weapon->getWeaponEntity(), "m_bInIronSights", scoped) && scoped)
+	{
+		m_pButtons->tap(IN_ATTACK2);
+		m_flSniperToggleAt = engine->Time() + 0.6f;
+	}
+	m_flSniperLastAim = 0.0f;
+	m_iSniperTarget = -1;
 }
 
 bool CBotEmpires::isEmpiresScoutBinocularActionActive() const
@@ -2898,6 +3015,7 @@ void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 	m_flEmpiresNextLastKnownMineTime = 0.0f;
 	m_flEmpiresNextVisibleMortarTime = 0.0f;
 	m_flEmpiresReactionUntil = 0.0f;
+	m_bEmpiresLastEnemyReported = false;
 	if (!isControlledTestOnly())
 	{
 		m_pEmpiresApproachTarget = nullptr;
@@ -15704,6 +15822,45 @@ bool CBotEmpires::requestBootstrapRemoval()
 	return true;
 }
 
+// Stand up after a revive (see suppressBotThink). Height = the player's collision box height:
+// standing about 72, ducked 36; lying is what the log shows (height0).
+void CBotEmpires::tickEmpiresReviveGetUp()
+{
+	if (m_flReviveGetUpSince < 0.0f || engine == nullptr || m_pEdict == nullptr)
+		return;
+	if (!CBotGlobals::entityIsAlive(m_pEdict))
+	{
+		m_flReviveGetUpSince = -1.0f;
+		return;
+	}
+	const float now = engine->Time();
+	const float t = now - m_flReviveGetUpSince;
+	ICollideable* box = m_pEdict->GetCollideable();
+	const float height = box != nullptr ? box->OBBMaxs().z - box->OBBMins().z : -1.0f;
+	// dev_revive 26.11.: the box is still 72 at the revive and drops to 16 (lying) right after it.
+	if (m_flReviveGetUpHeight0 < 0.0f || height < m_flReviveGetUpHeight0)
+		m_flReviveGetUpHeight0 = height; // lowest height seen
+	const bool seenLying = m_flReviveGetUpHeight0 < 30.0f;
+	if (m_flReviveGetUpStoodAt < 0.0f && seenLying && height >= 60.0f)
+		m_flReviveGetUpStoodAt = t;
+	const int mode = rcbot_empires_revive_getup.GetInt(); // 1 jump, 2 duck, 3 both (alternating)
+	if (m_flReviveGetUpStoodAt < 0.0f && height < 60.0f && t >= 0.3f && now >= m_flReviveGetUpNextPress &&
+		m_pButtons != nullptr)
+	{
+		const bool useDuck = mode == 2 || (mode == 3 && (m_iReviveGetUpPresses % 2) == 1);
+		m_pButtons->tap(useDuck ? IN_DUCK : IN_JUMP);
+		++m_iReviveGetUpPresses;
+		m_flReviveGetUpNextPress = now + 0.5f;
+	}
+	if (t >= 6.0f || (m_flReviveGetUpStoodAt >= 0.0f && t >= m_flReviveGetUpStoodAt + 0.5f))
+	{
+		RCBOT_DIAG("[RCBOT2] revive getup userid=%d mode=%d min_height=%.0f height=%.0f stood_at=%.1f presses=%d\n",
+			engine->GetPlayerUserId(m_pEdict), mode, m_flReviveGetUpHeight0, height, m_flReviveGetUpStoodAt,
+			m_iReviveGetUpPresses);
+		m_flReviveGetUpSince = -1.0f;
+	}
+}
+
 bool CBotEmpires::suppressBotThink()
 {
 	// Observe before any Empires-specific think gate. Normal spawn and respawn
@@ -15745,7 +15902,17 @@ bool CBotEmpires::suppressBotThink()
 		m_bNormalDeathEventPending = false;
 		m_bReviveHoldActive = false;
 		RCBOT_DIAG("[RCBOT2] revive revived-skip-respawn userid=%d\n", engine->GetPlayerUserId(m_pEdict));
+		// Human test 26.11.: a player is revived lying and has to get up (duck or jump); the bot stayed
+		// down and crawled on. Press the get-up keys for a few seconds and log whether it stood up.
+		m_flReviveGetUpSince = rcbot_empires_revive_getup.GetInt() > 0 ? engine->Time() : -1.0f;
+		m_flReviveGetUpNextPress = 0.0f;
+		m_flReviveGetUpStoodAt = -1.0f;
+		m_iReviveGetUpPresses = 0;
+		m_flReviveGetUpHeight0 = -1.0f;
+		if (m_pButtons != nullptr)
+			m_pButtons->letGo(IN_DUCK);
 	}
+	tickEmpiresReviveGetUp();
 	if (m_bNormalDeathEventPending && holdRespawnForRevive())
 	{
 		m_bReviveHoldActive = true;

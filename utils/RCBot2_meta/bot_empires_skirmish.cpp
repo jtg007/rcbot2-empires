@@ -1026,6 +1026,18 @@ bool CBotEmpires::handleEmpiresScoutBinoculars()
 // hold, waiting) kept whipping their view around (user 23.11.: "sinnlos hin und her schauen").
 void CBotEmpires::getLookAtVector()
 {
+	// A walking bot (LOOK_WAYPOINT) looked 5 s toward every enemy a teammate reported, so in a
+	// big match most bots ran sideways (human test 26.11.). A report still drives the approach;
+	// the view only follows the bot's own sightings. Hide the report from the generic branch.
+	if (m_iLookTask == LOOK_WAYPOINT && m_bEmpiresLastEnemyReported &&
+		rcbot_empires_move_look_own_sight.GetBool())
+	{
+		const float savedSeen = m_fLastSeeEnemy;
+		m_fLastSeeEnemy = -1000.0f;
+		CBot::getLookAtVector();
+		m_fLastSeeEnemy = savedSeen;
+		return;
+	}
 	if (m_iLookTask != LOOK_AROUND || !rcbot_empires_calm_look.GetBool() || engine == nullptr)
 	{
 		CBot::getLookAtVector();

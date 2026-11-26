@@ -2328,6 +2328,47 @@ Vector EntityCenter(edict_t* e)
 }
 } // namespace
 
+// Run-over decision for an armed vehicle against a soldier on foot (TODO from human test 26.11.).
+// Starts when the MG fired 2 s at him without damage, or he stands below the gun's reach (pitch
+// limit), and the straight way is short, level and has ground; lasts up to 6 s, then the soldier is
+// left alone for 10 s (stall-escalate stage 3) so the tank does not chase him across the map.
+bool CBotEmpires::wantEmpiresRunOver(EmpiresVehicleBrain& v, edict_t* target, const Vector& targetAt,
+	const Vector& origin, float now, int userId)
+{
+	const int idx = engine->IndexOfEdict(target);
+	if (!rcbot_empires_vehicle_runover.GetBool() || v.commanderCV || idx < 1 || idx > gpGlobals->maxClients)
+	{
+		v.runOverTarget = -1;
+		return false;
+	}
+	const float distance = Dist2D(origin, targetAt);
+	const bool reachable = distance < 1500.0f && std::fabs(targetAt.z - origin.z) < 120.0f &&
+		SafeHeading(origin, YawTo(origin, targetAt), (std::min)(distance + 200.0f, 1200.0f));
+	if (v.runOverTarget == idx)
+	{
+		if (now < v.runOverUntil && reachable)
+			return true;
+		RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-mg userid=%d stage=3 reason=run-over-%s target=%d dist=%.0f\n",
+			userId, reachable ? "timeout" : "unreachable", idx, distance);
+		v.fireBlockedSkipTarget = idx;
+		v.fireBlockedSkipUntil = now + 10.0f;
+		v.target = nullptr;
+		v.nextTargetPick = now;
+		v.runOverTarget = -1;
+		return false;
+	}
+	const bool noHit = v.mgEngTarget == idx && v.mgEngHp0 > 0 && v.mgEngHpLast >= v.mgEngHp0 && v.mgEngFired >= 2.0f;
+	const bool belowGun = now < v.pitchLimitUntil && v.pitchLimitDown;
+	if (!(noHit || belowGun) || !reachable)
+		return false;
+	v.runOverTarget = idx;
+	v.runOverUntil = now + 6.0f;
+	RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-mg userid=%d stage=2 reason=run-over target=%d dist=%.0f "
+		"why=%s fired=%.1f\n", userId, idx, distance, noHit ? "no-damage" : "below-gun", v.mgEngFired);
+	return true;
+}
+
+
 bool CBotEmpires::isEmpiresBillNye() const
 {
 	int team = rcbot_empires_billnye.GetInt();
@@ -5047,7 +5088,10 @@ void CBotEmpires::tickEmpiresVehicle()
 		else if (targetIndex <= gpGlobals->maxClients)
 		{
 			IPlayerInfo* info = playerinfomanager->GetPlayerInfo(target);
-			targetGone = info == nullptr || info->IsDead() || EmpiresVehiclePlayerVehicle(this, target) >= 0;
+			// A killed soldier is not IsDead() at once (revive window): health <= 0 ends the target too
+			// (human test 26.11.: MG kept firing at bodies, mg-engage hp=28->-4 and 100->-10).
+			targetGone = info == nullptr || info->IsDead() || info->GetHealth() <= 0 ||
+				EmpiresVehiclePlayerVehicle(this, target) >= 0;
 		}
 		else if (target->GetClassName() != nullptr &&
 			std::strncmp(target->GetClassName(), "emp_building_", 13) == 0)
@@ -5145,6 +5189,14 @@ void CBotEmpires::tickEmpiresVehicle()
 	else if (target != nullptr && !armed)
 	{
 		driveTo = targetAt + (targetAt - origin).Normalized() * 200.0f; // run over
+		ram = true;
+		arrive = 0.0f;
+	}
+	else if (target != nullptr && armed && wantEmpiresRunOver(v, target, targetAt, origin, now, userId))
+	{
+		// Human test 26.11.: tanks never ran soldiers over. After MG fire without effect (or a soldier
+		// below the gun) drive through him, like a player would, while the way there is safe.
+		driveTo = targetAt + (targetAt - origin).Normalized() * 200.0f;
 		ram = true;
 		arrive = 0.0f;
 	}
@@ -7017,7 +7069,34 @@ void CBotEmpires::tickEmpiresVehicle()
 		const int targetIndex = engine->IndexOfEdict(target);
 		const bool infantry = targetIndex >= 1 && targetIndex <= gpGlobals->maxClients;
 		// Lead: target velocity from its last positions (smoothed).
-		const Vector centre = EntityCenter(target);
+		Vector centre = EntityCenter(target);
+		// Human test 26.11.: a soldier revived lying keeps a standing-height box, the MG aimed at its
+		// centre and fired over him for seconds. Like a gunner who sees no hits: after 1.2 s of MG fire
+		// without damage aim at the body on the ground, after 3 s take another target for 10 s.
+		if (infantry && rcbot_empires_vehicle_mg_no_damage.GetBool() && v.mgEngTarget == targetIndex &&
+			v.mgEngHp0 > 0 && v.mgEngHpLast >= v.mgEngHp0)
+		{
+			if (v.mgEngFired >= 3.0f && v.runOverTarget != targetIndex)
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-mg userid=%d stage=2 reason=no-damage-skip target=%d "
+					"fired=%.1f hp=%d\n", userId, targetIndex, v.mgEngFired, v.mgEngHpLast);
+				v.fireBlockedSkipTarget = targetIndex;
+				v.fireBlockedSkipUntil = now + 10.0f;
+				v.target = nullptr;           // this frame still finishes with the old target
+				v.nextTargetPick = now;       // pick again next frame; inSight() skips this one
+				v.mgEngTarget = -1;
+			}
+			else if (v.mgEngFired >= 1.2f)
+			{
+				centre.z = CBotGlobals::entityOrigin(target).z + 12.0f;
+				if (v.mgLowAimLogged != targetIndex)
+				{
+					v.mgLowAimLogged = targetIndex;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-mg userid=%d stage=1 reason=no-damage-aim-low target=%d "
+						"fired=%.1f hp=%d\n", userId, targetIndex, v.mgEngFired, v.mgEngHpLast);
+				}
+			}
+		}
 		if (targetIndex != v.aimTarget)
 		{
 			v.aimTarget = targetIndex;

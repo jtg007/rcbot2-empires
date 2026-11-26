@@ -19,9 +19,11 @@ statically verified**; do not re-derive them, but re-check after a game update (
   about 4.7 HP/s with clip, 2 HP/s without.
 - The kit places the selected deployable instead of healing while `m_iEngineerBuildItem != 0`; `ItemPostFrame` skips `PrimaryAttack` with an empty clip.
 - Revive: dead same-team player with ragdoll, target within 512 HU of the reviver, active kit with clip >= 50 (spent). The command itself does not check the Revive
+- A revived player lies on the ground: the collision box is still 72 at the revive and drops to 16 right after it; pressing duck stands up (0.6 s in `dev_revive`), jump does not.
   skill byte; the bot only revives with the skill active.
 - Skill slots by rank points: slot 1 at >= 0, slot 2 > 9, slot 3 > 29, slot 4 > 59. `changeskill` only stores the wanted skill; it becomes active at spawn.
 - Commander building rules: `emp_build` needs commander status; refinery is `emp_build 0 <resIndex> <yaw>`; placement allowed only if a living non-commander teammate or the own
+- `emp_build <type> x y z` uses the given position as is; requested at the ground, commander buildings land 10 (turrets 14) units sunk in, while a human commander's turret stands on the ground. A turret is folded (`deploy` sequence) until full health, then switches to `idle`. Scoped rifles toggle iron sights on secondary attack (`m_bInIronSights`).
   CV is within 4000 (with CV distance > 1000, also no enemy within 1000 / enemy building). Costs: Refinery 100, Armory 100, Repair 150, Barracks 300, Radar 400, VF 500, Turrets 75,
   Wall 15. Rejected buildings are removed with `UTIL_Remove`: the edict lingers until frame end (`EFL_KILLME`), so check `list` later. Submission is not success.
 - Research costs are **per second**; running out of money pauses it, and the game never resumes by itself: the commander must send `emp_comm_research_resume`.

@@ -22,6 +22,7 @@ this page lists all of them, including test and development switches. Set them o
 | `rcbot_empires_commander_orders` | 1 | Seated bot commander orders its free attackers (attack location) per team-director role. | `bot_empires_commander_orders.cpp` |
 | `rcbot_empires_commander_drive_from` | 1000 | Distance beyond which the commander drives the CV towards a building before leaving it to build. | `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_commander_boomtank` | 1 | Commander drives the CV over enemy infantry inside the base zone: 0 off, 1 on except rainbowroad maps, 2 everywhere. | `bot_empires_commander_economy.cpp` |
+| `rcbot_empires_commander_build_lift` | 1 | Lift the commander's `emp_build` request above the ground (turrets 14, other buildings 10 units) so bot buildings stand where a human commander's do. | `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_commander_first` | -1 | Test: building type built first (0 refinery, 1 barracks, 2 radar, 3 armory, 4 repair, 5 vehicle factory), -1 = normal order. | `bot_empires_commander_economy.cpp/.h` |
 
 ## Engineers and EngiBots
@@ -60,6 +61,12 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_grenadier_rpg_vehicle_priority` | 1 | A grenadier with rockets breaks off any task (commander orders included) for an RPG shot at an enemy vehicle in sight within 300-2600 units; only an enemy within 500 units interrupts the shot. 0 = orders first, any visible enemy interrupts. | `bot_empires_objective.cpp` |
 | `rcbot_empires_engineer_rear` | 1 | An engineer in a fight stays behind the teammate closest to the enemy (up to 1600 units). | `bot_empires_skirmish.cpp` |
 | `rcbot_empires_calm_look` | 1 | A bot standing without a route looks toward the last enemy it saw (20 s) or calmly around its facing (+-30 degrees, every 3-5 s) instead of at random points. | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_move_look_own_sight` | 1 | A walking bot turns its view toward the last enemy only if it saw him itself; teammate reports still send it there. | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_target_keep` | 600 | Units a newly seen enemy must be closer than the current target before the bot switches. | `bot_empires.cpp` |
+| `rcbot_empires_target_switch_reaction` | 1 | A target switch during a fight waits 0.05-0.15 s instead of the first-sight reaction of 0.20-0.55 s. | `bot_empires.cpp` |
+| `rcbot_empires_hurt_look` | 1 | A bot hit by an unseen shooter turns toward the damage origin for 1-1.5 s. | `bot_empires.cpp` |
+| `rcbot_empires_revive_getup` | 2 | A revived bot presses duck until it stands up (1 jump, 2 duck, 3 both; jump does not work). | `bot_empires.cpp` |
+| `rcbot_empires_sniper_aim` | 1 | Scoped rifles: scope in from about 700 units, crouch, settle 0.6-1.1 s, fire every 1.7-2.2 s; aim unchanged. | `bot_empires.cpp` |
 
 ## Team behaviour and vehicles
 
@@ -88,6 +95,8 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_humans_first` | 1 | Engineers heal hurt humans before bots (a bot patient is left for a hurt human in reach), serve human ammo calls first; a bot's repair call does not take over the request of a human-driven vehicle, and a damaged human-driven vehicle nearby replaces a bot call. |
 | `rcbot_empires_test_human_userid` | 0 | Test only: the bot with this userid counts as a human for `rcbot_empires_humans_first` and `rcbot_empires_buddy_repair`. |
 | `rcbot_empires_kill_spawn` | 1 | A defender on a base alert or a far vehicle buyer may respawn (via `kill`) at a spawn at least 3800 HU closer to its goal (no combat for 6 s, tickets > 20 and > 25 %, 90 s per bot). | `bot_empires_team_director.cpp` |
+| `rcbot_empires_vehicle_mg_no_damage` | 1 | A vehicle MG without damage for 1.2 s aims at the body on the ground; after 3 s it takes another target for 10 s. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_runover` | 1 | An armed vehicle runs a soldier over after 2 s of MG fire without damage (or below the gun) when the straight way is safe; at most 6 s. | `bot_empires_vehicle.cpp` |
 
 ## Diagnostics and platform
 

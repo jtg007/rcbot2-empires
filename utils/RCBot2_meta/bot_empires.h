@@ -477,6 +477,9 @@ struct EmpiresVehicleBrain
 	float nextAimCheck = 0.0f;
 	// MG engagement on one infantry target (diagnosis 3.21: does the lead hit moving infantry).
 	int mgEngTarget = -1;
+	int mgLowAimLogged = -1;
+	int runOverTarget = -1;      // soldier being run over (wantEmpiresRunOver)
+	float runOverUntil = 0.0f;
 	float mgEngLastTick = 0.0f;
 	float mgEngFired = 0.0f;
 	float mgEngMoving = 0.0f;
@@ -1025,6 +1028,25 @@ private:
 	float m_flReviveDeathTime = 0.0f;
 	bool m_bReviveHoldLogged = false;
 	bool m_bReviveHoldActive = false;
+	void tickEmpiresReviveGetUp();
+	float m_flReviveGetUpSince = -1.0f;
+	float m_flReviveGetUpNextPress = 0.0f;
+	float m_flReviveGetUpStoodAt = -1.0f;
+	float m_flReviveGetUpHeight0 = -1.0f;
+	int m_iReviveGetUpPresses = 0;
+	bool empiresSniperReady(edict_t* pEnemy, CBotWeapon* pWeapon);
+	bool wantEmpiresRunOver(EmpiresVehicleBrain& v, edict_t* target, const Vector& targetAt, const Vector& origin,
+		float now, int userId);
+	void relaxEmpiresSniperScope();
+	int m_iSniperTarget = -1;
+	int m_iSniperShots = 0;
+	int m_iSniperToggleFails = 0;
+	bool m_bSniperToggleExpect = false;
+	float m_flSniperSettleUntil = 0.0f;
+	float m_flSniperNextShot = 0.0f;
+	float m_flSniperToggleAt = 0.0f;
+	float m_flSniperLastAim = 0.0f;
+	float m_flSniperLogAt = 0.0f;
 	bool holdRespawnForRevive();
 	// Engineer builds an MG turret on the front side of own refineries (bot_empires_turret_build.cpp).
 	bool handleEmpiresRefineryTurret();
@@ -1494,6 +1516,9 @@ private:
 	// existing mortar action owns all input/state after the request is accepted.
 	float m_flEmpiresNextVisibleMortarTime = 0.0f;
 	float m_flEmpiresReactionUntil = 0.0f;
+	// Last enemy memory came from a teammate report, not from this bot's own sight.
+	bool m_bEmpiresLastEnemyReported = false;
+	float m_flHurtLookLogAt = 0.0f;
 	EmpiresMortarProbeState m_eEmpiresMortarProbeState = EmpiresMortarProbeState::IDLE;
 	int m_iEmpiresMortarProbeAttempt = 0;
 	int m_iEmpiresMortarProbeFrames = 0;

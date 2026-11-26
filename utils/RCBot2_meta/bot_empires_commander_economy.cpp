@@ -2466,8 +2466,14 @@ void CBotEmpires::tickCommanderEconomy()
 			RCBOT_DIAG("[RCBOT2] commander-econ lane-check type=%d lanes=%zu checked=%zu ring=%d%s\n", int(type),
 				lanes.size(), checked, usedRing, laneFree ? "" : " all-block");
 		const float yaw = yawAt(Vector(at.x, at.y, at.z), false);
+		// Human test 26.11. (rainbowroad, flat ground 256): requested at the ground z, our buildings landed
+		// with their origin below it, turrets 14 (world_mins 241.8 against the user's own 255.8) and all
+		// other types 10 (origin 246); the user saw every bot building too deep. Lift the request so they
+		// sit where a human commander's do. Refineries use the resource point form and are not affected.
+		const float lift = !rcbot_empires_commander_build_lift.GetBool() ? 0.0f :
+			(type == MgTurret || type == MlTurret) ? 14.0f : 10.0f;
 		snprintf(command, sizeof(command), "emp_build %d %.9g %.9g %.9g %.1f\n", int(type),
-			double(at.x), double(at.y), double(at.z), double(yaw));
+			double(at.x), double(at.y), double(at.z + lift), double(yaw));
 	}
 	state.verifyBefore = allBuildings;
 	state.verifyType = int(type);
