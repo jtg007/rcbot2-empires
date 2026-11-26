@@ -616,11 +616,47 @@ inline int FlankGoal(const int* goalSide, int goalCount, int botSide)
 			return g;
 	return -1;
 }
+
+// Infantry opening (rcbot_empires_vehicle_vf_grace): the first time a team owns a finished vehicle
+// factory in a match, its bots start no vehicle purchase for graceSeconds. Once per match: a later
+// rebuilt factory starts no new wait (reset only on map change). A known living enemy vehicle or APC
+// ends the wait at once. Before the first factory nothing is held (a debug-build server needs none).
+struct VehicleGrace
+{
+	float factoryAt = -1.0f;   // first finished own factory, -1 = not yet
+	bool released = false;     // ended early by an enemy vehicle
+	bool loggedEnd = false;
+
+	// Returns true when this call ended the wait early.
+	bool update(float now, bool factoryBuilt, bool enemyVehicleKnown)
+	{
+		if (factoryBuilt && factoryAt < 0.0f)
+			factoryAt = now;
+		if (!released && enemyVehicleKnown && factoryAt >= 0.0f)
+		{
+			released = true;
+			return true;
+		}
+		return false;
+	}
+
+	bool blocks(float now, float graceSeconds) const
+	{
+		return graceSeconds > 0.0f && !released && factoryAt >= 0.0f && now < factoryAt + graceSeconds;
+	}
+
+	float remaining(float now, float graceSeconds) const
+	{
+		return blocks(now, graceSeconds) ? factoryAt + graceSeconds - now : 0.0f;
+	}
+};
 } // namespace EmpiresTeamDirector
 
 // Runtime (bot_empires_team_director.cpp). Board of team 2/3 or nullptr before the first update.
 const EmpiresTeamDirector::Board* EmpiresTeamDirectorBoard(int team);
 void EmpiresTeamDirectorLevelReset();
+// rcbot_empires_vehicle_vf_grace: seconds the team still waits before its first vehicle purchase (0 = free).
+float EmpiresTeamDirectorVehicleGraceLeft(int team);
 void EmpiresMatchFlowLevelReset(); // bot_empires_match_flow.cpp
 // TODO 8.1: a team member on foot was killed at pos (rcbot_empires_hot_zones).
 void EmpiresTeamDirectorRecordDeath(int team, float x, float y, float z, int userId, const char* how);

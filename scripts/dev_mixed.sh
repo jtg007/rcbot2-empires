@@ -5,7 +5,7 @@
 # Usage: scripts/dev_mixed.sh [map] [timescale]
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="2:1 2:1 2:3" \
-DEV_PRE="emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_debug_mixed 1;rcbot_empires_vehicles 0" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_debug_mixed 1;rcbot_empires_vehicles 0" \
 DEV_CMDS="wait 5;ent_fire emp_params ModifyNFResources 3000;waitfor 200 pad-yaw;wait 5;ent_fire emp_params ModifyNFResources 3000;rcbot_empires_vehicles 1;waitfor 200 vehicle bought" \
 DEV_UNTIL="vehicle (loadout-check|retreat-timeout|retreat-abort)" \
 DEV_EXPECT='^\[RCBOT2\] vehicle loadout-check .* known=1 mixed=0 ' \

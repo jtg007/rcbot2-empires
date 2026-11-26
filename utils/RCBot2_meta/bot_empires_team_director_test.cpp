@@ -307,6 +307,27 @@ int main()
 		Check(FlankGoal(goals, 0, FLANK_A) == -1, "no goals");
 	}
 
+	// Infantry opening before the first vehicle purchase.
+	{
+		VehicleGrace g;
+		Check(!g.blocks(10, 90), "no factory: nothing held");
+		g.update(100, true, false);
+		Check(g.blocks(100, 90) && g.blocks(189, 90) && !g.blocks(190, 90), "held 90 s after the first factory");
+		Check(g.remaining(130, 90) == 60.0f, "remaining time");
+		Check(!g.blocks(120, 0), "0 = off");
+		// Factory lost and rebuilt later: no new wait.
+		g.update(150, false, false);
+		g.update(400, true, false);
+		Check(g.factoryAt == 100 && !g.blocks(400, 90), "once per match");
+
+		VehicleGrace e;
+		Check(!e.update(50, false, true) && !e.released, "enemy vehicle before the factory: nothing to end");
+		e.update(60, true, false);
+		Check(e.blocks(70, 90), "held after the factory");
+		Check(e.update(80, true, true) && !e.blocks(81, 90), "known enemy vehicle ends the wait");
+		Check(!e.update(90, true, true), "ended only once");
+	}
+
 	if (g_failures == 0)
 		std::printf("team director tests PASS\n");
 	return g_failures == 0 ? 0 : 1;

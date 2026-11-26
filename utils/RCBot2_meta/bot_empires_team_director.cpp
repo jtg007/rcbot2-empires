@@ -74,6 +74,7 @@ struct TeamState
 	std::unordered_map<int, FlagPushProgress> flagProgress;
 	std::unordered_map<int, float> pushAvoid;   // flag entity -> avoided until
 	int lastRole[kMaxClients] = {};
+	VehicleGrace vfGrace;      // rcbot_empires_vehicle_vf_grace, once per map
 	int lastGoalEntity[kMaxClients] = {};      // flank diagnostic: last logged goal entity (-2 = none)
 	DeathMemory deaths;        // TODO 8.1 hot zones
 	float roleSince[kMaxClients] = {};          // game time the current role was given
@@ -286,6 +287,13 @@ const Board* EmpiresTeamDirectorBoard(int team)
 	if (team < 2 || team > 3 || s_team[team].board.updatedAt < 0.0f)
 		return nullptr;
 	return &s_team[team].board;
+}
+
+float EmpiresTeamDirectorVehicleGraceLeft(int team)
+{
+	if (team < 0 || team >= 4 || gpGlobals == nullptr)
+		return 0.0f;
+	return s_team[team].vfGrace.remaining(gpGlobals->curtime, rcbot_empires_vehicle_vf_grace.GetFloat());
 }
 
 void EmpiresTeamDirectorLevelReset()
@@ -925,6 +933,21 @@ void CBotEmpires::tickTeamDirector()
 			state.stabilization.extend(now + kStabilizeHold, names[k]);
 		}
 		state.coreCounts[k] = coreCounts[k];
+	}
+	// Infantry opening before the first vehicle purchase (rcbot_empires_vehicle_vf_grace).
+	{
+		const float grace = rcbot_empires_vehicle_vf_grace.GetFloat();
+		const bool hadFactory = state.vfGrace.factoryAt >= 0.0f;
+		const bool early = state.vfGrace.update(now, coreCounts[1] > 0, !enemyVehicles.empty());
+		if (!hadFactory && state.vfGrace.factoryAt >= 0.0f)
+			RCBOT_DIAG("[RCBOT2] vf-grace team=%d start t=%.0f seconds=%.0f\n", team, now, grace);
+		if (!state.vfGrace.loggedEnd && state.vfGrace.factoryAt >= 0.0f && !state.vfGrace.blocks(now, grace))
+		{
+			state.vfGrace.loggedEnd = true;
+			RCBOT_DIAG("[RCBOT2] vf-grace team=%d end reason=%s t=%.0f after=%.0f\n", team,
+				early ? "enemy-vehicle" : (grace <= 0.0f ? "off" : (state.vfGrace.released ? "enemy-vehicle" : "elapsed")), now,
+				now - state.vfGrace.factoryAt);
+		}
 	}
 	if (ownCvKnown && cvHealthShare < 0.35f)
 	{

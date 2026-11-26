@@ -2961,6 +2961,17 @@ void CBotEmpires::tickEmpiresVehicle()
 			return;
 		}
 
+		// Infantry opening: no purchase in the first rcbot_empires_vehicle_vf_grace seconds after the
+		// team's first finished factory, unless an enemy vehicle is known (team director).
+		if (const float graceLeft = EmpiresTeamDirectorVehicleGraceLeft(team); graceLeft > 0.0f)
+		{
+			if (now >= v.nextLog)
+			{
+				v.nextLog = now + 20.0f;
+				RCBOT_DIAG("[RCBOT2] vehicle skip userid=%d reason=vf-grace left=%.0f\n", userId, graceLeft);
+			}
+			return;
+		}
 		edict_t* factory = nullptr;
 		Vector factoryOrigin;
 		int factoryTeam = -1;

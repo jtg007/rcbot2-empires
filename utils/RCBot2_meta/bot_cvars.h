@@ -97,6 +97,7 @@ extern ConVar rcbot_empires_kill_spawn;
 extern ConVar rcbot_empires_hot_zones;
 extern ConVar rcbot_empires_lean_defense;
 extern ConVar rcbot_empires_squad_flanks;
+extern ConVar rcbot_empires_vehicle_vf_grace;
 extern ConVar rcbot_empires_grenadier_rpg_vehicle_priority;
 extern ConVar rcbot_empires_defend_patrol;
 extern ConVar rcbot_empires_skirmish;

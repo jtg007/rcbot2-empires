@@ -17,7 +17,7 @@ else
   resources="ModifyBEResources"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER:-1}" DEV_TIMESCALE=1 DEV_ROSTER="$roster" \
-DEV_PRE="rcbot_empires_auto_commander 0;rcbot_empires_engineer_turrets 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_turn_test $mode" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;rcbot_empires_auto_commander 0;rcbot_empires_engineer_turrets 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_turn_test $mode" \
 DEV_CMDS="ent_fire emp_params $resources 3000" \
 DEV_UNTIL="vehicle turn-test (end|abort)" DEV_EXPECT='^\[RCBOT2\] vehicle turn-test end ' \
 DEV_SHOW="${DEV_SHOW:-vehicle (bought|buy-spot|turn-test)}" \

@@ -29,6 +29,7 @@ this page lists all of them, including test and development switches. Set them o
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
 | `rcbot_empires_engineer_first_perk_now` | 1 | An engineer's slot-1 perk (repair/revive) is active from its first life, as if picked before spawning. | `bot_empires.cpp` |
+| `rcbot_empires_vehicle_vf_grace` | 90 | Seconds after a team's first finished vehicle factory in a map before its bots start a vehicle purchase (infantry opening; base building, research and infantry go on). Once per map; a known living enemy vehicle or APC (fair intel, or all enemy vehicles with fair intel off) ends it at once; 0 = off. Vehicle test scripts run with 0. | `bot_empires_team_director.h/.cpp`, `bot_empires_vehicle.cpp` |
 | `rcbot_empires_tank_escort` | 1 | One free engineer per team follows an own driven tank within 3000 HU about 350 HU behind it and repairs it when it stands damaged. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_engineer_turrets` | 1 | Repair-role engineers build an MG turret on the front side of own refineries. | `bot_empires_turret_build.cpp`, `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_engineer_deployables` | 3 | Bits: 1 camera (plus radar with a second detection slot) behind the refinery wall, 2 three-part wall on the refinery's enemy side. | `bot_empires_deployables.cpp` |

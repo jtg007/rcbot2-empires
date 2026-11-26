@@ -1903,6 +1903,7 @@ bool EmpiresReadTeamResearch(int team, bool done[EmpiresCommanderEconomy::kResea
 // team: Enabled false, Knows true, Board nullptr (consumers keep the old full-entity view).
 bool EmpiresFairIntelEnabled(int team);
 const EmpiresTeamIntel::Board* EmpiresTeamIntelBoard(int team);
+float EmpiresTeamDirectorVehicleGraceLeft(int team); // rcbot_empires_vehicle_vf_grace, bot_empires_team_director.cpp
 bool EmpiresTeamIntelKnows(int team, edict_t* enemy);
 bool EmpiresTeamIntelKnownPos(int team, edict_t* enemy, Vector& at);
 class CBotEmpires;

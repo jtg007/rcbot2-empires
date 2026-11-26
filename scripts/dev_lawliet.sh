@@ -7,9 +7,9 @@ MAP="${1:-emp_crossroads}"
 MINUTES="${2:-5}"
 ROSTER="${LAWLIET_ROSTER:-2:3 2:0 2:0 2:1 2:3 3:3}"
 BOTS=$(wc -w <<<"$ROSTER")
-PRE="rcbot_empires_lawliet 2;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_engineer_turrets 0"
+PRE="rcbot_empires_vehicle_vf_grace 0;rcbot_empires_lawliet 2;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_engineer_turrets 0"
 if [[ "${LAWLIET_REAL_VF:-0}" == 1 ]]; then
-  PRE="rcbot_empires_lawliet 2;rcbot_empires_commander_first 5;rcbot_empires_engineer_turrets 0"
+  PRE="rcbot_empires_vehicle_vf_grace 0;rcbot_empires_lawliet 2;rcbot_empires_commander_first 5;rcbot_empires_engineer_turrets 0"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER:-1}" DEV_TIMESCALE="${DEV_TIMESCALE:-1}" DEV_ROSTER="$ROSTER" \
 DEV_PRE="$PRE${LAWLIET_PRE:+;$LAWLIET_PRE}" \

@@ -25,7 +25,7 @@ case "$mode:$team" in
   *) echo "Usage: $0 [0|1|place] [map] [nf|be] [\"x y z\"]" >&2; exit 2 ;;
 esac
 
-pre="ent_fire emp_params $grant 5000;rcbot_empires_engineer_turrets 0;rcbot_empires_vehicle_drivers 1"
+pre="rcbot_empires_vehicle_vf_grace 0;ent_fire emp_params $grant 5000;rcbot_empires_engineer_turrets 0;rcbot_empires_vehicle_drivers 1"
 created='^\[RCBOT2\] commander-econ result=CREATED type=5 '
 placement_failed='^\[RCBOT2\] commander-econ result=(NO_SPOT|REJECTED) type=5 '
 panel='^\[RCBOT2\] NavMesh building-registry .*classname=emp_building_vehiclefactory_panel '

@@ -21,7 +21,7 @@ case "$mode:$team" in
   *) echo "Usage: $0 [0|1] [map] [nf|be] [ahead] [lateral] [model]" >&2; exit 2 ;;
 esac
 DEV_NO_RECORDER="${DEV_NO_RECORDER:-1}" DEV_TIMESCALE=1 DEV_ROSTER="$roster" \
-DEV_PRE="rcbot_empires_auto_commander 0;rcbot_empires_engineer_turrets 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_curve_speed 0;rcbot_empires_vehicle_maneuvers $mode${DEV_PRE:+;$DEV_PRE}" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;rcbot_empires_auto_commander 0;rcbot_empires_engineer_turrets 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicle_curve_speed 0;rcbot_empires_vehicle_maneuvers $mode${DEV_PRE:+;$DEV_PRE}" \
 DEV_CMDS="ent_fire emp_params $resources 3000;rcbotd empires_vehicle_obstacle $ahead $lateral 450 $model;waitfor 90 ^\[RCBOT2\] vehicle obstacle placed" \
 DEV_UNTIL='^\[RCBOT2\] vehicle obstacle passed ' DEV_EXPECT='^\[RCBOT2\] vehicle obstacle passed ' \
 DEV_FAIL='vehicle obstacle (timeout|abort)|empires_vehicle_obstacle armed=0' \
