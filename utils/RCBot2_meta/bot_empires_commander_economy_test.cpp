@@ -135,6 +135,28 @@ int main()
 		Require(NextResearch(done, true, 0.0f) == 0, "RES-5 returns 0 when tech path is complete");
 	}
 
+	// Factory exit lane (crossroads 20261126-105230: NF pad 980 in front of the bay).
+	{
+		Require(FactoryExitLaneEnd(920.0f) == 2200.0f && FactoryExitLaneEnd(1700.0f) == 2300.0f,
+			"LANE-1 exit lane reaches 2200 from the centre, at least 600 past the box");
+		// Factory at origin facing +X, NF box maxs.x 920: lane (920,0)-(2200,0).
+		const float ax = 920.0f, bx = FactoryExitLaneEnd(920.0f);
+		// Pad (+-495 x +-850) centred 980 ahead, rotated 90: in the lane.
+		Require(LaneHitsBox(980.0f, 344.0f, 90.0f, -495.0f, -850.0f, 495.0f, 850.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth),
+			"LANE-2 pad 980 ahead of the bay (344 aside) blocks the exit lane");
+		// The old 600 lane ended at 1520: a pad at 2200 ahead was allowed, now it is not.
+		Require(LaneHitsBox(2200.0f, 0.0f, 0.0f, -495.0f, -850.0f, 495.0f, 850.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth) &&
+			!LaneHitsBox(2200.0f, 0.0f, 0.0f, -495.0f, -850.0f, 495.0f, 850.0f, ax, 0.0f, 1520.0f, 0.0f, kPadLaneHalfWidth),
+			"LANE-3 pad 2200 ahead blocks the long lane, not the old one");
+		// Beside the lane: a refinery box 600 to the side stays free.
+		Require(!LaneHitsBox(1500.0f, 600.0f, 0.0f, -207.0f, -247.0f, 162.0f, 220.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth),
+			"LANE-4 refinery 600 beside the lane is free");
+		// Tank-wide margin: a box edge 150 off the lane axis blocks (half width 200), 250 off does not.
+		Require(LaneHitsBox(1500.0f, 400.0f, 0.0f, -250.0f, -250.0f, 250.0f, 250.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth) &&
+			!LaneHitsBox(1500.0f, 500.0f, 0.0f, -250.0f, -250.0f, 250.0f, 250.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth),
+			"LANE-5 lane half width 200");
+	}
+
 	std::cout << "PASS commander economy policy\n";
 	return 0;
 }

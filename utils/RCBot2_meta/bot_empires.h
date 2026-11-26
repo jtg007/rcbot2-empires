@@ -497,6 +497,11 @@ struct EmpiresVehicleBrain
 	int goalKind = -1; // strategic goal: 0 defend, 1 hunt, 2 front support, 3 push (building), 4 CV
 	Vector skippedFront = Vector(0, 0, 0);
 	float skipFrontUntil = 0;
+	// Push hold point before an enemy building (kind=push): ~1000 HU on the own side, fanned out per bot.
+	Vector pushHoldFor = Vector(0, 0, 0);
+	Vector pushHold = Vector(0, 0, 0);
+	float pushHoldUntil = 0;
+	bool pushHoldKnown = false;
 	float escortWaitSince = 0.0f;       // TODO 8.4: holding for the escorting engineer
 	float escortWaitBlockedUntil = 0.0f;
 	float escortRepairHoldSince = 0.0f;

@@ -4900,6 +4900,60 @@ void CBotEmpires::tickEmpiresVehicle()
 						goalKind = 3;
 					}
 				}
+				// Hold about 1000 HU before the building on the own side instead of driving into its box, fanned
+				// out per bot (0 / +300 / -300) so several tanks on the same single known building stand side by
+				// side (crossroads 20261126-105230: three BE tanks jammed at NF barracks (3161 -2900), 3 give-ups).
+				if (goalKind == 3)
+				{
+					const Vector building = v.goal;
+					if (!v.pushHoldKnown || Dist2D(v.pushHoldFor, building) > 50.0f || now >= v.pushHoldUntil)
+					{
+						v.pushHoldFor = building;
+						v.pushHoldUntil = now + 10.0f;
+						v.pushHoldKnown = false;
+						Vector home = (ownCvKnown ? ownCvOrigin : origin) - building;
+						home.z = 0.0f;
+						if (home.Length2D() < 1.0f)
+							home = origin - building;
+						home.z = 0.0f;
+						if (home.Length2D() > 1.0f)
+						{
+							home.NormalizeInPlace();
+							const Vector side(-home.y, home.x, 0.0f);
+							static const float kLaterals[] = {0.0f, 300.0f, -300.0f};
+							const int first = (userId > 0 ? userId : 0) % 3;
+							int tried = 0;
+							for (float range : {1000.0f, 1300.0f, 800.0f})
+							{
+								for (int k = 0; k < 3 && !v.pushHoldKnown; ++k)
+								{
+									const float lateral = kLaterals[(first + k) % 3];
+									Vector mesh;
+									++tried;
+									if (!RCBotNavMesh::ClosestPointOnMesh(building + home * range + side * lateral, 300.0f, mesh) ||
+										Dist2D(mesh, building) < 700.0f || !VehicleSpotFree(mesh))
+										continue;
+									if (enginetrace != nullptr &&
+										(enginetrace->GetPointContents(mesh + Vector(0, 0, (std::max)(1.0f, v.waterDepth))) & MASK_WATER) != 0)
+										continue;
+									if (!worldClear(mesh + Vector(0, 0, 90), building + Vector(0, 0, 64)))
+										continue;
+									v.pushHold = mesh;
+									v.pushHoldKnown = true;
+									RCBOT_DIAG("[RCBOT2] vehicle push-hold userid=%d building=(%.0f %.0f) hold=(%.0f %.0f %.0f) range=%.0f lateral=%.0f tried=%d\n",
+										userId, building.x, building.y, mesh.x, mesh.y, mesh.z, range, lateral, tried);
+								}
+								if (v.pushHoldKnown)
+									break;
+							}
+							if (!v.pushHoldKnown)
+								RCBOT_DIAG("[RCBOT2] vehicle push-hold userid=%d building=(%.0f %.0f) none tried=%d\n",
+									userId, building.x, building.y, tried);
+						}
+					}
+					if (v.pushHoldKnown)
+						v.goal = v.pushHold;
+				}
 			}
 		}
 		if (!v.goalValid && enemyCvKnown &&

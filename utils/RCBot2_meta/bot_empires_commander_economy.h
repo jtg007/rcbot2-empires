@@ -5,6 +5,8 @@
 // Building type numbers follow CEmpBuildingParse::GetBuildingType in server_srv.so
 // (reverse-engineering/notes/buildings.md).
 
+#include <cmath>
+
 namespace EmpiresCommanderEconomy
 {
 enum BuildType {
@@ -189,6 +191,40 @@ inline float BackoffSeconds(int failures)
 inline int MaxUnfinished(int livingEngineers)
 {
 	return livingEngineers < 1 ? 1 : (livingEngineers > 2 ? 2 : livingEngineers);
+}
+
+// Vehicle factory exit lane: from the factory box edge (local +X) to kFactoryExitLaneLength
+// from its centre, at least 600 past the edge. The driver's exit search runs up to 2200
+// (bot_empires_vehicle.cpp), crossroads 20261126-105230: a pad 980 in front of the NF bay.
+constexpr float kFactoryExitLaneLength = 2200.0f;
+constexpr float kFactoryExitLaneHalfWidth = 200.0f; // half a 284 wide tank plus margin
+constexpr float kPadLaneHalfWidth = 100.0f;
+
+inline float FactoryExitLaneEnd(float boxMaxX)
+{
+	return boxMaxX + 600.0f > kFactoryExitLaneLength ? boxMaxX + 600.0f : kFactoryExitLaneLength;
+}
+
+// True if the segment a-b (sampled every 50) runs through the box mins/maxs (local, rotated by
+// yawDeg around at) grown by laneHalfWidth.
+inline bool LaneHitsBox(float atX, float atY, float yawDeg, float minX, float minY, float maxX, float maxY,
+	float ax, float ay, float bx, float by, float laneHalfWidth)
+{
+	const float r = yawDeg * 3.14159265f / 180.0f;
+	const float c = std::cos(r), sn = std::sin(r);
+	const float len = std::sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+	int steps = int(len / 50.0f);
+	if (steps < 1)
+		steps = 1;
+	for (int k = 0; k <= steps; ++k)
+	{
+		const float t = float(k) / float(steps);
+		const float dx = ax + (bx - ax) * t - atX, dy = ay + (by - ay) * t - atY;
+		const float lx = dx * c + dy * sn, ly = -dx * sn + dy * c;
+		if (lx > minX - laneHalfWidth && lx < maxX + laneHalfWidth && ly > minY - laneHalfWidth && ly < maxY + laneHalfWidth)
+			return true;
+	}
+	return false;
 }
 }
 

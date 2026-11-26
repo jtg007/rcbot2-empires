@@ -621,12 +621,14 @@ float RepairPadYaw(const Vector& at, int team, bool quiet = false, float* outTur
 	return toFront + bestTurn - 90.0f;
 }
 
-// Drive lanes of buildings already standing near the CV: both ends of each
-// repair pad (local +-Y, 600 beyond the pad) and the exit ramp of each vehicle
-// factory (local +X). A new building must keep them free (run
+// Drive lanes of own and enemy pads/factories on the whole map: both ends of each
+// repair pad (local +-Y, 600 beyond the pad) and the exit lane of each vehicle
+// factory (local +X, to 2200 from its centre, tank wide). No distance filter: a forward-pad
+// fallback searched beside the base with lanes taken around the far anchor (lanes=0) and put
+// the pad into the NF factory exit (crossroads 20261126-102206 / 105230). A new building must keep them free (run
 // 20261112-125413: the factory was placed on the pad's open entrance and the
 // tank climbed onto it).
-struct Lane { Vector a, b; };
+struct Lane { Vector a, b; float halfWidth; };
 
 std::vector<Lane> ReservedLanes(const Vector& cv)
 {
@@ -644,18 +646,17 @@ std::vector<Lane> ReservedLanes(const Vector& cv)
 		if ((!pad && !factory) || c == nullptr)
 			continue;
 		const Vector centre = CBotGlobals::entityOrigin(e);
-		if ((centre - cv).Length2D() > 5000.0f)
-			continue;
 		const float r = c->GetCollisionAngles().y * 3.14159265f / 180.0f;
 		const Vector x(std::cos(r), std::sin(r), 0.0f), y(-std::sin(r), std::cos(r), 0.0f);
 		const Vector mins = c->OBBMins(), maxs = c->OBBMaxs();
 		if (pad)
 		{
-			lanes.push_back({centre + y * maxs.y, centre + y * (maxs.y + 600.0f)});
-			lanes.push_back({centre + y * mins.y, centre + y * (mins.y - 600.0f)});
+			lanes.push_back({centre + y * maxs.y, centre + y * (maxs.y + 600.0f), EmpiresCommanderEconomy::kPadLaneHalfWidth});
+			lanes.push_back({centre + y * mins.y, centre + y * (mins.y - 600.0f), EmpiresCommanderEconomy::kPadLaneHalfWidth});
 		}
 		else
-			lanes.push_back({centre + x * maxs.x, centre + x * (maxs.x + 600.0f)});
+			lanes.push_back({centre + x * maxs.x, centre + x * EmpiresCommanderEconomy::FactoryExitLaneEnd(maxs.x),
+				EmpiresCommanderEconomy::kFactoryExitLaneHalfWidth});
 	}
 	return lanes;
 }
@@ -713,25 +714,13 @@ void Footprint(int type, int team, Vector& mins, Vector& maxs)
 	maxs = Vector(h, h, 0);
 }
 
-// True if a lane runs through the building box (rotated by yaw, grown by 100
-// for half a vehicle); lanes sampled every 50.
+// True if a lane runs through the building box (rotated by yaw, grown by the lane's half width).
 bool BlocksLane(const Vector& at, float yaw, const Vector& mins, const Vector& maxs, const std::vector<Lane>& lanes)
 {
-	const float r = yaw * 3.14159265f / 180.0f;
-	const float c = std::cos(r), sn = std::sin(r);
 	for (const Lane& lane : lanes)
-	{
-		const float len = (lane.b - lane.a).Length2D();
-		const int steps = (std::max)(1, int(len / 50.0f));
-		for (int k = 0; k <= steps; ++k)
-		{
-			const Vector p = lane.a + (lane.b - lane.a) * (float(k) / steps);
-			const float dx = p.x - at.x, dy = p.y - at.y;
-			const float lx = dx * c + dy * sn, ly = -dx * sn + dy * c;
-			if (lx > mins.x - 100.0f && lx < maxs.x + 100.0f && ly > mins.y - 100.0f && ly < maxs.y + 100.0f)
-				return true;
-		}
-	}
+		if (EmpiresCommanderEconomy::LaneHitsBox(at.x, at.y, yaw, mins.x, mins.y, maxs.x, maxs.y,
+				lane.a.x, lane.a.y, lane.b.x, lane.b.y, lane.halfWidth))
+			return true;
 	return false;
 }
 
