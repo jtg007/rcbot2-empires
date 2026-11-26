@@ -1,4 +1,5 @@
 #include "bot_empires.h"
+#include "bot_empires_skirmish_logic.h"
 #include "bot_empires_team_director.h"
 #include "bot_empires_lawliet.h"
 #include "bot_empires_binary.h"
@@ -1458,6 +1459,7 @@ void CBotEmpires::enemyFound(edict_t* pEnemy)
 	CBot::enemyFound(pEnemy);
 	m_flEmpiresReactionUntil = engine != nullptr ?
 		engine->Time() + randomFloat(0.20f, 0.55f) : 0.0f;
+	EmpiresTeamIntelReportSight(this, pEnemy); // 3.20: a bot's own sight is fair team knowledge
 
 	if (logger == nullptr || pEnemy == nullptr || playerinfomanager == nullptr)
 		return;
@@ -1760,58 +1762,162 @@ CBotEmpires::~CBotEmpires()
 	clearEmpiresScoutPriorityFixture("bot-destructor");
 }
 
+// 3.25b diagnostic: why a hit did not start a hurt cover (at most every 3 s per bot).
+void CBotEmpires::logEmpiresHurtCoverSkip(const char* reason, int healthNow)
+{
+	if (gpGlobals == nullptr || engine == nullptr || m_pEdict == nullptr || gpGlobals->curtime < m_flHurtSkipLogAt)
+		return;
+	m_flHurtSkipLogAt = gpGlobals->curtime + 3.0f;
+	RCBOT_DIAG("[RCBOT2] cover skip userid=%d reason=%s hp=%d window=%.0f\n", engine->GetPlayerUserId(m_pEdict), reason,
+		healthNow, m_hurtWindow.damage);
+}
+
+// 3.25b: Empires sends no player_hurt, so a health drop seen in modThink is fed into hurt() here.
+void CBotEmpires::pollEmpiresHurt(int health, bool worldDamage, const Vector* damageOrigin)
+{
+	EmpiresSkirmishLogic::PolledHurtInput in;
+	in.enabled = rcbot_empires_health_poll_hurt.GetBool();
+	in.alive = m_pPlayerInfo != nullptr && !m_pPlayerInfo->IsDead();
+	in.inVehicle = empiresVehicleOwnsBot() || EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0;
+	in.worldDamage = worldDamage;
+	in.lastHealth = m_iEmpiresLastHealth;
+	in.health = health;
+	in.maxHealth = m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetMaxHealth() : 100;
+	edict_t* enemy = m_pEnemy.get();
+	if (enemy != nullptr && engine != nullptr && m_fLastSeeEnemy > 0.0f && CBotGlobals::entityIsAlive(enemy))
+		in.enemySeenAgo = (std::max)(0.0f, static_cast<float>(engine->Time()) - m_fLastSeeEnemy);
+	in.buildAssigned = m_iBuildAssignStage != 0;
+	const EmpiresSkirmishLogic::PolledHurtDecision d = EmpiresSkirmishLogic::DecidePolledHurt(in);
+	if (!d.fire)
+		return;
+	++m_iPolledHurtHits;
+	m_iPolledHurtDamageSum += d.damage;
+	if (gpGlobals != nullptr && engine != nullptr && gpGlobals->curtime >= m_flPolledHurtLogAt)
+	{
+		m_flPolledHurtLogAt = gpGlobals->curtime + 2.0f;
+		RCBOT_DIAG("[RCBOT2] hurt-poll userid=%d hits=%d dmg=%d hp=%d attacker=%d origin=%d build=%d\n",
+			engine->GetPlayerUserId(m_pEdict), m_iPolledHurtHits, m_iPolledHurtDamageSum, health,
+			d.passAttacker ? 1 : 0, damageOrigin != nullptr ? 1 : 0, in.buildAssigned ? 1 : 0);
+		m_iPolledHurtHits = 0;
+		m_iPolledHurtDamageSum = 0;
+	}
+	m_bPolledHurt = true;
+	m_bPolledHurtInterruptEngineer = d.interruptEngineer;
+	m_iPolledHurtDamage = d.damage;
+	m_bPolledHurtOriginValid = damageOrigin != nullptr;
+	if (damageOrigin != nullptr)
+		m_vPolledHurtOrigin = *damageOrigin;
+	// CBot::hurt keeps its bookkeeping from m_iPrevHealth; it is the health of the last think as well.
+	m_iPrevHealth = m_iEmpiresLastHealth;
+	(void)hurt(d.passAttacker ? enemy : nullptr, health, !d.allowCover);
+	m_bPolledHurt = false;
+	m_bPolledHurtInterruptEngineer = false;
+	m_iPolledHurtDamage = 0;
+	m_bPolledHurtOriginValid = false;
+}
+
 bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	const bool bDontHide)
 {
 	// A Commander MOVE is authoritative even when damage would normally make
 	// the generic bot schedule a hide task.  Keep the normal damage bookkeeping
 	// but suppress the autonomous cover interruption until the order completes.
-	if (isEmpiresCommanderMoveActive() ||
+	// 3.25b: a director sector order (push/hold/defense from our own bot commander) does not stop the
+	// short navmesh hurt cover; the order pauses and re-plans afterwards. Build, revive, vehicle and
+	// commander work still suppress it.
+	const bool sectorOrderCover = isEmpiresCommanderMoveActive() && rcbot_empires_navmesh_hurt_cover.GetBool() &&
+		RCBotNavMesh::IsLoaded() && engine != nullptr && m_pEdict != nullptr &&
+		EmpiresCommanderOrderIsOurs(getTeam(), engine->IndexOfEdict(m_pEdict)) &&
+		m_iBuildAssignStage == 0 && m_iReviveTarget == 0;
+	if ((isEmpiresCommanderMoveActive() && !sectorOrderCover) ||
 		empiresVehicleOwnsBot() ||
 		m_iCommanderEntryStage != 0 ||
 		m_iCommanderBuildStage != 0 ||
 		(engine != nullptr && m_pEdict != nullptr &&
 		 EmpiresLawlietIsCrew(getTeam(), engine->IndexOfEdict(m_pEdict))))
 	{
+		logEmpiresHurtCoverSkip(isEmpiresCommanderMoveActive() ? "order" : empiresVehicleOwnsBot() ? "vehicle" : "commander-or-crew",
+			iHealthNow);
 		(void)CBot::hurt(pAttacker, iHealthNow, true);
 		return false;
 	}
 
-	noteEmpiresTurretThreat(pAttacker);
+	// Sector-order bots did not get here before 3.25b: keep everything but the hurt cover as it was.
+	// Polled hits (3.25b) ran the turret check in modThink already, with the damage origin.
+	if (!sectorOrderCover && !m_bPolledHurt)
+		noteEmpiresTurretThreat(pAttacker);
 	// In a skirmish the bot takes cover itself and keeps shooting (bot_empires_skirmish.cpp); the
 	// generic hide schedule walked away with the fire held.
 	if (m_bSkirmishActive && rcbot_empires_fight_cover.GetBool() && gpGlobals != nullptr &&
 		gpGlobals->curtime - m_flSkirmishTick < 0.5f)
 	{
+		logEmpiresHurtCoverSkip("skirmish", iHealthNow);
 		(void)CBot::hurt(pAttacker, iHealthNow, true);
-		interruptEmpiresEngineerSupportForCombat("damage-interrupt");
+		if (!m_bPolledHurt || m_bPolledHurtInterruptEngineer)
+			interruptEmpiresEngineerSupportForCombat("damage-interrupt");
 		return false;
 	}
-	const bool hideScheduled = CBot::hurt(pAttacker, iHealthNow, bDontHide);
-	// Engineer support is interruptible by real damage. Release the kit and
-	// route immediately; the next normal think cycle can reacquire the attacker
-	// and use the ordinary combat path.
-	interruptEmpiresEngineerSupportForCombat("damage-interrupt");
-	if (!hideScheduled || bDontHide || m_pSchedules == nullptr)
-		return hideScheduled;
-
-	CBotSchedule* pHideSchedule = m_pSchedules->getCurrentSchedule();
-	if (pHideSchedule == nullptr || !pHideSchedule->isID(SCHED_GOOD_HIDE_SPOT))
+	// 3.25: with a navmesh the legacy CGotoHideSpotSched (4-7 s wait, fire held, waypoint hide spots)
+	// is not used; a short navmesh cover or none at all.
+	const bool navmeshHurtCover = EmpiresSkirmishLogic::DecideHurtCoverAction(
+		rcbot_empires_navmesh_hurt_cover.GetBool(), RCBotNavMesh::IsLoaded(), false,
+		rcbot_empires_fight_cover.GetBool(), true) == EmpiresSkirmishLogic::HURT_COVER_USE_NAVMESH;
+	bool hideScheduled = false;
+	CBotSchedule* pHideSchedule = nullptr;
+	if (navmeshHurtCover)
 	{
-		logger->Log(LogLevel::WARN,
-			"Empires gameplay cover=not-extended reason=hide-schedule-not-current");
-		return hideScheduled;
+		// 3.25b: own trigger (35 % of max health in 2 s, 9 s cooldown) instead of CBot::hurt's
+		// 70 HP in 0.5 s; CBot::hurt only keeps its bookkeeping here and never adds the legacy hide.
+		const float damage = static_cast<float>(m_bPolledHurt ? m_iPolledHurtDamage : (std::max)(0, m_iPrevHealth - iHealthNow));
+		(void)CBot::hurt(pAttacker, iHealthNow, true);
+		if (!m_bPolledHurt || m_bPolledHurtInterruptEngineer)
+			interruptEmpiresEngineerSupportForCombat("damage-interrupt");
+		const float maxHealth = m_pPlayerInfo != nullptr ? static_cast<float>(m_pPlayerInfo->GetMaxHealth()) : 100.0f;
+		if (bDontHide || m_pSchedules == nullptr || gpGlobals == nullptr ||
+			!EmpiresSkirmishLogic::AddHurtDamage(m_hurtWindow, gpGlobals->curtime, damage, maxHealth))
+		{
+			logEmpiresHurtCoverSkip(gpGlobals != nullptr && gpGlobals->curtime < m_hurtWindow.cooldownUntil ? "cooldown" : "window",
+				iHealthNow);
+			return false;
+		}
+		hideScheduled = true;
+	}
+	else
+	{
+		hideScheduled = CBot::hurt(pAttacker, iHealthNow, bDontHide);
+		// Engineer support is interruptible by real damage. Release the kit and
+		// route immediately; the next normal think cycle can reacquire the attacker
+		// and use the ordinary combat path.
+		if (!m_bPolledHurt || m_bPolledHurtInterruptEngineer)
+			interruptEmpiresEngineerSupportForCombat("damage-interrupt");
+		if (!hideScheduled || bDontHide || m_pSchedules == nullptr)
+			return hideScheduled;
+
+		pHideSchedule = m_pSchedules->getCurrentSchedule();
+		if (pHideSchedule == nullptr || !pHideSchedule->isID(SCHED_GOOD_HIDE_SPOT))
+		{
+			logger->Log(LogLevel::WARN,
+				"Empires gameplay cover=not-extended reason=hide-schedule-not-current");
+			return hideScheduled;
+		}
 	}
 
 	// Replace only the damage interruption. The objective underneath can resume after the wait.
 	m_flMeshCoverUntil = 0;
 	bool meshCover = false;
-	if (pAttacker && CClassInterface::getTeam(pAttacker) != getTeam())
+	int rejectMesh = 0, rejectVisible = 0, rejectPath = 0;
+	float threatDistance = -1.0f;
+	// 3.25b: an unseen shooter (polled hit, no attacker) still has a damage origin to hide from.
+	const bool threatFromDamageOrigin = pAttacker == nullptr && m_bPolledHurt && m_bPolledHurtOriginValid &&
+		m_vPolledHurtOrigin.DistToSqr(getOrigin()) > 64.0f * 64.0f;
+	if ((pAttacker && CClassInterface::getTeam(pAttacker) != getTeam()) || threatFromDamageOrigin)
 	{
 		const Vector origin = getOrigin();
-		const Vector threat = CBotGlobals::entityOrigin(pAttacker) + Vector(0, 0, 48);
+		const Vector threat = (pAttacker != nullptr ? CBotGlobals::entityOrigin(pAttacker) : m_vPolledHurtOrigin) +
+			Vector(0, 0, 48);
 		Vector away = origin - threat;
 		away.z = 0;
+		threatDistance = away.Length2D();
 		if (away.Length2D() > 1)
 		{
 			away.NormalizeInPlace();
@@ -1819,18 +1925,32 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 			const CBotWeapon* weapon = getCurrentWeapon();
 			float score = 1.0e9f;
 			Vector cover;
-			for (float retreat : {96.0f, 240.0f})
+			// 3.25b: same fan as the skirmish cover (sideways first, then diagonal, then straight
+			// back); straight back alone stayed in the line of fire (contact test 200641: all 6 of the
+			// old 96/240 x -160/0/160 spots visible from the shooter, 3 of 3 hurt covers).
+			const Vector dirs[] = { side, -side, (away + side) * 0.7071f, (away - side) * 0.7071f, away };
+			for (float range : {140.0f, 220.0f, 300.0f, 400.0f})
 			{
-				for (float lateral : {-160.0f, 0.0f, 160.0f})
+				for (const Vector& dir : dirs)
 				{
 					Vector spot;
-					if (!RCBotNavMesh::ClosestPointOnMesh(origin + away * retreat + side * lateral, 96, spot) ||
-						CBotGlobals::isVisible(pAttacker, threat, spot + Vector(0, 0, 48)))
+					if (!RCBotNavMesh::ClosestPointOnMesh(origin + dir * range, 96, spot))
+					{
+						++rejectMesh;
 						continue;
+					}
+					if (CBotGlobals::isVisible(pAttacker, threat, spot + Vector(0, 0, 48)))
+					{
+						++rejectVisible;
+						continue;
+					}
 					RCBotNavMesh::Path path;
 					if (RCBotNavMesh::BuildPath(origin, spot, path) != RCBotNavMesh::PathResult::SUCCESS ||
 						path.length > 500)
+					{
+						++rejectPath;
 						continue;
+					}
 					const float cost = path.length + (weapon && weapon->getWeaponInfo() && !weapon->primaryInRange((threat - spot).Length()) ? 250 : 0);
 					if (cost < score)
 					{
@@ -1842,8 +1962,24 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 			}
 			if (meshCover)
 			{
+				if (sectorOrderCover && isEmpiresCommanderMoveActive())
+				{
+					// Pause the sector order for the cover: its route would steer the bot straight back.
+					// The stuck-retry path re-plans the same order from the cover spot once the cover is
+					// over; the rearm leash waits as long (else it re-issues the route mid-cover).
+					const float coverSeconds = EmpiresSkirmishLogic::kHurtCoverMaxDuration;
+					cancelNavigationAttempt("hurt-cover");
+					m_bEmpiresCommanderMoveFailed = true;
+					m_bEmpiresCommanderMoveStuck = true;
+					m_iEmpiresCommanderMoveRetries = (std::max)(0, m_iEmpiresCommanderMoveRetries - 1);
+					m_fEmpiresCommanderMoveRetryAt = static_cast<float>(engine->Time()) + coverSeconds;
+					m_fEmpiresCommanderOrderRearmAt = static_cast<float>(engine->Time()) + coverSeconds;
+					RCBOT_DIAG("[RCBOT2] cover sector-pause userid=%d resume_in=%.0f\n", engine->GetPlayerUserId(m_pEdict),
+						coverSeconds);
+				}
 				m_pSchedules->removeSchedule(SCHED_GOOD_HIDE_SPOT);
-				m_flMeshCoverUntil = gpGlobals->curtime + 12;
+				m_flMeshCoverUntil = gpGlobals->curtime +
+					(navmeshHurtCover ? EmpiresSkirmishLogic::kHurtCoverMaxDuration : 12.0f);
 				auto* task = new CFindPathTask(cover);
 				pHideSchedule = new CBotSchedule(task);
 				task->setNavigationPolicy(RCBotNavigation::NavigationPolicy::NAVMESH_ONLY);
@@ -1852,11 +1988,23 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 			}
 		}
 	}
-	const float waitSeconds = randomFloat(4.0f, 7.0f);
+	if (navmeshHurtCover && !meshCover)
+	{
+		// No navmesh cover nearby: no legacy hide route either; keep the current task and fight.
+		m_pSchedules->removeSchedule(SCHED_GOOD_HIDE_SPOT);
+		RCBOT_DIAG("[RCBOT2] cover none userid=%d reason=%s dist=%.0f reject_mesh=%d reject_visible=%d reject_path=%d\n",
+			engine->GetPlayerUserId(m_pEdict), pAttacker != nullptr || threatFromDamageOrigin ? "no-navmesh-cover" : "no-attacker",
+			threatDistance, rejectMesh, rejectVisible, rejectPath);
+		return false;
+	}
+	const float waitSeconds = navmeshHurtCover ?
+		randomFloat(EmpiresSkirmishLogic::kHurtCoverWaitMin, EmpiresSkirmishLogic::kHurtCoverWaitMax) :
+		randomFloat(4.0f, 7.0f);
 	pHideSchedule->addTask(new CBotWaitTask(waitSeconds));
 	m_bEmpiresCoverScheduleActive = true;
-	logger->Log(LogLevel::INFO, "Empires gameplay cover=started wait=%.1f route=%s",
-		waitSeconds, meshCover ? "navmesh" : "existing-CGotoHideSpotSched");
+	RCBOT_DIAG("[RCBOT2] cover start userid=%d wait=%.1f route=%s threat=%s polled=%d\n", engine->GetPlayerUserId(m_pEdict),
+		waitSeconds, meshCover ? "navmesh" : "existing-CGotoHideSpotSched",
+		pAttacker != nullptr ? "attacker" : threatFromDamageOrigin ? "damage-origin" : "none", m_bPolledHurt ? 1 : 0);
 	return hideScheduled;
 }
 
@@ -1970,12 +2118,28 @@ void CBotEmpires::handleWeapons()
 		m_bEmpiresCoverScheduleActive &&
 		m_pSchedules != nullptr &&
 		m_pSchedules->isCurrentSchedule(SCHED_GOOD_HIDE_SPOT);
+	bool holdFire = coverScheduleActive;
+	bool coverEnemyVisible = false;
 	if (coverScheduleActive)
 	{
-		if (m_bEmpiresCombatEngaged || (m_iButtons & IN_ATTACK) != 0)
+		edict_t* coverEnemy = m_pEnemy.get();
+		coverEnemyVisible = coverEnemy != nullptr && !coverEnemy->IsFree() && isVisible(coverEnemy);
+	}
+	if (coverScheduleActive && rcbot_empires_navmesh_hurt_cover.GetBool())
+	{
+		// 3.25: under navmesh cover keep shooting a visible attacker unless reloading.
+		const CBotWeapon* coverWeapon = getCurrentWeapon();
+		const bool reloading = coverWeapon != nullptr && coverWeapon->clipEmptyWithReserve(this);
+		holdFire = EmpiresSkirmishLogic::ShouldHoldFireInCover(true, true, coverEnemyVisible, reloading);
+	}
+	if (holdFire)
+	{
+		if ((m_bEmpiresCombatEngaged || (m_iButtons & IN_ATTACK) != 0) && gpGlobals != nullptr &&
+			gpGlobals->curtime >= m_flCoverHoldLogAt)
 		{
-			logger->Log(LogLevel::INFO,
-				"Empires gameplay cover=holding-fire movement=existing-hide-route");
+			m_flCoverHoldLogAt = gpGlobals->curtime + 2.0f;
+			RCBOT_DIAG("[RCBOT2] cover holding-fire userid=%d enemy_visible=%d\n", engine->GetPlayerUserId(m_pEdict),
+				coverEnemyVisible ? 1 : 0);
 		}
 
 		if (m_pButtons != nullptr)
@@ -5473,6 +5637,11 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 		m_pEdict == g_empireScoutPriorityFixture.scoutEdict)
 		return;
 
+	// 3.25: a build order (priority tier 1/2) ends the hurt cover at once.
+	if (m_flMeshCoverUntil > 0 && m_pSchedules && m_pSchedules->isCurrentSchedule(SCHED_GOOD_HIDE_SPOT) &&
+		rcbot_empires_navmesh_hurt_cover.GetBool() &&
+		EmpiresSkirmishLogic::ShouldEndHurtCover(0.0f, false, 0.0f, 1.0f, m_iBuildAssignStage != 0))
+		m_flMeshCoverUntil = gpGlobals->curtime;
 	if (m_flMeshCoverUntil > 0 && gpGlobals->curtime >= m_flMeshCoverUntil && m_pSchedules &&
 		m_pSchedules->isCurrentSchedule(SCHED_GOOD_HIDE_SPOT))
 	{
@@ -5489,8 +5658,8 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 			// Defensive recovery for a schedule created by the generic hurt path.
 			// The Empires override normally marks this before the next Think.
 			m_bEmpiresCoverScheduleActive = true;
-			logger->Log(LogLevel::INFO,
-				"Empires gameplay cover=started route=existing-CGotoHideSpotSched");
+			RCBOT_DIAG("[RCBOT2] cover start userid=%d wait=-1 route=existing-CGotoHideSpotSched\n",
+				engine->GetPlayerUserId(m_pEdict));
 		}
 		return;
 	}
@@ -6687,6 +6856,13 @@ void CBotEmpires::modThink()
 	{
 		abortEmpiresBuildingAction("enemy");
 	}
+	// 3.20: keep the team board fresh while the current enemy stays in sight (enemyFound only fires once).
+	if (gpGlobals != nullptr && gpGlobals->curtime >= m_flIntelReportAt && m_pEnemy.get() != nullptr &&
+		hasSomeConditions(CONDITION_SEE_CUR_ENEMY))
+	{
+		m_flIntelReportAt = gpGlobals->curtime + 0.5f;
+		EmpiresTeamIntelReportSight(this, m_pEnemy.get());
+	}
 	tickTeamDirector();
 	tickEmpiresMatchFlow();
 	if (EmpiresTestKillZoneHit(m_pEdict, getTeam(), getOrigin()) && EmpiresVehiclePlayerVehicle(this, m_pEdict) < 0)
@@ -6720,7 +6896,10 @@ void CBotEmpires::modThink()
 		m_vehicle.stage == EmpiresVehicleStage::ENTERING ||
 		m_vehicle.stage == EmpiresVehicleStage::STUN_EXIT ||
 		m_vehicle.stage == EmpiresVehicleStage::STUN_THROW)
+	{
+		m_iEmpiresLastHealth = 0; // vehicle damage is not infantry damage; restart after leaving
 		return;
+	}
 	// Read the authoritative Empires squad tuple and Commander MOVE SendProps,
 	// then feed one canonical value snapshot into the headless squad stack.
 	// An accepted Phase-10.6 parent may dispatch validated final slot targets
@@ -6743,8 +6922,10 @@ void CBotEmpires::modThink()
 				damageOrigin = *reinterpret_cast<const Vector*>(
 					reinterpret_cast<const char*>(entity) + offset);
 			}
-			if (offset != 0 || !hasSomeConditions(CONDITION_SEE_CUR_ENEMY))
+			const bool worldDamage = offset != 0 && damageOrigin.LengthSqr() < 1.0f;
+			if (!worldDamage && (offset != 0 || !hasSomeConditions(CONDITION_SEE_CUR_ENEMY)))
 				noteEmpiresTurretThreat(nullptr, offset != 0 ? &damageOrigin : nullptr);
+			pollEmpiresHurt(health, worldDamage, offset != 0 && !worldDamage ? &damageOrigin : nullptr);
 		}
 		m_iEmpiresLastHealth = health;
 	}

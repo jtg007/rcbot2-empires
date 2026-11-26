@@ -50,6 +50,7 @@ constexpr float kSearchRadius = 2048.0f;
 constexpr float kShiftedSearchOffset = 1500.0f;
 constexpr float kInvalidSkipRadius = 250.0f;
 constexpr float kForwardBarracksDistance = 3500.0f; // factory farther from every own barracks: barracks first
+constexpr float kForwardPadDistance = 3000.0f; // finished barracks/factory farther from every own pad: forward pad
 constexpr float kEscortSeconds = 120.0f; // one escort at a time, then pick again
 constexpr int kMaxAssignTries = 6;
 // Commander Engineer leaves the CV only for buildings this close to it, with no enemy
@@ -107,6 +108,7 @@ struct BuildingInfo
 	int type = -1;
 	int health = 0;
 	int maxHealth = 0;
+	bool underConstruction = false; // m_bFullyBuilt not set yet (damaged finished buildings are not)
 };
 
 const char* RawEntity(edict_t* e)
@@ -407,8 +409,27 @@ bool FindRemoteFactorySite(const EmpiresNativePlacement::ContextIdentity& contex
 	return found;
 }
 
+// 3.20: where the team knows an enemy is (fair intel); with rcbot_empires_fair_intel off the live position.
+static bool EnemyKnownAt(int team, edict_t* enemy, Vector& at)
+{
+	return EmpiresTeamIntelKnownPos(team, enemy, at);
+}
+
+static bool EnemyKnownNear(int team, edict_t* enemy, const Vector& to, float range, bool flat)
+{
+	Vector at;
+	if (!EnemyKnownAt(team, enemy, at))
+		return false;
+	return (flat ? (at - to).Length2D() : (at - to).Length()) < range;
+}
+
 Vector EnemyCommanderOrigin(const Vector& at, int team)
 {
+	// 3.20: the enemy base as the team knows it (live sighting, last sighting, else round-start spawn).
+	Vector known;
+	bool live = false;
+	if (EmpiresFairIntelEnabled(team) && EmpiresTeamIntelEnemyBase(team, known, live))
+		return known;
 	const char* enemyClass = team == 2 ? "emp_imp_commander" : "emp_nf_commander";
 	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
 	{
@@ -1149,14 +1170,93 @@ void CBotEmpires::tickCommanderEconomy()
 		if (info.type < 0 || !readEmpiresEntityIntProperty(e, "m_iHealth", info.health) ||
 			!readEmpiresEntityIntProperty(e, "m_iMaxHealth", info.maxHealth))
 			continue;
+		bool fullyBuilt = false;
+		const bool builtKnown = readEmpiresEntityBoolProperty(e, "m_bFullyBuilt", fullyBuilt);
+		info.underConstruction = UnderConstruction(info.health, info.maxHealth, builtKnown, fullyBuilt);
 		buildings.push_back(info);
 	}
+	float resources = 0.0f;
+	const bool haveResources = ReadTeamResources(team, resources);
+
+	// --- Research (TODO 5.1): unlock Vehicle Factory first, then continue with turret,
+	// APC-spawn and Mechanical tank upgrades once a factory is placed or the pool covers it and the item.
+	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
+	// Before the build waits below: an unfinished building or a pending emp_build check must not
+	// stop research (run 20261114-2040: one start, then never reached again). Also before the CV
+	// retreat, hunt and self-build drives below, which return for their whole drive (TODO 9.7).
+	bool researchUnlocked = true;
+	if (haveResources)
+	{
+		ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
+		TeamResearch research;
+		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
+			ReadTeamResearch(team, research))
+		{
+			if (research.building)
+			{
+				state.hadResearchBuilding = true;
+			}
+			else if (state.hadResearchBuilding)
+			{
+				// Radar was destroyed: clear any stale Radar placement backoff so NextBuild rebuilds it promptly.
+				state.hadResearchBuilding = false;
+				state.failures[Radar] = 0;
+				state.blockedUntil[Radar] = 0.0f;
+				RCBOT_DIAG("[RCBOT2] commander-econ radar-lost team=%d resources=%.0f active=%d\n",
+					team, resources, research.active);
+			}
+			researchUnlocked = research.done[kResearchVehicleFactory];
+			// A placed factory (also unfinished) is paid for; post-VF research may run (TODO 9.7).
+			bool factoryPlaced = false;
+			for (const BuildingInfo& info : buildings)
+				factoryPlaced = factoryPlaced || info.type == VehicleFactory;
+			const int next = NextResearch(research.done, factoryPlaced, resources);
+			const bool postFactory = researchUnlocked;
+			const bool affordResearch = !postFactory || resources >= 350.0f;
+			if (research.building && affordResearch && now >= state.nextResearch &&
+				((research.active != 0 && research.paused) || (research.active == 0 && next != 0)))
+			{
+				EmpiresNativePlacement::ContextIdentity researchContext;
+				bool researchCommander = false;
+				if (EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(m_pEdict), researchContext) &&
+					EmpiresNativePlacement::ReadCommanderMode(researchContext, researchCommander) && researchCommander)
+				{
+					// A research paused for lack of money is never resumed by the game itself
+					// (ResearchResume 0x682d16 only after the radar returns, or by this command).
+					if (research.active != 0 && research.paused)
+					{
+						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
+						RCBOT_DIAG("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
+					}
+					else
+					{
+						char researchCommand[48];
+						snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
+						helpers->ClientCommand(m_pEdict, researchCommand);
+						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
+					}
+					state.nextResearch = now + 10.0f;
+				}
+			}
+			if (research.active != state.lastResearchActive || research.paused != state.lastResearchPaused ||
+				now >= state.nextResearchLog)
+			{
+				state.nextResearchLog = now + 30.0f;
+				state.lastResearchActive = research.active;
+				state.lastResearchPaused = research.paused;
+				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d next=%d\n",
+					research.active, research.remaining, int(research.paused), int(research.building),
+					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]), next);
+			}
+		}
+	}
+
 	Inventory inventory;
 	int unfinished = 0;
 	for (const BuildingInfo& info : buildings)
 	{
 		++inventory.count[info.type];
-		if (info.health >= info.maxHealth)
+		if (!info.underConstruction)
 			continue;
 		// A building no Engineer could take after every try does not hold up the next one
 		// (Coast, run 20261120-154142: two refineries at 50/150 without a stand spot, no vehicle
@@ -1231,7 +1331,9 @@ void CBotEmpires::tickCommanderEconomy()
 			if (!readEmpiresIntProperty(e, "m_iTeamNum", eTeam) || eTeam != enemyTeam ||
 				!EmpiresVehicleAlive(this, e))
 				continue;
-			const Vector at = CBotGlobals::entityOrigin(e);
+			Vector at;
+			if (!EnemyKnownAt(team, e, at))
+				continue; // 3.20: an unseen enemy vehicle is no retreat reason
 			const float d = (at - vehicleOrigin).Length2D();
 			if (d < 2200.0f && d < nearestThreatDist)
 			{
@@ -1247,7 +1349,9 @@ void CBotEmpires::tickCommanderEconomy()
 			state.lastCvHealth = cvHealth;
 		if (hasEnemyVehicle || heavyFire)
 		{
-			if (!hasEnemyVehicle)
+			// 3.20: under fire from an unseen attacker the threat stays unknown; the retreat then goes to
+			// the own pad / toward home (priority order below) instead of away from a hidden enemy.
+			if (!hasEnemyVehicle && !EmpiresFairIntelEnabled(team))
 			{
 				// Find nearest living enemy player as threat direction when taking fire.
 				for (int i = 1; i <= gpGlobals->maxClients; ++i)
@@ -1395,7 +1499,9 @@ void CBotEmpires::tickCommanderEconomy()
 			if (player == nullptr || player->IsFree() || CClassInterface::getTeam(player) != enemyTeam ||
 				!CBotGlobals::entityIsAlive(player) || EmpiresVehiclePlayerVehicle(this, player) >= 0)
 				continue;
-			const Vector at = CBotGlobals::entityOrigin(player);
+			Vector at;
+			if (!EnemyKnownAt(team, player, at))
+				continue;
 			const float d = (at - vehicleOrigin).Length2D();
 			if ((at - home).Length2D() < zone && std::fabs(at.z - vehicleOrigin.z) < 160.0f && d < preyDistance)
 			{
@@ -1422,7 +1528,7 @@ void CBotEmpires::tickCommanderEconomy()
 	// an engineer on a lower-tier job (turret, wall, camera, earlier assignment) can be pulled off.
 	bool haveFinishedBarracks = false;
 	for (const BuildingInfo& info : buildings)
-		haveFinishedBarracks = haveFinishedBarracks || (info.type == Barracks && info.health >= info.maxHealth);
+		haveFinishedBarracks = haveFinishedBarracks || (info.type == Barracks && !info.underConstruction);
 	std::vector<std::pair<int, const BuildingInfo*>> byTier;
 	for (const BuildingInfo& info : buildings)
 	{
@@ -1507,8 +1613,7 @@ void CBotEmpires::tickCommanderEconomy()
 				edict_t* player = engine->PEntityOfEntIndex(i);
 				const int playerTeam = player != nullptr && !player->IsFree() ? CClassInterface::getTeam(player) : 0;
 				enemyNear = (playerTeam == 2 || playerTeam == 3) && playerTeam != team &&
-					CBotGlobals::entityIsAlive(player) &&
-					(CBotGlobals::entityOrigin(player) - at).Length() < kCommanderBuildEnemyRange;
+					CBotGlobals::entityIsAlive(player) && EnemyKnownNear(team, player, at, kCommanderBuildEnemyRange, false);
 			}
 			const float homeDistance = (at - home).Length();
 			// A factory placed far from the base (teammate fallback, TODO 5.8c) is outside the zone:
@@ -1617,7 +1722,7 @@ void CBotEmpires::tickCommanderEconomy()
 				edict_t* player = engine->PEntityOfEntIndex(i);
 				const int playerTeam = player != nullptr && !player->IsFree() ? CClassInterface::getTeam(player) : 0;
 				enemyNear = (playerTeam == 2 || playerTeam == 3) && playerTeam != team &&
-					CBotGlobals::entityIsAlive(player) && (CBotGlobals::entityOrigin(player) - at).Length() < kCommanderBuildEnemyRange;
+					CBotGlobals::entityIsAlive(player) && EnemyKnownNear(team, player, at, kCommanderBuildEnemyRange, false);
 			}
 			if (covered || enemyNear || (at - home).Length() >= zone)
 				continue;
@@ -1660,83 +1765,8 @@ void CBotEmpires::tickCommanderEconomy()
 		}
 	}
 
-	float resources = 0.0f;
-	if (!ReadTeamResources(team, resources))
+	if (!haveResources)
 		return;
-
-	// --- Research (TODO 5.1): unlock Vehicle Factory first, then continue with turret,
-	// APC-spawn and Mechanical tank upgrades once the factory stands and resources allow.
-	// With emp_sv_research_complete 1 (test server) everything is unlocked and this is skipped. ---
-	// Before the build waits below: an unfinished building or a pending emp_build check must not
-	// stop research (run 20261114-2040: one start, then never reached again).
-	bool researchUnlocked = true;
-	{
-		ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
-		TeamResearch research;
-		if ((completeVar == nullptr || !completeVar->GetBool()) && EmpiresBinaryOffsetsTrusted() &&
-			ReadTeamResearch(team, research))
-		{
-			if (research.building)
-			{
-				state.hadResearchBuilding = true;
-			}
-			else if (state.hadResearchBuilding)
-			{
-				// Radar was destroyed: clear any stale Radar placement backoff so NextBuild rebuilds it promptly.
-				state.hadResearchBuilding = false;
-				state.failures[Radar] = 0;
-				state.blockedUntil[Radar] = 0.0f;
-				RCBOT_DIAG("[RCBOT2] commander-econ radar-lost team=%d resources=%.0f active=%d\n",
-					team, resources, research.active);
-			}
-			researchUnlocked = research.done[kResearchVehicleFactory];
-			bool hasFinishedFactory = false;
-			for (const BuildingInfo& info : buildings)
-				if (info.type == VehicleFactory && info.maxHealth > 0 && info.health >= info.maxHealth)
-				{
-					hasFinishedFactory = true;
-					break;
-				}
-			const int next = NextResearch(research.done, hasFinishedFactory);
-			const bool postFactory = researchUnlocked;
-			const bool affordResearch = !postFactory || resources >= 350.0f;
-			if (research.building && affordResearch && now >= state.nextResearch &&
-				((research.active != 0 && research.paused) || (research.active == 0 && next != 0)))
-			{
-				EmpiresNativePlacement::ContextIdentity researchContext;
-				bool researchCommander = false;
-				if (EmpiresNativePlacement::CaptureContext(engine->IndexOfEdict(m_pEdict), researchContext) &&
-					EmpiresNativePlacement::ReadCommanderMode(researchContext, researchCommander) && researchCommander)
-				{
-					// A research paused for lack of money is never resumed by the game itself
-					// (ResearchResume 0x682d16 only after the radar returns, or by this command).
-					if (research.active != 0 && research.paused)
-					{
-						helpers->ClientCommand(m_pEdict, "emp_comm_research_resume\n");
-						RCBOT_DIAG("[RCBOT2] commander-econ research resume item=%d resources=%.0f\n", research.active, resources);
-					}
-					else
-					{
-						char researchCommand[48];
-						snprintf(researchCommand, sizeof(researchCommand), "emp_comm_research %d\n", next);
-						helpers->ClientCommand(m_pEdict, researchCommand);
-						RCBOT_DIAG("[RCBOT2] commander-econ research start item=%d resources=%.0f\n", next, resources);
-					}
-					state.nextResearch = now + 10.0f;
-				}
-			}
-			if (research.active != state.lastResearchActive || research.paused != state.lastResearchPaused ||
-				now >= state.nextResearchLog)
-			{
-				state.nextResearchLog = now + 30.0f;
-				state.lastResearchActive = research.active;
-				state.lastResearchPaused = research.paused;
-				RCBOT_DIAG("[RCBOT2] commander-econ research state active=%d remaining=%d paused=%d building=%d structural=%d factory=%d next=%d\n",
-					research.active, research.remaining, int(research.paused), int(research.building),
-					int(research.done[kResearchStructural]), int(research.done[kResearchVehicleFactory]), next);
-			}
-		}
-	}
 
 	// --- Orders to the team's bots (TODO 5.4). ---
 	tickCommanderOrders(team, now, home);
@@ -1786,7 +1816,9 @@ void CBotEmpires::tickCommanderEconomy()
 	}
 
 	// --- Refinery sites: enabled resource points the game would accept. ---
-	struct Site { int resIndex; Vector origin; float distance; float income; };
+	struct Site { int resIndex; Vector origin; float distance; float income; bool enemySide; };
+	const Vector siteEnemyCv = EnemyCommanderOrigin(vehicleOrigin, team);
+	const bool siteEnemyKnown = (siteEnemyCv - vehicleOrigin).Length2D() > 100.0f;
 	std::vector<Site> escortSites;
 	std::vector<Site> refinerySites;
 	std::vector<Vector> friends;
@@ -1820,14 +1852,15 @@ void CBotEmpires::tickCommanderEconomy()
 		const float income = *reinterpret_cast<const float*>(raw + 0x4ac);
 		if (!std::isfinite(income) || income <= 0.0f)
 			continue;
-		const Site site{resIndex, origin, vehicleDistance, income};
+		const bool enemySide = siteEnemyKnown && (origin - siteEnemyCv).Length2D() < vehicleDistance;
+		const Site site{resIndex, origin, vehicleDistance, income, enemySide};
 		if (!inReach)
 			escortSites.push_back(site);
 		else if (nearestFriend >= kHullClearance)
 			refinerySites.push_back(site);
 	}
 	std::stable_sort(refinerySites.begin(), refinerySites.end(), [](const Site& a, const Site& b) {
-		return RefineryScore(a.income, a.distance) > RefineryScore(b.income, b.distance);
+		return RefineryScore(a.income, a.distance, a.enemySide) > RefineryScore(b.income, b.distance, b.enemySide);
 	});
 
 	// To bring a distant site into build range, also charge the Engineer's walk.
@@ -1842,7 +1875,7 @@ void CBotEmpires::tickCommanderEconomy()
 				// Not off a wall click (pad test 20261124-152547: escort pulled the engineer 6200 away mid-click).
 				if (engineer->empiresDeployBusy())
 					continue;
-				const float score = RefineryScore(site.income, engineer->distanceFrom(site.origin) + site.distance);
+				const float score = RefineryScore(site.income, engineer->distanceFrom(site.origin) + site.distance, site.enemySide);
 				if (score > bestScore)
 				{
 					bestScore = score;
@@ -1952,7 +1985,7 @@ void CBotEmpires::tickCommanderEconomy()
 					continue;
 				const int otherTeam = CClassInterface::getTeam(other);
 				if ((otherTeam == 2 || otherTeam == 3) && otherTeam != team &&
-					(CBotGlobals::entityOrigin(other) - at).Length2D() < 1200.0f)
+					EnemyKnownNear(team, other, at, 1200.0f, true))
 				{
 					enemyNear = true;
 					break;
@@ -1992,6 +2025,71 @@ void CBotEmpires::tickCommanderEconomy()
 			}
 		}
 	}
+	// Forward repair pad (TODO 5.5): once the base pad stands, a second pad beside a finished barracks or
+	// factory far from every own pad, so damaged vehicles at the front do not drive back to the base.
+	// Not in place of a core step (refinery, radar, factory, first barracks) or a forward barracks.
+	bool forwardPad = false;
+	const bool coreStep = (decision == Decision::Build || decision == Decision::Saving) &&
+		(type == Refinery || type == Radar || type == VehicleFactory || type == Barracks);
+	if (!forwardBarracks && !coreStep && inventory.count[Repair] >= 1 && inventory.count[Repair] < 2 &&
+		inventory.count[VehicleFactory] >= 1 && resources >= kCost[Repair] && now >= state.forwardPadRetryAt &&
+		now >= state.blockedUntil[Repair])
+	{
+		const Vector enemyCv = EnemyCommanderOrigin(vehicleOrigin, team);
+		const bool haveEnemyCv = (enemyCv - vehicleOrigin).Length2D() > 100.0f;
+		std::vector<Vector> pads;
+		for (const BuildingInfo& info : buildings)
+			if (info.type == Repair)
+			{
+				edict_t* p = engine->PEntityOfEntIndex(info.entity);
+				if (p != nullptr && !p->IsFree())
+					pads.push_back(CBotGlobals::entityOrigin(p));
+			}
+		float padToEnemy = 1.0e9f; // own pad nearest to the enemy CV
+		for (const Vector& pad : pads)
+			padToEnemy = (std::min)(padToEnemy, (enemyCv - pad).Length2D());
+		const BuildingInfo* anchor = nullptr;
+		Vector anchorAt(0.0f, 0.0f, 0.0f);
+		float anchorPad = 0.0f;
+		float bestEnemy = 1.0e9f;
+		for (const BuildingInfo& info : buildings)
+		{
+			if ((info.type != Barracks && info.type != VehicleFactory) || info.underConstruction)
+				continue;
+			edict_t* b = engine->PEntityOfEntIndex(info.entity);
+			if (b == nullptr || b->IsFree())
+				continue;
+			const Vector at = CBotGlobals::entityOrigin(b);
+			float nearestPad = 1.0e9f;
+			for (const Vector& pad : pads)
+				nearestPad = (std::min)(nearestPad, (pad - at).Length2D());
+			if (nearestPad <= kForwardPadDistance)
+				continue;
+			const float toEnemy = haveEnemyCv ? (enemyCv - at).Length2D() : -nearestPad;
+			// In front of the pads, not the old home base behind a far factory (Palmbay BE 20261125-165938:
+			// anchor was the home barracks 9411 behind the pad at the remote factory).
+			if (!haveEnemyCv || toEnemy > padToEnemy - kForwardPadDistance)
+				continue;
+			if (toEnemy < bestEnemy)
+			{
+				bestEnemy = toEnemy;
+				anchor = &info;
+				anchorAt = at;
+				anchorPad = nearestPad;
+			}
+		}
+		if (anchor != nullptr)
+		{
+			state.forwardPadRetryAt = now + 60.0f;
+			type = Repair;
+			decision = Decision::Build;
+			forwardPad = true;
+			forwardCenter = anchorAt;
+			RCBOT_DIAG("[RCBOT2] commander-econ forward-pad team=%d anchor=%s#%d (%.0f %.0f %.0f) nearest_pad=%.0f\n",
+				team, anchor->type == Barracks ? "barracks" : "factory", anchor->entity, anchorAt.x, anchorAt.y, anchorAt.z,
+				anchorPad);
+		}
+	}
 	{
 		// TODO 5.5a: money the Commander needs next; vehicle purchases from the pool leave it.
 		// Research for the factory drains Cost x Time = 240 (RE vehicle-driving.md). Game time,
@@ -2029,8 +2127,8 @@ void CBotEmpires::tickCommanderEconomy()
 	{
 		const Site& site = refinerySites.front();
 		state.verifyResIndex = site.resIndex;
-		RCBOT_DIAG("[RCBOT2] commander-econ refinery-site team=%d res_index=%d income=%.2f cv_distance=%.0f candidates=%zu\n",
-			team, site.resIndex, site.income, site.distance, refinerySites.size());
+		RCBOT_DIAG("[RCBOT2] commander-econ refinery-site team=%d res_index=%d income=%.2f cv_distance=%.0f enemy_side=%d candidates=%zu\n",
+			team, site.resIndex, site.income, site.distance, site.enemySide ? 1 : 0, refinerySites.size());
 		snprintf(command, sizeof(command), "emp_build 0 %d 0\n", state.verifyResIndex);
 	}
 	else
@@ -2043,7 +2141,9 @@ void CBotEmpires::tickCommanderEconomy()
 		// accepted spot that keeps the drive lanes of pads/factories free (run
 		// 20261112-125413: factory on the pad entrance). Only if no circle has
 		// one, the nearest valid spot (the base must grow).
-		const std::vector<Lane> lanes = ReservedLanes(vehicleOrigin);
+		// Lanes and the pad's "behind" test around the search centre (a forward pad: the anchor, else the CV).
+		const Vector searchOrigin = forwardPad ? forwardCenter : vehicleOrigin;
+		const std::vector<Lane> lanes = ReservedLanes(searchOrigin);
 		// Reserve the base factory spot before the first radar/barracks covers it (Palmbay BE: the radar at
 		// (-6694 -9388) took the only spot (-7444 -9281), so the CV drove 8500 away). The existing site
 		// placement below builds the factory there; until then other buildings keep kFactoryReserveClear off.
@@ -2076,7 +2176,7 @@ void CBotEmpires::tickCommanderEconomy()
 		// longest free axis that is not behind the CV (run 20261112-163322: BE pad
 		// 800 behind the CV, axis free only 600, VF and armory in front of it).
 		const Vector enemyCv = EnemyCommanderOrigin(vehicleOrigin, team);
-		const float cvToEnemy = (enemyCv - vehicleOrigin).Length2D();
+		const float cvToEnemy = (enemyCv - searchOrigin).Length2D();
 		bool haveFallback = false;
 		EmpiresSpatial::Point fallback{};
 		float fallbackScore = -1.0e9f;
@@ -2088,9 +2188,34 @@ void CBotEmpires::tickCommanderEconomy()
 		std::vector<Vector> teammateCenters;
 		bool teammateStage = false;
 		auto extendToTeammates = [&]() {
-			if (teammateStage || haveFirst || type != VehicleFactory)
+			if (teammateStage || haveFirst || (type != VehicleFactory && type != Repair))
 				return false;
 			teammateStage = true;
+			if (type == Repair)
+			{
+				// No pad spot around the CV (Palmbay NF plateau 20261125-165938: NO_SPOT x7, no pad in 15 min):
+				// search beside the own finished factories and barracks, nearest to the CV first.
+				std::vector<std::pair<float, Vector>> own;
+				for (const BuildingInfo& info : buildings)
+				{
+					if ((info.type != VehicleFactory && info.type != Barracks) || info.underConstruction)
+						continue;
+					edict_t* b = engine->PEntityOfEntIndex(info.entity);
+					if (b == nullptr || b->IsFree())
+						continue;
+					const Vector at = CBotGlobals::entityOrigin(b);
+					if ((at - searchOrigin).Length2D() > 600.0f)
+						own.push_back({(at - vehicleOrigin).Length2D(), at});
+				}
+				std::sort(own.begin(), own.end(), [](const std::pair<float, Vector>& a, const std::pair<float, Vector>& b) {
+					return a.first < b.first;
+				});
+				for (const auto& entry : own)
+					teammateCenters.push_back(entry.second);
+				RCBOT_DIAG("[RCBOT2] commander-econ pad-fallback team=%d centers=%zu forward=%d\n", team, teammateCenters.size(),
+					forwardPad ? 1 : 0);
+				return !teammateCenters.empty();
+			}
 			teammateCenters = TeammateSearchCenters(team, vehicleOrigin, m_pEdict);
 			if (state.siteValid && (state.site - vehicleOrigin).Length2D() <= 3800.0f)
 				teammateCenters.insert(teammateCenters.begin(), state.site);
@@ -2100,7 +2225,7 @@ void CBotEmpires::tickCommanderEconomy()
 		for (int ring = 0; !laneFree && (ring < 5 || (ring == 5 && extendToTeammates()) ||
 			ring < 5 + int(teammateCenters.size())); ++ring)
 		{
-			Vector center = forwardBarracks ? forwardCenter : vehicleOrigin;
+			Vector center = forwardBarracks || forwardPad ? forwardCenter : vehicleOrigin;
 			if (ring >= 5)
 				center = teammateCenters[ring - 5];
 			else if (ring > 0)
@@ -2398,7 +2523,7 @@ bool EmpiresReadResearchState(int team, int& active, bool& paused, bool& buildin
 	paused = research.paused;
 	building = research.building;
 	vfDone = research.done[kResearchVehicleFactory];
-	allDone = NextResearch(research.done, true) == 0;
+	allDone = NextResearch(research.done, true, 1.0e9f) == 0;
 	return true;
 }
 

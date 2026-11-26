@@ -2683,10 +2683,30 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 		{
 			if (c.dist < 600.0f || c.dist > 3400.0f)
 				continue;
-			// 3.20: do not mortar an unseen enemy APC unless self or a living teammate sees it.
-			if (c.isApc && !apcSpottedByTeam(c.origin))
+			// 3.20: no blind mortar. With fair intel only at a target on the team board (at the remembered
+			// spot) or in the grenadier's own sight; without it an APC still needs a teammate's sight.
+			Vector knownAt = c.origin;
+			if (EmpiresFairIntelEnabled(team))
+			{
+				const Vector centre(c.origin.x, c.origin.y, c.origin.z + 48.0f);
+				const bool ownSight = enginetrace != nullptr && (eye - centre).Length() < 3500.0f &&
+					CBotGlobals::isVisible(eye, centre);
+				if (ownSight)
+					EmpiresTeamIntelReportSight(this, c.edict);
+				else if (!EmpiresTeamIntelKnownPos(team, c.edict, knownAt))
+				{
+					if (now >= m_flMortarHiddenLogAt)
+					{
+						m_flMortarHiddenLogAt = now + 10.0f;
+						RCBOT_DIAG("[RCBOT2] building-mortar skip userid=%d target=%d class=%s dist=%.0f reason=not-known\n",
+							userId, engine->IndexOfEdict(c.edict), c.className, c.dist);
+					}
+					continue;
+				}
+			}
+			else if (c.isApc && !apcSpottedByTeam(c.origin))
 				continue;
-			const Vector targetPoint(c.origin.x, c.origin.y, c.origin.z + 24.0f);
+			const Vector targetPoint(knownAt.x, knownAt.y, knownAt.z + 24.0f);
 			QAngle angles;
 			Vector launchOrigin, hitPoint;
 			if (!findEmpiresMortarAim(origin + Vector(0, 0, 44), targetPoint, true, angles, launchOrigin, hitPoint))
@@ -3145,6 +3165,7 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 	const bool engineer = readEmpiresClass(m_pEdict, ownClassId, ownClassDesired, ownClassDesiredKnown,
 		ownClassProperty) && ownClassId == EMP_CLASS_ENGINEER;
 	std::vector<Vector> ownRefineries;
+	int intelHiddenGoals = 0; // 3.20 diagnostic
 	for (int index = gpGlobals->maxClients + 1; index < gpGlobals->maxEntities; ++index)
 	{
 		edict_t* pEdict = INDEXENT(index);
@@ -3181,6 +3202,13 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 				hasHealth && readEmpiresEntityIntProperty(pEdict, "m_iMaxHealth", maxHealth) &&
 				health > 0 && health < maxHealth)
 				type = NAVGOAL_REPAIR;
+		}
+		// 3.20: an enemy building or CV is a goal only once the team knows it (board); resources, flags
+		// and the director's enemy-base push goal stay as fallbacks.
+		if ((type == NAVGOAL_BUILDING || type == NAVGOAL_COMMANDER) && !EmpiresTeamIntelKnows(team, pEdict))
+		{
+			++intelHiddenGoals;
+			continue;
 		}
 		if (type < 0 || avoided(index))
 			continue;
@@ -3322,10 +3350,10 @@ bool CBotEmpires::pickEmpiresNavmeshGoal()
 	m_iEmpiresNavGoalRetries = 0;
 	m_iEmpiresNavGoalAttempts = 0;
 	m_uEmpiresNavGoalBlockMark = RCBotNavMesh::BlockGeneration();
-	RCBOT_DIAG("[RCBOT2] goal-roam pick userid=%d team=%d type=%s entity=%d class=%s pos=(%.0f %.0f %.0f) dist=%.0f rank=%d candidates=%d deadline=%.0f\n",
+	RCBOT_DIAG("[RCBOT2] goal-roam pick userid=%d team=%d type=%s entity=%d class=%s pos=(%.0f %.0f %.0f) dist=%.0f rank=%d candidates=%d deadline=%.0f intel_hidden=%d\n",
 		userId, team, empiresNavGoalTypeName(tier), choice.entity, choice.className,
 		choice.origin.x, choice.origin.y, choice.origin.z, choice.distance, rank,
-		static_cast<int>(candidates.size()), m_flEmpiresNavGoalDeadline - now);
+		static_cast<int>(candidates.size()), m_flEmpiresNavGoalDeadline - now, intelHiddenGoals);
 	return true;
 }
 

@@ -51,25 +51,53 @@ constexpr int kResearchOrder[] = {
 	kResearchHeavyTank,
 };
 
+constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f, 0.0f, 0.0f, 75.0f, 75.0f};
+
+// Whole price of one research item: Cost (per second) x Time, scripts/research_items.txt in
+// scripts_000.vpk. emp_sv_research_multiplier shortens the time; the full price is the safe bound.
+inline float ResearchTotalCost(int item)
+{
+	switch (item)
+	{
+	case kResearchMechanical: return 4.0f * 60.0f;
+	case kResearchUpgradedChassis: return 3.0f * 300.0f;
+	case kResearchMediumTank: return 5.0f * 120.0f;
+	case kResearchAdvancedChassis: return 4.0f * 300.0f;
+	case kResearchHeavyTank: return 6.0f * 300.0f;
+	case kResearchAdvancedMachining: return 3.0f * 180.0f;
+	case kResearchCompositeArmor: return 5.0f * 120.0f;
+	case kResearchGasTurbineEngine: return 5.0f * 120.0f;
+	case kResearchApcSpawn: return 4.0f * 120.0f;
+	case kResearchStructural: return 4.0f * 60.0f;
+	case kResearchVehicleFactory: return 4.0f * 60.0f;
+	case kResearchMgTurret2: return 4.0f * 120.0f;
+	case kResearchMgTurret3: return 4.0f * 150.0f;
+	case kResearchMlTurret2: return 4.0f * 120.0f;
+	case kResearchMlTurret3: return 4.0f * 150.0f;
+	default: return 4.0f * 120.0f;
+	}
+}
+
 // Next research item to start, or 0 if nothing should be started yet / tree complete.
-// Post-VF items wait until the Vehicle Factory is built so research never starves VF placement.
-inline int NextResearch(const bool done[kResearchItemCount], bool hasVehicleFactory)
+// Post-VF items (TODO 9.7): once a Vehicle Factory is placed its price is paid, so research goes on;
+// before that only while the pool covers the factory and the whole item (Palmbay 20261125-154912:
+// 150-181 s idle research with 5000+ resources between the VF research and the finished factory).
+inline int NextResearch(const bool done[kResearchItemCount], bool factoryPlaced, float resources)
 {
 	if (!done[kResearchStructural])
 		return kResearchStructural;
 	if (!done[kResearchVehicleFactory])
 		return kResearchVehicleFactory;
-	if (!hasVehicleFactory)
-		return 0;
 	for (const int item : kResearchOrder)
 	{
-		if (item >= 0 && item < kResearchItemCount && !done[item])
-			return item;
+		if (item < 0 || item >= kResearchItemCount || done[item])
+			continue;
+		if (!factoryPlaced && resources < kCost[VehicleFactory] + ResearchTotalCost(item))
+			return 0;
+		return item;
 	}
 	return 0;
 }
-
-constexpr float kCost[TypeCount] = {100.0f, 300.0f, 400.0f, 100.0f, 150.0f, 500.0f, 0.0f, 0.0f, 75.0f, 75.0f};
 
 constexpr float kNearVehicleRange = 3800.0f; // CanBuildAt allows 4000, keep a margin
 
@@ -79,13 +107,21 @@ inline float RefineryScore(float income, float distance)
 	return income / (1.0f + distance / kNearVehicleRange);
 }
 
+// A point nearer the enemy CV than the own one is contested (TODO 5.5): half the score, so an equal
+// point on the own side goes first; a much richer contested point can still win.
+inline float RefineryScore(float income, float distance, bool enemySide)
+{
+	return RefineryScore(income, distance) * (enemySide ? 0.5f : 1.0f);
+}
+
 struct Step { BuildType type; int targetCount; };
 
-// Economy first (income is the only source), then infantry support, vehicles, supply,
-// and base defense turrets (TODO 5.23).
+// Economy first (income is the only source), then infantry support, vehicles, the repair pad right
+// after the factory (TODO 9.5/M5: behind armory and third refinery it came 346-394 s after the factory),
+// supply, and base defense turrets (TODO 5.23).
 constexpr Step kBuildOrder[] = {
 	{Refinery, 1}, {Refinery, 2}, {Barracks, 1}, {Radar, 1}, {VehicleFactory, 1},
-	{Armory, 1}, {Refinery, 3}, {Repair, 1}, {MgTurret, 1}, {MlTurret, 1},
+	{Repair, 1}, {Armory, 1}, {Refinery, 3}, {MgTurret, 1}, {MlTurret, 1},
 	{Refinery, 4}, {MgTurret, 2}, {MlTurret, 2},
 };
 constexpr int kBuildOrderSize = sizeof(kBuildOrder) / sizeof(kBuildOrder[0]);
@@ -116,6 +152,10 @@ inline Decision NextBuild(const Inventory& inventory, float resources, BuildType
 	{
 		if (inventory.count[step.type] >= step.targetCount)
 			continue;
+		// The pad serves vehicles: not before a factory is placed (Palmbay 20261125-164159: the pad came
+		// before the VF research, changed the base layout and the CV took another route to the far site).
+		if (step.type == Repair && inventory.count[VehicleFactory] < 1)
+			continue;
 		if (!inventory.siteAvailable[step.type])
 		{
 			skippedForSite = true;
@@ -125,6 +165,14 @@ inline Decision NextBuild(const Inventory& inventory, float resources, BuildType
 		return resources >= kCost[step.type] ? Decision::Build : Decision::Saving;
 	}
 	return skippedForSite ? Decision::NoSite : Decision::Done;
+}
+
+// A building still under construction (TODO 5.5): m_bFullyBuilt when it can be read, else health.
+// A finished but damaged building is repair work and must not hold up the next placement (with one or
+// two engineers one scratched refinery stopped every rebuild, MaxUnfinished below).
+inline bool UnderConstruction(int health, int maxHealth, bool builtKnown, bool built)
+{
+	return builtKnown ? !built : health < maxHealth;
 }
 
 // Retry delay after a rejected build of one type: 5 s, doubling, at most 120 s.

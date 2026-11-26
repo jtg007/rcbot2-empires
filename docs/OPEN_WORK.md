@@ -13,11 +13,11 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 0. Priority order
 
-1. **Palmbay vehicles (3.27, 5.14a).** In a 10-bot 1x match (`20261122-124651`) bots climbed the boat ladders and started a capture, no ladder blockage lasted over 20 s, and no APC was lost in water. A spawn APC without a known support spot no longer parks in front of its own factory; it falls through to a push goal. Whether flank parking produces usable spawns is still open.
+1. **Palmbay vehicles (3.27, 5.14a).** In a 10-bot 1x match (`20261122-124651`) bots climbed the boat ladders and started a capture, no ladder blockage lasted over 20 s, and no APC was lost in water. A spawn APC no longer takes a push or enemy-CV goal: it parks out of sight or waits at a staging point, leaves a spot where it lost 15 % of hull and armor within 15 s, and retreats below 60 % hull (`20261125-175209`: retreats at 75/61/52 of 150 HP instead of 26–38; lifetime not distinguishable in one match). Open: the staging point 2500 units before an enemy building can still lie in reach of its base defense, and the NF commander vehicle can drown on the drive to a remote factory site on `emp_palmbay`.
 2. **Front support (3.10c, 5.26, 3.25, 5.30).** Engineers can answer a human infantry ammo request, infantry can seek navmesh cover under fire, and a seated commander can assign one attacking grenadier to an APC seen by a teammate. Observe actual refills, target engagement and resumption of the original objective. These changes have a Linux x86 build; gameplay verification is pending.
 3. **Team roles (5.4, 5.8, 5.28).** In a 10-bot Coast match at 1x (`20261122-124709`) two bots ordered to push flag 168 stayed together and reached it. Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
 4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault), and after fixing boarding aim/distance (`20261122-223256`) a forced 4-minute Crossroads run boarded cleanly (`aboard=3/3`, `cv-stunned`, BE CV HP 1.00 → 0.55). Run `021732` also recorded a crate 388 units from the CV. Open cases are boarding under the automatic match trigger (which previously timed out once in `20261122-213339`), a crew member actually replenishing grenades, and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
-5. **Target knowledge (3.20).** Tank hunting, tank defense against APCs, commander target calls, and grenadier mortar targeting of APCs all require a sightline from the bot or a living teammate. Check in a match that a hidden APC near a friendly building becomes a defense or mortar target only once a teammate sees it.
+5. **Target knowledge (3.20).** `rcbot_empires_fair_intel` (default 0) gives each team a board of enemies it could know (spotting, radar/camera, teammate sight, bot sight reports, memory 10/20/180 s) plus the enemy start base; director, commander, mortar, infantry goals, tank defend/hunt/push, spawn APC anchor and the Lawliet rush read it. A forced Lawliet run with it destroyed the CV. In 15-minute Crossroads A/B pairs kills, engagements, idle time and the match-flow check were on par, but stuck counts rose (128 against 25): own vehicles were abandoned at the front and infantry wedged inside them. Two causes remain: the NF commander placed a second repair pad in the factory exit lane, and tanks push straight at the origin of the only known enemy building and jam at its box. Fix both, repeat the A/B pair, then decide the default.
 6. **Next human session.** Verify the EngiBot purchase with SourceMod, commander orders and vehicle handover. Keep the Coast refinery stand spot (5.8e) parked until evidence identifies the obstruction.
 
 ## 1. Being measured
@@ -426,6 +426,9 @@ When the following cases recur, compare the relevant trace and route.
 - Commander research & vehicle tiers (5.1, 5.2): post-VF research path (`NextResearch()`,
   unit-tested: MG/ML turret L2 → Mechanical Engineering (27) → APC spawn (39) →
   Upgraded/Medium/Composite/Gas Turbine → L3/Heavy) and radar-loss reset are implemented.
+  Post-VF items start once a factory is placed or the pool covers the factory and the whole item
+  (Palmbay `20261125-161515`: idle research between the VF research and the finished factory
+  271/150 s → 0/0 s).
   Live-verified without cheat research (`20261120-233436`, `emp_sv_research_complete 0`:
   `60 → 61 → 62 → 64 → 27 → 39 → 28` all started and completed cleanly). Dynamic vehicle
   part selection by research and budget (`bot_empires_vehicle_loadout.h`, unit-tested, live
@@ -437,7 +440,9 @@ When the following cases recur, compare the relevant trace and route.
   repair station or open navmesh away from the threat (live test `20261121-002633`: NF CV
   retreated 1800 HU sideways from a BE heavy tank at `threat_dist=1610`). Built: a general
   forward barracks beside an on-foot teammate far from every own barracks (`20261121-114259`)
-  and up to two MG and two ML base turrets after the repair pad (`20261121-121836`). Open: walls.
+  and up to two MG and two ML base turrets after the repair pad (`20261121-121836`). The repair pad
+  follows the placed factory, plus a forward pad near a finished forward barracks or factory
+  (Crossroads `20261125-171804`: pad 188/167 s after the factory instead of 394/346 s). Open: walls.
 - Infantry combat, classes & barracks spawn (3.25, 5.25, 5.24): weapon ranges in
   `bot_weapons.cpp` are tuned to infantry roles, `changeskill` and class loadout variants
   (including rifleman stickies and scout sniper/shotgun) are active for all four classes,

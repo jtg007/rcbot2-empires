@@ -2,6 +2,8 @@
 #define _BOT_EMPIRES_H_
 
 #include "bot.h"
+#include "bot_empires_skirmish_logic.h"
+#include "bot_empires_team_intel.h"
 #include "bot_empires_capture_retry.h"
 #include "bot_empires_commander_economy.h"
 #include "bot_empires_vehicle_loadout.h"
@@ -342,6 +344,9 @@ struct EmpiresVehicleBrain
 	Vector walkFrom = Vector(0, 0, 0); // GOTO_FACTORY: position at the last progress check
 	int walkRequests = 0;       // GOTO_FACTORY: navigation requests (diagnostic)
 	float walkCheckAt = 0.0f;   // next progress check (a walk that still closes in gets more time)
+	float walkBestFactory = 0.0f; // GOTO_FACTORY: nearest 2D distance to the factory so far
+	float walkBestAt = 0.0f;      // ... and when it was reached (moving-away check over 60 s)
+	int walkAwayReplans = 0;      // moving-away escalations in this walk
 	float nextDecision = 0.0f;
 	int failures = 0;
 	int useTries = 0;
@@ -500,6 +505,8 @@ struct EmpiresVehicleBrain
 	float parkBestDistance = 0.0f;
 	Vector rejectedPark = Vector(0, 0, 0);
 	float rejectedParkUntil = 0.0f;
+	float parkArriveAt = 0.0f;    // TODO 5.14a: spawn APC at its spot since (0 = not there)
+	float parkArriveTotal = 0.0f; // hull + armor when it got there (damage window of 15 s)
 	Vector supportFlag = Vector(0, 0, 0); // front flag the support spot belongs to
 	Vector supportSpot = Vector(0, 0, 0);
 	bool supportKnown = false;
@@ -518,12 +525,19 @@ struct EmpiresVehicleBrain
 	int weaponHeavyInf = 0;   // buttons with a loaded cannon or grenade launcher
 	int weaponArmour = 0;     // buttons with a loaded weapon that hurts armour
 	bool weaponMgLeft = false; // a machine gun in the group still has magazine or reserve rounds
-	bool weaponHeavyPresent = false; // the group has a cannon or missile launcher (3.10b)
+	bool weaponHeavyPresent = false; // any group has a cannon or missile launcher (3.10b; 3.10f: all groups)
 	bool weaponHeavyLeft = false;    // one of them still has magazine or reserve rounds
-	int weaponHeavyTotal = 0;        // magazine + reserve of those weapons (3.10b step 2)
+	bool weaponCannonLeft = false;   // 3.10f: a cannon (any group) has rounds left
+	bool weaponMissileLeft = false;  // 3.10f: a missile launcher (any group) has rounds left
+	bool weaponActiveCannonLoaded = false;  // active group: a cannon with a loaded magazine
+	bool weaponActiveMissileLoaded = false; // active group: a missile launcher with a loaded magazine
+	int weaponHeavyTotal = 0;        // magazine + reserve of those weapons, all groups (3.10b step 2)
 	int weaponGroup = -1;            // 3.10f: active fire group 0..5 (turret m_iGroup)
 	int weaponGroupCount = 0;        // highest group with a weapon + 1
 	float fireGroupSentAt = -10.0f;  // last emp_change_vehicweap
+	float turretAlignLogAt = 0.0f;   // 3.21a stall-escalate who=vehicle-aim throttle
+	int turretAlignTarget = -1;      // target of the last vehicle-aim escalation
+	int fireGroupHeld = 0;           // 3.10f: ticks with fire held for a group switch (diagnostic)
 	// 3.10b step 2: an ammo trip may end at a supply crate nearer than the pad.
 	int crateIndex = -1;             // crate driven to, -1 = pad
 	float crateNearSince = -1.0f;    // inside the crate's reach (1000) since
@@ -729,6 +743,7 @@ public:
 		Vector site;
 		float siteRetryAt = 0.0f;
 		float forwardBarracksRetryAt = 0.0f; // forward barracks beside a far factory spot (user 20.11.)
+		float forwardPadRetryAt = 0.0f; // forward repair pad beside a far finished barracks/factory (TODO 5.5)
 		Vector siteScanOrigin = Vector(0, 0, 0); // CV position at the first factory search: the scan stays anchored at the base
 		bool siteScanOriginSet = false;
 		bool nearSiteTried = false; // base factory spot reserved before the first base building (user 20.11.)
@@ -1388,6 +1403,22 @@ private:
 	bool m_bEmpiresCombatEngaged = false;
 	float m_flMeshCoverUntil = 0;
 	bool m_bEmpiresCoverScheduleActive = false;
+	float m_flCoverHoldLogAt = 0.0f; // throttle for the cover holding-fire diagnostic
+	EmpiresSkirmishLogic::HurtWindow m_hurtWindow; // 3.25b hurt-cover trigger (35 % HP in 2 s, cooldown)
+	float m_flHurtSkipLogAt = 0.0f;
+	void logEmpiresHurtCoverSkip(const char* reason, int healthNow);
+	void pollEmpiresHurt(int health, bool worldDamage, const Vector* damageOrigin);
+	// 3.25b health polling (no player_hurt in Empires): set while modThink feeds a drop into hurt().
+	float m_flIntelReportAt = 0.0f; // 3.20 throttle for EmpiresTeamIntelReportSight
+	float m_flMortarHiddenLogAt = 0.0f; // 3.20 throttle for building-mortar skip reason=not-known
+	bool m_bPolledHurt = false;
+	bool m_bPolledHurtInterruptEngineer = false;
+	int m_iPolledHurtDamage = 0;
+	bool m_bPolledHurtOriginValid = false;
+	Vector m_vPolledHurtOrigin;
+	int m_iPolledHurtHits = 0;      // diagnostic since the last hurt-poll line
+	int m_iPolledHurtDamageSum = 0;
+	float m_flPolledHurtLogAt = 0.0f;
 	bool m_bEmpiresCaptureApproachIssued = false;
 	bool m_bEmpiresCaptureHoldIssued = false;
 	bool m_bEmpiresEngineerSupportTaskIssued = false;
@@ -1862,5 +1893,15 @@ private:
 edict_t* EmpiresCarriedWeapon(const CBaseHandle& handle);
 bool EmpiresVehicleExceedsSpeed(edict_t* vehicle, float limit);
 bool EmpiresReadTeamResearch(int team, bool done[EmpiresCommanderEconomy::kResearchItemCount]);
+
+// 3.20 fair team intel (bot_empires_team_director.cpp). With rcbot_empires_fair_intel off for the
+// team: Enabled false, Knows true, Board nullptr (consumers keep the old full-entity view).
+bool EmpiresFairIntelEnabled(int team);
+const EmpiresTeamIntel::Board* EmpiresTeamIntelBoard(int team);
+bool EmpiresTeamIntelKnows(int team, edict_t* enemy);
+bool EmpiresTeamIntelKnownPos(int team, edict_t* enemy, Vector& at);
+class CBotEmpires;
+void EmpiresTeamIntelReportSight(const CBotEmpires* reporter, edict_t* enemy);
+bool EmpiresTeamIntelEnemyBase(int team, Vector& at, bool& live);
 
 #endif // _BOT_EMPIRES_H_

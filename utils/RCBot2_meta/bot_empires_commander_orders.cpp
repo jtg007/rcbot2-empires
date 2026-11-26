@@ -176,9 +176,12 @@ void CBotEmpires::tickCommanderOrders(int team, float now, const Vector& home)
 			const int chassis = EmpiresVehicleReadInt(this, apc, "m_iChassis", -1);
 			if ((chassis != 1 && chassis != 9) || !EmpiresVehicleAlive(this, apc))
 				continue;
-			const Vector at = CBotGlobals::entityOrigin(apc);
-			bool spotted = false;
-			for (int observer = 1; observer <= gpGlobals->maxClients && !spotted; ++observer)
+			Vector at = CBotGlobals::entityOrigin(apc);
+			// 3.20: with fair intel the team board already holds every APC a teammate, camera, radar or
+			// the game's spotting saw (at the remembered position); else the own LOS scan as before.
+			const bool fairBoard = EmpiresFairIntelEnabled(team);
+			bool spotted = fairBoard && EmpiresTeamIntelKnownPos(team, apc, at);
+			for (int observer = 1; observer <= gpGlobals->maxClients && !spotted && !fairBoard; ++observer)
 			{
 				edict_t* mate = engine->PEntityOfEntIndex(observer);
 				if (!mate || mate->IsFree() || CClassInterface::getTeam(mate) != team || !CBotGlobals::entityIsAlive(mate))

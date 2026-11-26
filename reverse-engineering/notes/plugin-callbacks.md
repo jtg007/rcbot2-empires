@@ -18,3 +18,18 @@ Not confirmed (no crash dump from the server). Rule used since: chat/event handl
 the request; client creation and user messages run in `GameFrame`
 (`EmpiresEngibotFrame`, `bot_empires_engibot.cpp`). Confirming it needs a real human client
 saying `!buildengibot` on a server with SourceMod and the same plugins.
+
+## player_hurt is not delivered (2026-11-25)
+
+- `resource/modevents.res` of Empires declares no `player_hurt` (it has `player_death`, `emp_killfeed`,
+  `point_captured`, ...). The string exists in `server_srv.so`, but a counting diagnostic in
+  `CPlayerHurtEvent::execute` saw 0 events in a 4-minute 6-bot Crossroads run with hits and a kill
+  (`20261125-193429`).
+- Consequence: `CBot::hurt` / `CBotEmpires::hurt` never run in Empires. Everything hanging on them is
+  dead code there: the hurt hide schedule (`CGotoHideSpotSched`, and the 3.25 navmesh hurt cover),
+  `noteEmpiresTurretThreat` from damage, the engineer-support damage interrupt, `m_vHurtOrigin` /
+  `LOOK_HURT_ORIGIN`, `m_fCurrentDanger` from damage.
+- Damage has to be detected by polling the bot's own health (`m_iHealth`) per think if any of these
+  are wanted.
+- Done in 3.25b: `CBotEmpires::pollEmpiresHurt` (modThink) compares `GetHealth()` with the last think and calls
+  `hurt()`; `m_DmgOrigin` at the world origin marks fall/world damage. Cvar `rcbot_empires_health_poll_hurt`.

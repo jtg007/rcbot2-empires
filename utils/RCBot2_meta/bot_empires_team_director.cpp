@@ -77,8 +77,42 @@ struct TeamState
 	DeathMemory deaths;        // TODO 8.1 hot zones
 	float roleSince[kMaxClients] = {};          // game time the current role was given
 	std::unordered_map<int, int> flagOwner;     // flag entity -> last known owner (gain/loss log)
+	EmpiresTeamIntel::Board intel;              // 3.20 fair enemy contacts
+	int intelSources[6] = {};                   // diagnostic: upserts per IntelSource since the last log
+	int intelTraces = 0;                        // diagnostic: LOS traces since the last log
+	int intelHidden = 0;                        // diagnostic: enemy candidates not known since the last log
 };
 TeamState s_team[4];
+
+// 3.20: what an enemy entity is for the board (-1 = not a contact).
+EmpiresTeamIntel::ContactKind IntelKindOf(const CBotEmpires* reader, edict_t* e)
+{
+	if (e == nullptr || e->IsFree() || engine == nullptr || gpGlobals == nullptr)
+		return EmpiresTeamIntel::CONTACT_NONE;
+	const int index = engine->IndexOfEdict(e);
+	if (index >= 1 && index <= gpGlobals->maxClients)
+		return EmpiresTeamIntel::CONTACT_INFANTRY;
+	const char* cls = e->GetClassName();
+	if (cls == nullptr)
+		return EmpiresTeamIntel::CONTACT_NONE;
+	if (std::strcmp(cls, "emp_nf_commander") == 0 || std::strcmp(cls, "emp_imp_commander") == 0)
+		return EmpiresTeamIntel::CONTACT_ENEMY_CV;
+	if (std::strcmp(cls, "emp_vehicle") == 0)
+	{
+		const int chassis = reader != nullptr ? EmpiresVehicleReadInt(reader, e, "m_iChassis", -1) : -1;
+		if (chassis >= 0)
+		{
+			if (chassis >= 14 && chassis <= 16)
+				return EmpiresTeamIntel::CONTACT_ENEMY_CV;
+			if (chassis == 1 || chassis == 9)
+				return EmpiresTeamIntel::CONTACT_APC;
+		}
+		return EmpiresTeamIntel::CONTACT_VEHICLE;
+	}
+	if (std::strncmp(cls, "emp_building_", 13) == 0 || std::strncmp(cls, "emp_eng_", 8) == 0)
+		return EmpiresTeamIntel::CONTACT_BUILDING;
+	return EmpiresTeamIntel::CONTACT_NONE;
+}
 
 float Dist2D(const Vector& a, const Vector& b)
 {
@@ -257,6 +291,69 @@ void EmpiresTeamDirectorLevelReset()
 		state = TeamState();
 }
 
+bool EmpiresFairIntelEnabled(int team)
+{
+	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) &&
+		EmpiresTeamIntel::FairIntelEnabledForTeam(rcbot_empires_fair_intel.GetInt(), team);
+}
+
+const EmpiresTeamIntel::Board* EmpiresTeamIntelBoard(int team)
+{
+	return EmpiresFairIntelEnabled(team) ? &s_team[team].intel : nullptr;
+}
+
+bool EmpiresTeamIntelKnownPos(int team, edict_t* enemy, Vector& at)
+{
+	if (enemy == nullptr || enemy->IsFree() || engine == nullptr || gpGlobals == nullptr)
+		return false;
+	if (!EmpiresFairIntelEnabled(team))
+	{
+		at = CBotGlobals::entityOrigin(enemy);
+		return true;
+	}
+	const EmpiresTeamIntel::Contact* c = EmpiresTeamIntel::FindContact(s_team[team].intel, engine->IndexOfEdict(enemy),
+		enemy->m_NetworkSerialNumber, gpGlobals->curtime);
+	if (c == nullptr)
+		return false;
+	at = Vector(c->pos[0], c->pos[1], c->pos[2]);
+	return true;
+}
+
+bool EmpiresTeamIntelKnows(int team, edict_t* enemy)
+{
+	Vector at;
+	return EmpiresTeamIntelKnownPos(team, enemy, at);
+}
+
+void EmpiresTeamIntelReportSight(const CBotEmpires* reporter, edict_t* enemy)
+{
+	if (reporter == nullptr || enemy == nullptr || enemy->IsFree() || gpGlobals == nullptr || engine == nullptr)
+		return;
+	const int team = CClassInterface::getTeam(reporter->getEdict());
+	if (!EmpiresFairIntelEnabled(team) || CClassInterface::getTeam(enemy) == team)
+		return;
+	const EmpiresTeamIntel::ContactKind kind = IntelKindOf(reporter, enemy);
+	if (kind == EmpiresTeamIntel::CONTACT_NONE)
+		return;
+	const Vector at = CBotGlobals::entityOrigin(enemy);
+	const float pos[3] = { at.x, at.y, at.z };
+	if (EmpiresTeamIntel::Upsert(s_team[team].intel, engine->IndexOfEdict(enemy), enemy->m_NetworkSerialNumber, kind,
+			EmpiresTeamIntel::SOURCE_SIGHT, pos, gpGlobals->curtime))
+		++s_team[team].intelSources[0]; // slot 0: bot sight reports
+}
+
+bool EmpiresTeamIntelEnemyBase(int team, Vector& at, bool& live)
+{
+	live = false;
+	if ((team != EMP_TEAM_NF && team != EMP_TEAM_BE) || gpGlobals == nullptr)
+		return false;
+	float pos[3];
+	if (!EmpiresTeamIntel::EnemyBaseAnchor(s_team[team].intel, gpGlobals->curtime, pos, live))
+		return false;
+	at = Vector(pos[0], pos[1], pos[2]);
+	return true;
+}
+
 namespace
 {
 // Hands the team's active hot zones to the route cost (TODO 8.1).
@@ -373,6 +470,60 @@ void CBotEmpires::tickTeamDirector()
 	const char* ownCvClass = team == EMP_TEAM_NF ? "emp_nf_commander" : "emp_imp_commander";
 	const char* enemyCvClass = team == EMP_TEAM_NF ? "emp_imp_commander" : "emp_nf_commander";
 
+	// --- 3.20 fair intel: the director only uses enemies the team could know (game spotting, own
+	// radar/camera, a living teammate's line of sight, bot sight reports) plus the initial enemy base.
+	const bool fair = EmpiresFairIntelEnabled(team);
+	EmpiresTeamIntel::Board& intel = state.intel;
+	EmpiresTeamIntel::Prune(intel, now);
+	enum IntelDispatch { DISPATCH_CV, DISPATCH_VEHICLE, DISPATCH_BUILDING, DISPATCH_INFANTRY };
+	struct IntelPending
+	{
+		edict_t* e;
+		int entity;
+		Vector at;
+		EmpiresTeamIntel::ContactKind kind;
+		IntelDispatch dispatch;
+		bool built;
+		const char* buildingKind;
+		bool needsTrace;
+	};
+	std::vector<IntelPending> intelPending;
+	std::vector<EmpiresTeamIntel::Sensor> sensors;
+	std::vector<Vector> ownEyes;
+	if (fair)
+	{
+		for (int i = 1; i <= gpGlobals->maxClients; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			IPlayerInfo* info = e != nullptr && !e->IsFree() ? playerinfomanager->GetPlayerInfo(e) : nullptr;
+			if (info == nullptr || !info->IsConnected() || info->IsDead() || info->IsObserver() || info->GetHealth() <= 0)
+				continue;
+			if (info->GetTeamIndex() == team)
+				ownEyes.push_back(CBotGlobals::entityOrigin(e) + Vector(0, 0, 64));
+			else if (info->GetTeamIndex() == enemyTeam)
+				intelPending.push_back({ e, i, CBotGlobals::entityOrigin(e), EmpiresTeamIntel::CONTACT_INFANTRY,
+					DISPATCH_INFANTRY, true, "", false });
+		}
+		for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+		{
+			edict_t* e = engine->PEntityOfEntIndex(i);
+			const char* cls = e != nullptr && !e->IsFree() ? e->GetClassName() : nullptr;
+			if (cls == nullptr || (std::strcmp(cls, "emp_eng_camera") != 0 && std::strcmp(cls, "emp_eng_radar") != 0))
+				continue;
+			int sTeam = -1, hp = 0;
+			if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", sTeam) || sTeam != team ||
+				!readEmpiresEntityIntProperty(e, "m_iHealth", hp) || hp <= 0)
+				continue;
+			EmpiresTeamIntel::Sensor sensor;
+			const Vector at = CBotGlobals::entityOrigin(e);
+			sensor.pos[0] = at.x;
+			sensor.pos[1] = at.y;
+			sensor.pos[2] = at.z + 32.0f;
+			sensor.isRadar = std::strcmp(cls, "emp_eng_radar") == 0;
+			sensors.push_back(sensor);
+		}
+	}
+
 	// --- Entities: own CV and buildings, enemy CV, buildings, vehicles, resource points.
 	struct Watched
 	{
@@ -428,12 +579,26 @@ void CBotEmpires::tickTeamDirector()
 			}
 			else if (cv && vTeam == enemyTeam && !enemyCvKnown)
 			{
-				enemyCvKnown = true;
-				enemyCv = at;
-				enemyCvEntity = i;
+				// The enemy main base at round start is map knowledge (a player knows where it spawns).
+				const float pos[3] = { at.x, at.y, at.z };
+				EmpiresTeamIntel::SetInitialEnemyCv(intel, pos);
+				if (fair)
+					intelPending.push_back({ e, i, at, EmpiresTeamIntel::CONTACT_ENEMY_CV, DISPATCH_CV, true, "", false });
+				else
+				{
+					enemyCvKnown = true;
+					enemyCv = at;
+					enemyCvEntity = i;
+				}
 			}
 			else if (!cv && vTeam == enemyTeam)
-				enemyVehicles.push_back(at);
+			{
+				if (fair)
+					intelPending.push_back({ e, i, at, chassis == 1 || chassis == 9 ? EmpiresTeamIntel::CONTACT_APC :
+						EmpiresTeamIntel::CONTACT_VEHICLE, DISPATCH_VEHICLE, true, "", false });
+				else
+					enemyVehicles.push_back(at);
+			}
 			continue;
 		}
 		if (std::strcmp(cls, "emp_resource_point") == 0)
@@ -485,12 +650,141 @@ void CBotEmpires::tickTeamDirector()
 		}
 		else if (bTeam == enemyTeam)
 		{
-			if (!built)
-				enemyUnfinished.push_back(at);
-			if (std::strcmp(kind, "refinery") == 0)
-				enemyTargets.push_back({ i, at, "enemy-refinery", 0.0f });
-			else if (std::strcmp(kind, "barracks") == 0)
-				enemyBarracks.push_back({ i, at, "enemy-rax", 0.0f });
+			if (fair)
+				intelPending.push_back({ e, i, at, EmpiresTeamIntel::CONTACT_BUILDING, DISPATCH_BUILDING, built, kind, false });
+			else
+			{
+				if (!built)
+					enemyUnfinished.push_back(at);
+				if (std::strcmp(kind, "refinery") == 0)
+					enemyTargets.push_back({ i, at, "enemy-refinery", 0.0f });
+				else if (std::strcmp(kind, "barracks") == 0)
+					enemyBarracks.push_back({ i, at, "enemy-rax", 0.0f });
+			}
+		}
+	}
+	std::vector<Vector> fairInfantry;
+	if (fair)
+	{
+		// Cheap sources first: game spotting (players m_VisibilityState 3, the rest m_bSpotted) and radar.
+		for (IntelPending& p : intelPending)
+		{
+			const float pos[3] = { p.at.x, p.at.y, p.at.z };
+			int visibility = 0;
+			bool spotted = false;
+			EmpiresTeamIntel::IntelSource source = EmpiresTeamIntel::SOURCE_NONE;
+			if ((readEmpiresEntityIntProperty(p.e, "m_VisibilityState", visibility) && visibility == 3) ||
+				(readEmpiresEntityBoolProperty(p.e, "m_bSpotted", spotted) && spotted))
+				source = EmpiresTeamIntel::SOURCE_SPOTTED;
+			else
+				for (const EmpiresTeamIntel::Sensor& sensor : sensors)
+					if (sensor.isRadar && EmpiresTeamIntel::SensorInRange(sensor, pos))
+					{
+						source = EmpiresTeamIntel::SOURCE_RADAR;
+						break;
+					}
+			if (source != EmpiresTeamIntel::SOURCE_NONE)
+			{
+				if (EmpiresTeamIntel::Upsert(intel, p.entity, p.e->m_NetworkSerialNumber, p.kind, source, pos, now))
+					++state.intelSources[source];
+			}
+			else
+				p.needsTrace = true;
+		}
+		// Line of sight from own cameras (1200) and living teammates (3500): at most
+		// kMaxTraceBudgetPerTick traces per update, starting at a rotating candidate, first hit ends.
+		const size_t n = intelPending.size();
+		int traces = 0;
+		size_t done = 0;
+		const size_t start = n > 0 ? static_cast<size_t>(intel.traceCursor) % n : 0;
+		for (; done < n && traces < EmpiresTeamIntel::kMaxTraceBudgetPerTick; ++done)
+		{
+			IntelPending& p = intelPending[(start + done) % n];
+			if (!p.needsTrace)
+				continue;
+			const Vector target = p.at + Vector(0, 0, p.kind == EmpiresTeamIntel::CONTACT_INFANTRY ? 48.0f : 64.0f);
+			EmpiresTeamIntel::IntelSource source = EmpiresTeamIntel::SOURCE_NONE;
+			for (const EmpiresTeamIntel::Sensor& sensor : sensors)
+			{
+				const Vector eye(sensor.pos[0], sensor.pos[1], sensor.pos[2]);
+				if (sensor.isRadar || (eye - target).Length() > EmpiresTeamIntel::kCameraRange)
+					continue;
+				if (traces >= EmpiresTeamIntel::kMaxTraceBudgetPerTick)
+					break;
+				++traces;
+				if (CBotGlobals::isVisible(eye, target))
+				{
+					source = EmpiresTeamIntel::SOURCE_CAMERA;
+					break;
+				}
+			}
+			for (size_t k = 0; source == EmpiresTeamIntel::SOURCE_NONE && k < ownEyes.size(); ++k)
+			{
+				if ((ownEyes[k] - target).Length() > EmpiresTeamIntel::kSightRange)
+					continue;
+				if (traces >= EmpiresTeamIntel::kMaxTraceBudgetPerTick)
+					break;
+				++traces;
+				if (CBotGlobals::isVisible(ownEyes[k], target))
+					source = EmpiresTeamIntel::SOURCE_SIGHT;
+			}
+			if (source != EmpiresTeamIntel::SOURCE_NONE)
+			{
+				const float pos[3] = { p.at.x, p.at.y, p.at.z };
+				if (EmpiresTeamIntel::Upsert(intel, p.entity, p.e->m_NetworkSerialNumber, p.kind, source, pos, now))
+					++state.intelSources[source];
+			}
+		}
+		intel.traceCursor = static_cast<int>((start + done) % (n > 0 ? n : 1));
+		state.intelTraces += traces;
+		// Hand the known ones (at the remembered position) to the director lists.
+		for (const IntelPending& p : intelPending)
+		{
+			const EmpiresTeamIntel::Contact* c = EmpiresTeamIntel::FindContact(intel, p.entity,
+				p.e->m_NetworkSerialNumber, now);
+			if (c == nullptr)
+			{
+				++state.intelHidden;
+				continue;
+			}
+			const Vector at(c->pos[0], c->pos[1], c->pos[2]);
+			switch (p.dispatch)
+			{
+			case DISPATCH_CV:
+				enemyCvKnown = true;
+				enemyCv = at;
+				enemyCvEntity = p.entity;
+				break;
+			case DISPATCH_VEHICLE:
+				enemyVehicles.push_back(at);
+				break;
+			case DISPATCH_INFANTRY:
+				fairInfantry.push_back(at);
+				break;
+			case DISPATCH_BUILDING:
+				if (!p.built)
+					enemyUnfinished.push_back(at);
+				if (std::strcmp(p.buildingKind, "refinery") == 0)
+					enemyTargets.push_back({ p.entity, at, "enemy-refinery", 0.0f });
+				else if (std::strcmp(p.buildingKind, "barracks") == 0)
+					enemyBarracks.push_back({ p.entity, at, "enemy-rax", 0.0f });
+				break;
+			}
+		}
+	}
+	// Without a seen enemy CV the base anchor (round-start position, else last sighting) gives the
+	// front direction and the last push goal, never a live position.
+	bool enemyCvFromAnchor = false;
+	if (fair && !enemyCvKnown)
+	{
+		float pos[3];
+		bool live = false;
+		if (EmpiresTeamIntel::EnemyBaseAnchor(intel, now, pos, live))
+		{
+			enemyCvKnown = true;
+			enemyCvFromAnchor = true;
+			enemyCv = Vector(pos[0], pos[1], pos[2]);
+			enemyCvEntity = -1;
 		}
 	}
 	for (const Candidate& rax : ownBarracks)
@@ -537,9 +831,11 @@ void CBotEmpires::tickTeamDirector()
 			continue;
 		if (info->GetTeamIndex() == team && info->IsFakeClient())
 			++teamBots;
-		if (info->GetTeamIndex() == enemyTeam && !info->IsDead() && !info->IsObserver() && info->GetHealth() > 0)
+		if (!fair && info->GetTeamIndex() == enemyTeam && !info->IsDead() && !info->IsObserver() && info->GetHealth() > 0)
 			enemyInfantry.push_back(CBotGlobals::entityOrigin(e));
 	}
+	if (fair)
+		enemyInfantry = fairInfantry;
 	const Watched* threat = nullptr;
 	const char* threatReason = "";
 	int threatScore = 0;
@@ -551,6 +847,8 @@ void CBotEmpires::tickTeamDirector()
 		{
 			score = 100;
 			reason = "damage";
+			const float pos[3] = { w.at.x, w.at.y, w.at.z };
+			EmpiresTeamIntel::RecordOwnDamage(intel, w.entity, pos, std::strcmp(w.kind, "cv") == 0, now);
 		}
 		for (const Vector& v : enemyVehicles)
 			if (Dist2D(v, w.at) < kEnemyVehicleRadius && score < 60)
@@ -723,7 +1021,7 @@ void CBotEmpires::tickTeamDirector()
 	{
 		Vector spot;
 		if (ApproachSpot(enemyCv, homeKnown, home, 450.0f, spot) && reachable(spot))
-			push.push_back({ enemyCvEntity, spot, "enemy-cv", 0.0f });
+			push.push_back({ enemyCvEntity, spot, enemyCvFromAnchor ? "enemy-base" : "enemy-cv", 0.0f });
 	}
 	std::sort(push.begin(), push.end(), [](const Candidate& a, const Candidate& b) { return a.sortKey < b.sortKey; });
 	board.pushCount = 0;
@@ -901,6 +1199,24 @@ void CBotEmpires::tickTeamDirector()
 			alertOverride, alertHold,
 			board.phase == PHASE_STABILIZE ? state.stabilization.reason : "-", board.split.push, board.split.hold,
 			board.split.defense, count, teamBots, board.tickets, board.ticketsMax, board.ticketsKnown ? 1 : 0);
+		if (fair)
+		{
+			// sources since the last line: report=bot sight report, then IntelSource 1..4
+			RCBOT_DIAG("[RCBOT2] team-intel team=%d contacts=%d inf=%d veh=%d bld=%d cv=%d report=%d radar=%d camera=%d "
+				"spotted=%d sight=%d traces=%d hidden=%d cv_from=%s\n", team,
+				EmpiresTeamIntel::CountActive(intel, 0u, now),
+				EmpiresTeamIntel::CountActive(intel, EmpiresTeamIntel::KindBit(EmpiresTeamIntel::CONTACT_INFANTRY), now),
+				EmpiresTeamIntel::CountActive(intel, EmpiresTeamIntel::KindBit(EmpiresTeamIntel::CONTACT_VEHICLE) |
+					EmpiresTeamIntel::KindBit(EmpiresTeamIntel::CONTACT_APC), now),
+				EmpiresTeamIntel::CountActive(intel, EmpiresTeamIntel::KindBit(EmpiresTeamIntel::CONTACT_BUILDING), now),
+				EmpiresTeamIntel::CountActive(intel, EmpiresTeamIntel::KindBit(EmpiresTeamIntel::CONTACT_ENEMY_CV), now),
+				state.intelSources[0], state.intelSources[1], state.intelSources[2], state.intelSources[3],
+				state.intelSources[4], state.intelTraces, state.intelHidden, enemyCvFromAnchor ? "anchor" : "seen");
+			for (int& c : state.intelSources)
+				c = 0;
+			state.intelTraces = 0;
+			state.intelHidden = 0;
+		}
 	}
 }
 

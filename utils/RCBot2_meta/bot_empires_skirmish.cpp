@@ -12,6 +12,7 @@
 // side at once; repeated blocks escalate (stage 1: stand and crouch, stage 2: hand the fight back to
 // the old approach for a while), each with a stall-escalate line.
 #include "bot_empires.h"
+#include "bot_empires_skirmish_logic.h"
 #include "bot_globals.h"
 #include "bot_getprop.h"
 #include "bot_navmesh_api.h"
@@ -40,7 +41,7 @@ constexpr float kMinStepSpeed = 25.0f;     // HU/s below which a step counts as 
 constexpr int kStage1Blocks = 4;           // blocked steps in one fight -> stand and crouch
 constexpr int kStage2Blocks = 8;           // -> give the fight back to the approach task
 constexpr float kStage2Pause = 15.0f;
-constexpr float kCrouchRange = 500.0f;     // short crouched bursts only beyond this
+constexpr float kCrouchRange = EmpiresSkirmishLogic::kCrouchRange; // short crouched bursts only beyond this
 constexpr float kTooClose = 110.0f;        // always back off inside this
 constexpr float kSightGrace = 1.0f;        // keep moving like in the fight this long after losing sight
 
@@ -74,15 +75,19 @@ private:
 	const IHandleEntity* m_enemy;
 };
 
-// Preferred distance band from the weapon's range; a shotgun scout closes in, a rifleman stays back.
-void SkirmishBand(const CBotWeapon* weapon, float& nearDist, float& farDist)
+// Preferred distance band from class and weapon (3.25, bot_empires_skirmish_logic.h): a shotgun
+// closes in, a rifle keeps mid range, a sniper keeps its standoff.
+EmpiresSkirmishLogic::SkirmishBandResult SkirmishBand(const CBotWeapon* weapon, int classId, bool rocketStandoff,
+	bool hasRocket)
 {
-	float maxRange = weapon != nullptr ? weapon->getPrimaryMaxRange() : 0.0f;
-	if (!(maxRange > 0.0f))
-		maxRange = 1200.0f;
-	// Effective, not maximum range: beyond ~900 the approach keeps closing in.
-	farDist = std::clamp(maxRange * 0.5f, 300.0f, 900.0f);
-	nearDist = std::clamp(farDist * 0.3f, 120.0f, 300.0f);
+	EmpiresSkirmishLogic::SkirmishBandInput in;
+	in.weaponMaxRange = weapon != nullptr && weapon->getWeaponInfo() != nullptr ? weapon->getPrimaryMaxRange() : 0.0f;
+	in.weaponScoped = weapon != nullptr && weapon->getWeaponInfo() != nullptr && weapon->getWeaponInfo()->isScoped();
+	in.classId = classId;
+	in.enemyInVehicle = rocketStandoff;
+	in.grenadierRpgEnabled = rcbot_empires_grenadier_rpg.GetBool();
+	in.hasRocket = hasRocket;
+	return EmpiresSkirmishLogic::ComputeSkirmishBand(in);
 }
 } // namespace
 
@@ -264,21 +269,12 @@ bool CBotEmpires::handleEmpiresSkirmish()
 	}
 	toEnemy /= dist;
 
-	float nearDist, farDist;
-	SkirmishBand(getCurrentWeapon(), nearDist, farDist);
-	if (rocketStandoff)
-	{
-		nearDist = 550.0f;
-		farDist = 1300.0f;
-	}
-	else if (classId == EMP_CLASS_GRENADIER)
-	{
-		// Grenadiers mortar from 900 on; leave that range to the mortar state machine.
-		farDist = (std::min)(farDist, 880.0f);
-		// Rocket splash hurts the shooter: keep at least 400 from a soldier.
-		if (rcbot_empires_grenadier_rpg.GetBool() && empiresHasRocket())
-			nearDist = (std::max)(nearDist, 400.0f);
-	}
+	// Grenadiers: far capped at 880 (the mortar takes 900+), near >= 400 with rockets (splash);
+	// rocket standoff against a vehicle 550..1300.
+	const EmpiresSkirmishLogic::SkirmishBandResult band = SkirmishBand(getCurrentWeapon(), classId, rocketStandoff,
+		classId == EMP_CLASS_GRENADIER && empiresHasRocket());
+	const float nearDist = band.nearDist;
+	const float farDist = band.farDist;
 	// Step 6: scouts circle to the other side of an enemy a teammate fights; engineers stay
 	// behind that teammate. Both need a teammate closer to the enemy who can see him.
 	const Vector enemyPos = CBotGlobals::entityOrigin(enemy);
@@ -290,11 +286,7 @@ bool CBotEmpires::handleEmpiresSkirmish()
 		rcbot_empires_engineer_rear.GetBool() && findEmpiresFrontAlly(enemy, enemyPos, allyPos, allyDist) &&
 		allyDist < dist + 300.0f;
 	// Hysteresis: once skirmishing, the approach takes over only well outside the band.
-	float leaveDist = m_bSkirmishActive ? farDist * 1.25f : farDist;
-	if (scoutFlank)
-		leaveDist = (std::max)(leaveDist, 1200.0f);
-	if (engineerRear)
-		leaveDist = (std::max)(leaveDist, 1600.0f);
+	const float leaveDist = EmpiresSkirmishLogic::ComputeLeaveDist(farDist, m_bSkirmishActive, scoutFlank, engineerRear);
 	if (dist > leaveDist)
 	{
 		endEmpiresSkirmish("enemy-far");
@@ -443,10 +435,8 @@ bool CBotEmpires::handleEmpiresSkirmish()
 			++m_iSkirmishRearHolds;
 		}
 
-		bool pause = m_iSkirmishStage >= 1;
-		if (!pause && mode[0] == 's' && dist > kCrouchRange && m_iSkirmishPhase == 1 &&
-			randomFloat(0.0f, 1.0f) < 0.2f)
-			pause = true;
+		bool pause = EmpiresSkirmishLogic::ShouldCrouchPause(m_iSkirmishStage >= 1, mode[0] == 's', dist,
+			m_iSkirmishPhase, band.crouchChance, randomFloat(0.0f, 1.0f));
 
 		Vector target;
 		bool found = false;

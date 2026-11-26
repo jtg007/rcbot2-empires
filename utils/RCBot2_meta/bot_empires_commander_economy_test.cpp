@@ -52,9 +52,13 @@ int main()
 	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == VehicleFactory, "ECON-4 factory next");
 
 	inventory.count[VehicleFactory] = 1;
-	Require(NextBuild(inventory, 400.0f, type) == Decision::Build && type == Armory, "ECON-5 armory next");
+	Require(NextBuild(inventory, 400.0f, type) == Decision::Build && type == Repair, "ECON-5 repair pad right after the factory (M5)");
 
-	Require(NextBuild(inventory, 50.0f, type) == Decision::Saving && type == Armory, "ECON-6 saves instead of skipping");
+	Require(NextBuild(inventory, 50.0f, type) == Decision::Saving && type == Repair, "ECON-6 saves instead of skipping");
+
+	inventory.count[Repair] = 1;
+	Require(NextBuild(inventory, 400.0f, type) == Decision::Build && type == Armory, "ECON-5b armory after the pad");
+	inventory.count[Repair] = 0;
 
 	// Blocked refinery must not stall the rest of the order.
 	inventory = AllSites();
@@ -67,6 +71,9 @@ int main()
 	inventory.count[Barracks] = 1;
 	inventory.count[Radar] = 1;
 	Require(NextBuild(inventory, 200.0f, type) == Decision::Saving && type == VehicleFactory, "ECON-8 saves for the factory");
+	inventory.siteAvailable[VehicleFactory] = false; // research not done yet
+	Require(NextBuild(inventory, 5000.0f, type) == Decision::Build && type == Armory, "ECON-8b no pad before a factory is placed");
+	inventory.siteAvailable[VehicleFactory] = true;
 
 	// Nothing available at all.
 	inventory = Inventory();
@@ -101,23 +108,31 @@ int main()
 	Require(RefineryScore(2, 3433) > RefineryScore(1, 3163), "emp_arid richer site wins");
 	Require(RefineryScore(1, 3163) > RefineryScore(1, 3433), "equal yields prefer shorter travel");
 	Require(RefineryScore(1, 1000) > RefineryScore(2, 16000), "long escort can outweigh income");
+	Require(RefineryScore(1, 3000, false) > RefineryScore(1, 2500, true), "ECON-17 own-side point before a slightly nearer contested one");
+	Require(RefineryScore(3, 3000, true) > RefineryScore(1, 3000, false), "ECON-18 a much richer contested point still wins");
 
 	Require(BackoffSeconds(1) == 5.0f && BackoffSeconds(2) == 10.0f && BackoffSeconds(3) == 20.0f, "ECON-11 backoff doubles");
 	Require(BackoffSeconds(30) == 120.0f, "ECON-12 backoff capped");
+	Require(UnderConstruction(150, 300, true, false), "ECON-14 placed building without m_bFullyBuilt is under construction");
+	Require(!UnderConstruction(90, 300, true, true), "ECON-15 damaged finished building does not count as unfinished");
+	Require(UnderConstruction(90, 300, false, false) && !UnderConstruction(300, 300, false, false), "ECON-16 health fallback");
 	Require(MaxUnfinished(0) == 1 && MaxUnfinished(1) == 1 && MaxUnfinished(2) == 2 && MaxUnfinished(5) == 2, "ECON-13 unfinished limit");
 
 	// Research progression (TODO 5.1).
 	{
 		bool done[kResearchItemCount] = {};
-		Require(NextResearch(done, false) == kResearchStructural, "RES-1 starts with Structural Engineering");
+		Require(NextResearch(done, false, 0.0f) == kResearchStructural, "RES-1 starts with Structural Engineering");
 		done[kResearchStructural] = true;
-		Require(NextResearch(done, false) == kResearchVehicleFactory, "RES-2 unlocks Vehicle Factory next");
+		Require(NextResearch(done, false, 0.0f) == kResearchVehicleFactory, "RES-2 unlocks Vehicle Factory next");
 		done[kResearchVehicleFactory] = true;
-		Require(NextResearch(done, false) == 0, "RES-3 waits for Vehicle Factory to be built before post-VF research");
-		Require(NextResearch(done, true) == kResearchMgTurret2, "RES-4 continues with MG turret lvl 2 once VF stands");
+		Require(NextResearch(done, false, 900.0f) == 0, "RES-3 no factory placed: keeps the factory price and the item free");
+		Require(NextResearch(done, false, 980.0f) == kResearchMgTurret2, "RES-3b no factory yet, pool covers factory + MG lvl 2 (500 + 480)");
+		Require(NextResearch(done, true, 0.0f) == kResearchMgTurret2, "RES-4 placed factory (also unfinished) is paid: research goes on");
+		Require(ResearchTotalCost(kResearchUpgradedChassis) == 900.0f && ResearchTotalCost(kResearchHeavyTank) == 1800.0f,
+			"RES-6 item prices from research_items.txt");
 		for (const int item : kResearchOrder)
 			done[item] = true;
-		Require(NextResearch(done, true) == 0, "RES-5 returns 0 when tech path is complete");
+		Require(NextResearch(done, true, 0.0f) == 0, "RES-5 returns 0 when tech path is complete");
 	}
 
 	std::cout << "PASS commander economy policy\n";

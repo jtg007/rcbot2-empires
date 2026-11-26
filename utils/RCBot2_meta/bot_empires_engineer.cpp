@@ -506,6 +506,10 @@ void CBotEmpires::interruptEmpiresEngineerSupportForCombat(
 		failEmpiresEngineerRepairAction(reason != nullptr ? reason :
 			"combat-interrupt");
 
+	RCBOT_DIAG("[RCBOT2] engineer-support interrupted userid=%d reason=%s building=%d action=%d\n",
+		engine != nullptr && m_pEdict != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1,
+		reason != nullptr ? reason : "combat-interrupt", m_iEmpiresEngineerSupportBuildingIndex, actionActive ? 1 : 0);
+
 	if (logger != nullptr)
 	{
 		logger->Log(LogLevel::INFO,

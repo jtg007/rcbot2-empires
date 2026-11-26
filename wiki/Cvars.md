@@ -1,9 +1,9 @@
 # Cvars
 
 Sources: `utils/RCBot2_meta/bot_cvars.cpp` (authoritative: definitions, defaults, help text), `utils/RCBot2_meta/bot_empires_vehicle.cpp`
-(six more cvars defined there), the readers found with `grep`, [README.md](../README.md) (Settings), [AGENTS.md](../AGENTS.md). Refresh: grep `ConVar rcbot_empires_`.
+(14 more cvars defined there), `bot_empires.cpp` and `bot_navmesh_api.cpp`, the readers found with `grep`, [README.md](../README.md) (Settings), [AGENTS.md](../AGENTS.md). Refresh: grep `ConVar rcbot_empires_`.
 
-34 `rcbot_empires_*` cvars exist: 28 in `bot_cvars.cpp` and 6 in `bot_empires_vehicle.cpp`. The README documents the player-facing ones;
+63 `rcbot_empires_*` cvars exist: 46 in `bot_cvars.cpp`, 14 in `bot_empires_vehicle.cpp`, 2 in `bot_navmesh_api.cpp` and 1 in `bot_empires.cpp`. The README documents the player-facing ones;
 this page lists all of them, including test and development switches. Set them on the server console, in `server.cfg`, or with `DEV_PRE="cvar value;..."` in the dev harness.
 
 ## Commander
@@ -12,6 +12,7 @@ this page lists all of them, including test and development switches. Set them o
 |---|---:|---|---|
 | `rcbot_empires_auto_commander` | 1 | One bot per team takes the Commander seat, builds the base and assigns engineers; yields the seat to a human who sits in or uses the CV. | `bot_empires_commander_economy.cpp`, `bot_empires.h` |
 | `rcbot_empires_commander_engineer` | 1 | The auto-commander seat goes to the team's first Engineer bot (Repair role); it leaves the CV to finish nearby buildings when no other engineer is close and idle. | `bot_empires_commander_economy.cpp` |
+| `rcbot_empires_apc_retreat_hull` | 0.6 | Hull share below which the spawn APC retreats to a repair pad (tanks 0.4); it also leaves a park spot where it lost 15 % of hull and armor within 15 s. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_commander_orders` | 1 | Seated bot commander orders its free attackers (attack location) per team-director role. | `bot_empires_commander_orders.cpp` |
 | `rcbot_empires_commander_drive_from` | 1000 | Distance beyond which the commander drives the CV towards a building before leaving it to build. | `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_commander_boomtank` | 1 | Commander drives the CV over enemy infantry inside the base zone: 0 off, 1 on except rainbowroad maps, 2 everywhere. | `bot_empires_commander_economy.cpp` |
@@ -21,6 +22,8 @@ this page lists all of them, including test and development switches. Set them o
 
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
+| `rcbot_empires_engineer_first_perk_now` | 1 | An engineer's slot-1 perk (repair/revive) is active from its first life, as if picked before spawning. | `bot_empires.cpp` |
+| `rcbot_empires_tank_escort` | 1 | One free engineer per team follows an own driven tank within 3000 HU about 350 HU behind it and repairs it when it stands damaged. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_engineer_turrets` | 1 | Repair-role engineers build an MG turret on the front side of own refineries. | `bot_empires_turret_build.cpp`, `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_engineer_deployables` | 3 | Bits: 1 camera (plus radar with a second detection slot) behind the refinery wall, 2 three-part wall on the refinery's enemy side. | `bot_empires_deployables.cpp` |
 | `rcbot_empires_engineer_help_human` | 2 | With a human commander, up to this many engineer bots per team build/repair unfinished or damaged buildings near the CV on their own (0 = only on the commander's guard order). | `bot_empires_engibot.cpp`, `bot_commands.cpp`, `bot_empires.h` |
@@ -37,6 +40,8 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
+| `rcbot_empires_health_poll_hurt` | 1 | Empires sends no `player_hurt`; the bot compares its health each think and reacts to a drop of at least 3 HP (not world/fall damage, not in a vehicle). The attacker is the current enemy if seen in the last 1.5 s. | `bot_empires.cpp` |
+| `rcbot_empires_navmesh_hurt_cover` | 1 | With a navmesh, damage outside a skirmish takes a short navmesh cover (at most 6 s) instead of the legacy hide spot, and the bot keeps firing at a visible attacker unless reloading. | `bot_empires.cpp` |
 | `rcbot_empires_skirmish` | 1 | Infantry in a fight keeps an effective distance for its weapon, side-steps away from the enemy aim and backs off when too close, reloading or hurt, instead of running straight at the enemy. `2` = NF only, `3` = BE only (for A/B comparisons). | `bot_empires_skirmish.cpp` |
 | `rcbot_empires_fight_odds` | 1 | Compares visible enemies with teammates nearby: outnumbered it gives ground, ahead it presses in. | `bot_empires_skirmish.cpp` |
 | `rcbot_empires_fight_cover` | 1 | Reloading, badly hurt or outnumbered infantry steps out of sight to a close safe spot and comes back; also suppresses the generic hurt-hide schedule while a skirmish is active. | `bot_empires_skirmish.cpp`, `bot_empires.cpp` |
@@ -53,6 +58,14 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
+| `rcbot_empires_fair_intel` | 0 | Fair team knowledge (being tested): director, commander, infantry goals, tank/APC goals and the Lawliet rush use only enemies the team could know (spotting, own radar/camera, teammate sight, bot sight reports; memory 10/20/180 s for infantry/vehicles/buildings) plus the enemy start base. `1` both teams, `2` NF, `3` BE. Default 0: in Crossroads A/B runs abandoned own vehicles at the single known front building raised stuck counts. | `bot_empires_team_director.cpp` and consumers |
+| `rcbot_empires_apc_cover_park` | 1 | Without a contested flag the spawn APC parks out of sight 1000-1800 HU before the nearest enemy building (else waits 2500 HU before it); park and waiting spots keep 800 HU from own buildings and 400 HU from other own vehicles. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_missiles` | 1 | Tanks buy the Standard Missile Launcher (fire group 1); the driver selects group 1 against vehicles and buildings and group 2 otherwise. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_cannon_eye` | 1 | Turret weapons aim from the cannon pivot; 0 = hull origin + 90. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_turret_align` | 1 | Fire once the turret yaw is within 8° (MG on infantry) or 12° (cannon) and the aim is older than 0.4 s, else after 2.5 s; fixed-turret chassis keep 1.2 s. 0 = always 1.2 s. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_pitch_limit` | 1 | Hold fire while the game clamps the cannon pitch (target below the minimum range) and back off. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_keep_route` | 1 | When replanning finds no path to the same goal, keep driving the last route instead of straight at the goal. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_deep_water` | 1 | Steering edge checks treat water deeper than the vehicle can ford as a drop. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicles` | 1 | Bots buy vehicles at their team's VF (or anywhere with `emp_sv_debug_build_vehicles 1`), drive, fight and run over enemies. | `bot_empires_vehicle.cpp`, `bot_empires_lawliet.cpp` |
 | `rcbot_empires_vehicle_drivers` | -1 | Maximum bots per team using a vehicle at once (Bill Nye not counted); -1 = 40 % of the team bots, at least 2. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_wall_clearance` | 1 | Vehicle route points keep half a width off walls running along the route, are centred in lanes barely wider than the vehicle and get a straight approach point (axis over one vehicle width) before such a lane; the driver reaches these within 90 HU (8 s fallback). | `bot_navmesh_api.cpp`, `bot_empires_vehicle.cpp` |

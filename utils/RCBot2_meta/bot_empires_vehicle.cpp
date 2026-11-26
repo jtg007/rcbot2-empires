@@ -7,6 +7,7 @@
 #include "bot_empires_team_economy.h"
 #include "bot_empires_lawliet.h"
 #include "bot_empires_wreck_clear.h"
+#include "bot_empires_vehicle_aim.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_globals.h"
@@ -48,11 +49,16 @@ ConVar rcbot_empires_vehicle_turn_test("rcbot_empires_vehicle_turn_test", "0", 0
 	"Debug purchases only: 1 normal turn, 2 handbrake pulse, 3 coast straight, 4 brake straight");
 ConVar rcbot_empires_apc_cover_park("rcbot_empires_apc_cover_park", "1", 0,
 	"8.4: a spawn APC without a contested flag parks out of sight 1000-1800 HU before the nearest enemy building (else enemy CV) instead of driving into it");
+ConVar rcbot_empires_apc_retreat_hull("rcbot_empires_apc_retreat_hull", "0.6", 0,
+	"5.14a: a spawn APC retreats to the repair pad below this hull share (tanks 0.4); it also leaves a park spot "
+	"where it lost 15 % of hull+armor within 15 s, and never drives into a fight like a tank");
 ConVar rcbot_empires_vehicle_missiles("rcbot_empires_vehicle_missiles", "1", 0,
 	"3.10f: tanks buy the Standard Missile Launcher (fire group 1 only); the driver selects group 1 "
 	"(cannon+missile+MG) against vehicles and buildings and group 2 (cannon+MG) otherwise");
 ConVar rcbot_empires_vehicle_cannon_eye("rcbot_empires_vehicle_cannon_eye", "1", 0,
 	"3.21a: aim turret weapons from the cannon pivot (all weapons converge on the cannon axis); 0 = hull origin + 90");
+ConVar rcbot_empires_vehicle_turret_align("rcbot_empires_vehicle_turret_align", "1", 0,
+	"3.21a: fire once the turret yaw is within 8 deg (MG on infantry) or 12 deg (cannon) of the target and the aim is older than 0.4 s, else after 2.5 s with a stall-escalate who=vehicle-aim line; chassis without a rotatable turret keep the 1.2 s delay. 0 = always 1.2 s");
 ConVar rcbot_empires_vehicle_pitch_limit("rcbot_empires_vehicle_pitch_limit", "1", 0,
 	"3.21a: hold fire while the game clamps the cannon pitch (target below the chassis minimum range) and back off");
 ConVar rcbot_empires_vehicle_keep_route("rcbot_empires_vehicle_keep_route", "1", 0,
@@ -882,6 +888,8 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 	v.weaponMgPure = v.weaponMgMixed = v.weaponHeavyInf = v.weaponArmour = 0;
 	v.weaponMgLeft = false;
 	v.weaponHeavyPresent = v.weaponHeavyLeft = false;
+	v.weaponCannonLeft = v.weaponMissileLeft = false;
+	v.weaponActiveCannonLoaded = v.weaponActiveMissileLoaded = false;
 	v.weaponHeavyTotal = 0;
 	v.weaponSummary[0] = '\0';
 	std::int32_t weapons[8], ammo[8], clips[8];
@@ -891,62 +899,37 @@ static void ReadVehicleWeapons(const CBotEmpires* bot, edict_t* turret, EmpiresV
 		!ReadTurretArray(turret, "m_bWeaponMode", modes) || !ReadTurretArray(turret, "m_bWeaponGroup", groups))
 		return;
 	const int group = EmpiresVehicleReadInt(bot, turret, "m_iGroup", -1);
-	if (group < 0 || group > 5)
+	// 3.10f: fire masks of the active group, ammo across all groups (standing in group 2 hid the
+	// group-1 missiles and could start an ammo trip with missiles left).
+	const EmpiresVehicleAim::TurretWeaponSummary sum =
+		EmpiresVehicleAim::SummarizeTurretWeapons(weapons, ammo, clips, modes, groups, group, IN_ATTACK, IN_ATTACK2);
+	if (!sum.valid)
 		return;
-	int other = 0; // buttons that also fire something other than a machine gun
-	int mgLoaded = 0;
 	std::size_t used = 0;
 	for (int i = 0; i < 8; ++i)
 	{
 		const int id = weapons[i];
-		if (id < 0 || id > 42 || !groups[i * 6 + group])
+		if (id < 0 || id > 42 || !groups[i * 6 + group] || used >= sizeof(v.weaponSummary))
 			continue;
-		const int button = modes[i] ? IN_ATTACK : IN_ATTACK2;
-		const bool loaded = ammo[i] > 0;
-		const bool mg = id <= 11;
-		if (mg)
-		{
-			if (loaded)
-				mgLoaded |= button;
-			if (ammo[i] > 0 || clips[i] > 0)
-				v.weaponMgLeft = true;
-		}
-		else if (ammo[i] > 0 || clips[i] > 0)
-			other |= button; // an empty missile pod must not block the MG on its button
-		if (loaded && ((id >= 12 && id <= 22) || id >= 40))
-			v.weaponHeavyInf |= button;
-		if ((id >= 12 && id <= 22) || (id >= 27 && id <= 39))
-		{
-			v.weaponHeavyPresent = true;
-			v.weaponHeavyTotal += (std::max)(0, ammo[i]) + (std::max)(0, clips[i]);
-			if (ammo[i] > 0 || clips[i] > 0)
-				v.weaponHeavyLeft = true;
-		}
-		if (loaded && ((id >= 12 && id <= 22) || (id >= 27 && id <= 39) || id == 1 || id == 4 || id == 5 || (id >= 8 && id <= 11)))
-			v.weaponArmour |= button;
-		if (used < sizeof(v.weaponSummary))
-		{
-			const int n = snprintf(v.weaponSummary + used, sizeof(v.weaponSummary) - used, "%s%d:%s:%d/%d",
-				used ? "," : "", id, button == IN_ATTACK ? "a1" : "a2", ammo[i], clips[i]);
-			if (n > 0)
-				used += static_cast<std::size_t>(n);
-		}
+		const int n = snprintf(v.weaponSummary + used, sizeof(v.weaponSummary) - used, "%s%d:%s:%d/%d",
+			used ? "," : "", id, modes[i] ? "a1" : "a2", ammo[i], clips[i]);
+		if (n > 0)
+			used += static_cast<std::size_t>(n);
 	}
-	v.weaponMgPure = mgLoaded & ~other;
-	v.weaponMgMixed = mgLoaded & other;
+	v.weaponMgPure = sum.mgPure;
+	v.weaponMgMixed = sum.mgMixed;
+	v.weaponHeavyInf = sum.heavyInf;
+	v.weaponArmour = sum.armour;
+	v.weaponMgLeft = sum.activeMgLeft;
+	v.weaponHeavyPresent = sum.heavyPresent;
+	v.weaponHeavyLeft = sum.heavyLeft;
+	v.weaponHeavyTotal = sum.heavyTotal;
+	v.weaponCannonLeft = sum.cannonLeft;
+	v.weaponMissileLeft = sum.missileLeft;
+	v.weaponActiveCannonLoaded = sum.activeCannonLoaded;
+	v.weaponActiveMissileLoaded = sum.activeMissileLoaded;
 	v.weaponGroup = group;
-	v.weaponGroupCount = 0;
-	for (int g = 0; g < 6; ++g)
-	{
-		for (int i = 0; i < 8; ++i)
-		{
-			if (weapons[i] >= 0 && weapons[i] <= 42 && groups[i * 6 + g])
-			{
-				v.weaponGroupCount = g + 1;
-				break;
-			}
-		}
-	}
+	v.weaponGroupCount = sum.weaponGroupCount;
 	v.weaponsKnown = true;
 }
 
@@ -2599,6 +2582,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			StageName(v.stage));
 		m_bEmpiresCommanderMoveFailed = true;
 		m_bEmpiresCommanderMoveStuck = false;
+		// The dropped order's route and schedule must not keep steering the buyer/driver away.
+		cancelNavigationAttempt("vehicle-director-drop");
+		if (m_pSchedules != nullptr)
+			m_pSchedules->freeMemory();
+		if (m_pNavigator != nullptr)
+			m_pNavigator->clear();
 	}
 	const bool commanderMoveBlocks = isEmpiresCommanderMoveActive() && !directorOrder;
 	const bool buildAssignPassengerExit = m_iBuildAssignStage > 0 && !commanderVehicleEntryActive() &&
@@ -3060,6 +3049,9 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.walkFrom = getOrigin();
 			v.walkCheckAt = now + 30.0f;
 			v.walkRequests = 0;
+			v.walkBestFactory = Dist2D(getOrigin(), CBotGlobals::entityOrigin(factory));
+			v.walkBestAt = now;
+			v.walkAwayReplans = 0;
 			RCBOT_DIAG("[RCBOT2] vehicle factory-route userid=%d points=%zu first=(%.0f %.0f)\n", userId,
 				v.factoryRoute.size(), v.goal.x, v.goal.y);
 			if (RCBotNavMesh::IsLoaded())
@@ -3131,7 +3123,48 @@ void CBotEmpires::tickEmpiresVehicle()
 	// Moved distance, not distance to the factory: the detour first leads away from it.
 	if (v.stage == EmpiresVehicleStage::GOTO_FACTORY && !v.buyInPlace && now >= v.walkCheckAt)
 	{
-		if (Dist2D(getOrigin(), v.walkFrom) >= 300.0f && now - v.stageSince < 600.0f)
+		// A buyer that has been walking away from the factory for 60 s (1500 farther than its best) is not
+		// on a detour (R3 gap, Palmbay 20261125-161515: one buyer in 4 min with 5000 resources): replan the
+		// factory route once, then give the walk up instead of extending its deadline.
+		edict_t* walkFactory = v.factory.get();
+		const float factoryDist = walkFactory != nullptr && !walkFactory->IsFree() ?
+			Dist2D(getOrigin(), CBotGlobals::entityOrigin(walkFactory)) : -1.0f;
+		bool movingAway = false;
+		if (factoryDist >= 0.0f)
+		{
+			if (factoryDist < v.walkBestFactory)
+			{
+				v.walkBestFactory = factoryDist;
+				v.walkBestAt = now;
+			}
+			else if (factoryDist > v.walkBestFactory + 1500.0f && now - v.walkBestAt >= 60.0f)
+				movingAway = true;
+		}
+		if (movingAway)
+		{
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=buyer stage=%d reason=moving-away userid=%d factory_dist=%.0f best=%.0f for=%.0fs\n",
+				v.walkAwayReplans + 1, userId, factoryDist, v.walkBestFactory, now - v.walkBestAt);
+			if (v.walkAwayReplans >= 1)
+			{
+				resetEmpiresVehicle("moving-away", 20.0f);
+				return;
+			}
+			++v.walkAwayReplans;
+			v.walkBestFactory = factoryDist;
+			v.walkBestAt = now;
+			cancelNavigationAttempt("buyer-moving-away");
+			if (m_pSchedules != nullptr)
+				m_pSchedules->freeMemory();
+			if (m_pNavigator != nullptr)
+				m_pNavigator->clear();
+			v.factoryRoute = FactoryRoute(walkFactory, getOrigin());
+			v.factoryRouteIndex = 0;
+			if (!v.factoryRoute.empty())
+				v.goal = v.factoryRoute.front();
+			if (RCBotNavMesh::IsLoaded())
+				requestNavigation(v.goal, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0);
+		}
+		else if (Dist2D(getOrigin(), v.walkFrom) >= 300.0f && now - v.stageSince < 600.0f)
 			v.stageUntil = (std::max)(v.stageUntil, now + 30.0f);
 		v.walkFrom = getOrigin();
 		v.walkCheckAt = now + 30.0f;
@@ -4089,6 +4122,69 @@ void CBotEmpires::tickEmpiresVehicle()
 	if (g_obstacleTest.armed || g_obstacleTest.active)
 		ObstacleTestTick(v, userId, vehicle, chassis, origin, speed, forwardSpeed, now);
 
+	// -------- cannon pivot (3.21a): every turret weapon converges on the cannon axis
+	// (CEmpTank::GetWeaponVectors 0x69add0). Resolved once per tick and used for target sight,
+	// the fight movement's fire line and the aim/fire line (NF heavy/medium/APC pivots sit
+	// 130-151 above the hull origin; hull origin + 90 is the fallback).
+	Vector cannonEye = origin + Vector(0, 0, 90);
+	edict_t* cannonEdict = nullptr;
+	if (armed && rcbot_empires_vehicle_cannon_eye.GetBool())
+	{
+		float cannonDz = 0.0f, cannonD2 = 0.0f;
+		int turretIndex = -1, cannonIndex = -1;
+		edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
+			turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
+		edict_t* cannon = turret != nullptr && readEmpiresEntityHandleProperty(turret, "m_hCannon", 0, cannonIndex) &&
+			cannonIndex > 0 && cannonIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(cannonIndex) : nullptr;
+		if (cannon == nullptr)
+		{
+			// No readable handle: the emp_tank_cannon nearest to the hull (cached per vehicle).
+			edict_t* cached = v.cannonCacheVehicle == v.vehicleIndex && v.cannonCacheIndex > 0 ?
+				engine->PEntityOfEntIndex(v.cannonCacheIndex) : nullptr;
+			if (cached != nullptr && !cached->IsFree() && IsClass(cached, "emp_tank_cannon") &&
+				(CBotGlobals::entityOrigin(cached) - origin).Length() < 250.0f)
+				cannon = cached;
+			else if (now >= v.cannonSearchAt)
+			{
+				v.cannonSearchAt = now + 2.0f;
+				float best = 250.0f;
+				for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+				{
+					edict_t* e = engine->PEntityOfEntIndex(i);
+					if (e == nullptr || e->IsFree() || !IsClass(e, "emp_tank_cannon"))
+						continue;
+					const float d = (CBotGlobals::entityOrigin(e) - origin).Length();
+					if (d < best)
+					{
+						best = d;
+						cannon = e;
+					}
+				}
+				v.cannonCacheVehicle = v.vehicleIndex;
+				v.cannonCacheIndex = cannon != nullptr ? engine->IndexOfEdict(cannon) : -1;
+			}
+			cannonIndex = cannon != nullptr ? engine->IndexOfEdict(cannon) : -1;
+		}
+		if (cannon != nullptr && !cannon->IsFree())
+		{
+			const Vector pivot = CBotGlobals::entityOrigin(cannon);
+			cannonDz = pivot.z - origin.z;
+			cannonD2 = Dist2D(pivot, origin);
+			if ((pivot - origin).Length() < 250.0f)
+			{
+				cannonEye = pivot;
+				cannonEdict = cannon;
+			}
+		}
+		if (v.cannonEyeLogged != v.vehicleIndex)
+		{
+			v.cannonEyeLogged = v.vehicleIndex;
+			RCBOT_DIAG("[RCBOT2] vehicle cannon-eye userid=%d veh=%d chassis=%d cannon_found=%d cannon=%d used=%d dz=%.1f d2=%.1f\n",
+				userId, v.vehicleIndex, chassis, cannon != nullptr ? 1 : 0, cannonIndex, cannonEdict != nullptr ? 1 : 0,
+				cannonDz, cannonD2);
+		}
+	}
+
 	// -------- target choice
 	if (now >= v.nextTargetPick)
 	{
@@ -4098,7 +4194,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		// Only what a driver could see (rainbowroad 11 vs 11: tanks shot for minutes at an
 		// empty jeep and through cover, user: "shoot at enemies that are not there").
 		// The current target stays while seen within the last 3 s.
-		const Vector eye = origin + Vector(0, 0, 90);
+		const Vector eye = cannonEye;
 		auto inSight = [&](edict_t* e) {
 			if (e != nullptr && engine->IndexOfEdict(e) == v.fireBlockedSkipTarget && now < v.fireBlockedSkipUntil)
 				return false;
@@ -4330,6 +4426,16 @@ void CBotEmpires::tickEmpiresVehicle()
 				ownCvKnown = true;
 			}
 		}
+		// 3.20 part B: with fair intel the tank drives to where the team knows the enemy CV
+		// (live sight, last sighting, else the initial enemy base), not to its live position.
+		const bool fairIntel = EmpiresFairIntelEnabled(team);
+		if (fairIntel && enemyCvKnown)
+		{
+			Vector known;
+			bool live = false;
+			if (EmpiresTeamIntelEnemyBase(team, known, live))
+				enemyCvOrigin = known;
+		}
 		const float enemyCvDist = enemyCvKnown ? Dist2D(origin, enemyCvOrigin) : 1.0e9f;
 		if (armed && !v.billNye)
 		{
@@ -4382,7 +4488,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				int driver = -1;
 				if (!isApc && (!readEmpiresEntityHandleProperty(e, "m_hPassengers", 0, driver) || driver < 0))
 					continue; // empty wrecks and parked non-APC vehicles are not a threat
-				const Vector at = CBotGlobals::entityOrigin(e);
+				Vector at = CBotGlobals::entityOrigin(e);
+				if (fairIntel && !EmpiresTeamIntelKnownPos(team, e, at))
+					continue; // 3.20 part B: armour nobody on the team has seen (20 s memory)
 				const float d = Dist2D(origin, at);
 				float minAssetDist = 1.0e9f;
 				for (const Vector& asset : ownAssets)
@@ -4395,8 +4503,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				const bool canHunt = d < (isApc ? 7000.0f : 6000.0f) && huntScore < bestHunt;
 				if (!canDefend && !canHunt)
 					continue;
-				bool spotted = false;
-				if (canHunt || isApc)
+				bool spotted = fairIntel; // on the team board = spotted by a teammate, radar, camera or game spotting
+				if (!fairIntel && (canHunt || isApc))
 				{
 					const Vector centre = EntityCenter(e);
 					spotted = d < 4000.0f && worldClear(origin + Vector(0, 0, 90), centre);
@@ -4430,6 +4538,50 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 			const bool spawnApc = IsApcChassis(chassis) && !EmpiresLawlietIsCrew(team, client);
+			// Spawn APC park/staging spot: >= 800 from own buildings and >= 400 from other own
+			// vehicles. Crossroads A/B 20261126-102206 / 220248: the staging point (2149 -375) sat on
+			// the middle crossing 600 from the own forward refinery; stuck APCs were abandoned there
+			// and own defenders wedged themselves in them (two APCs side by side formed a pocket).
+			std::vector<Vector> ownParkBlockers;
+			std::vector<Vector> ownParkVehicles;
+			bool ownParkScanned = false;
+			auto apcSpotClearOfOwn = [&](const Vector& spot) {
+				if (!ownParkScanned)
+				{
+					ownParkScanned = true;
+					for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
+					{
+						edict_t* e = engine->PEntityOfEntIndex(i);
+						if (e == nullptr || e->IsFree() || e->GetClassName() == nullptr)
+							continue;
+						const char* name = e->GetClassName();
+						if (std::strcmp(name, "emp_vehicle") == 0)
+						{
+							if (i != v.vehicleIndex && EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1) == team &&
+								EmpiresVehicleAlive(this, e))
+								ownParkVehicles.push_back(CBotGlobals::entityOrigin(e));
+							continue;
+						}
+						if (std::strncmp(name, "emp_building_", 13) != 0 || std::strstr(name, "physbox") != nullptr ||
+							std::strstr(name, "panel") != nullptr)
+							continue;
+						int buildingTeam = EmpiresVehicleReadInt(this, e, "m_iTeamNum", -1);
+						if (buildingTeam != 2 && buildingTeam != 3)
+							buildingTeam = std::strncmp(name, "emp_building_nf_", 16) == 0 ? 2 :
+								(std::strncmp(name, "emp_building_imp_", 17) == 0 ? 3 : -1);
+						if (buildingTeam == team)
+							ownParkBlockers.push_back(CBotGlobals::entityOrigin(e));
+					}
+				}
+				for (const Vector& at : ownParkBlockers)
+					if (Dist2D(at, spot) < 800.0f)
+						return false;
+				for (const Vector& at : ownParkVehicles)
+					if (Dist2D(at, spot) < 400.0f)
+						return false;
+				return true;
+			};
+			int rejOwnPark = 0;
 			if (!spawnApc && bestDefend < 1.0e9f)
 			{
 				v.goal = defendAt;
@@ -4509,7 +4661,9 @@ void CBotEmpires::tickEmpiresVehicle()
 								(std::strncmp(name, "emp_building_imp_", 17) == 0 ? 3 : -1);
 						if (buildingTeam != enemyTeam || EmpiresVehicleReadInt(this, e, "m_iHealth", 1) <= 0)
 							continue;
-						const Vector at = CBotGlobals::entityOrigin(e);
+						Vector at = CBotGlobals::entityOrigin(e);
+						if (fairIntel && !EmpiresTeamIntelKnownPos(team, e, at))
+							continue;
 						if (now < v.skipFrontUntil && Dist2D(at, v.skippedFront) < 50)
 							continue;
 						const float d = Dist2D(side, at);
@@ -4566,7 +4720,10 @@ void CBotEmpires::tickEmpiresVehicle()
 						Vector fallback(0, 0, 0);
 						bool fallbackKnown = false;
 						int rejMesh = 0, rejWalk = 0, rejSeen = 0, rejFoot = 0, rejDrive = 0;
-						for (float radius : {1200.0f, 1600.0f, 2000.0f})
+						// 5.14a: the spawn APC tries the middle ring first (1200 sat in the fight at flags).
+						static const float kRadii[] = {1200.0f, 1600.0f, 2000.0f};
+						static const float kApcRadii[] = {1600.0f, 1200.0f, 2000.0f};
+						for (float radius : (spawnApc ? kApcRadii : kRadii))
 						{
 							if (radius > 1900.0f && !enemyAnchor)
 								break; // third ring only around an enemy building (narrow Crossroads road)
@@ -4595,6 +4752,11 @@ void CBotEmpires::tickEmpiresVehicle()
 										(best != nullptr && worldClear(EntityCenter(best), mesh + Vector(0, 0, 64))))
 									{
 										++rejWalk;
+										continue;
+									}
+									if (!apcSpotClearOfOwn(mesh))
+									{
+										++rejOwnPark;
 										continue;
 									}
 									// Behind a crest/building: the enemy building (and its turrets) must not see the hull.
@@ -4669,7 +4831,12 @@ void CBotEmpires::tickEmpiresVehicle()
 							if (!staged && home.Length() > 1.0f &&
 								RCBotNavMesh::ClosestPointOnMesh(front + home.Normalized() * back, 800.0f, stage) &&
 								Dist2D(stage, front) > 1500.0f)
-								staged = true;
+							{
+								if (apcSpotClearOfOwn(stage))
+									staged = true;
+								else
+									++rejOwnPark;
+							}
 						if (!staged)
 							stage = Dist2D(origin, front) > 2000.0f ? origin : (ownCvKnown ? ownCvOrigin : origin);
 						{
@@ -4678,8 +4845,8 @@ void CBotEmpires::tickEmpiresVehicle()
 							v.goalValid = true;
 							goalKind = 2;
 							if (newStage)
-								RCBOT_DIAG("[RCBOT2] apc-cover-park userid=%d stage=%s anchor=(%.0f %.0f) spot=(%.0f %.0f %.0f)\n",
-									userId, staged ? "staging" : "hold", front.x, front.y, stage.x, stage.y, stage.z);
+								RCBOT_DIAG("[RCBOT2] apc-cover-park userid=%d stage=%s anchor=(%.0f %.0f) spot=(%.0f %.0f %.0f) rej_own=%d\n",
+									userId, staged ? "staging" : "hold", front.x, front.y, stage.x, stage.y, stage.z, rejOwnPark);
 						}
 					}
 					else if (spawnApc && !v.supportKnown)
@@ -4696,7 +4863,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 			// 4. Push: when the front holds, closer enemy economy/spawn buildings (refinery/barracks/VF/radar).
-			if (!v.goalValid)
+			// Not for a spawn APC (5.14a): it parks out of sight or waits, it does not push in like a tank.
+			if (!v.goalValid && !(spawnApc && rcbot_empires_apc_cover_park.GetBool()))
 			{
 				float bestBldgDist = enemyCvDist - 1500.0f;
 				for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
@@ -4720,7 +4888,9 @@ void CBotEmpires::tickEmpiresVehicle()
 							(std::strncmp(name, "emp_building_imp_", 17) == 0 ? 3 : -1);
 					if (buildingTeam != enemyTeam || EmpiresVehicleReadInt(this, e, "m_iHealth", 1) <= 0)
 						continue;
-					const Vector at = CBotGlobals::entityOrigin(e);
+					Vector at = CBotGlobals::entityOrigin(e);
+					if (fairIntel && !EmpiresTeamIntelKnownPos(team, e, at))
+						continue;
 					const float d = Dist2D(origin, at);
 					if (d < bestBldgDist)
 					{
@@ -4732,7 +4902,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 			}
 		}
-		if (!v.goalValid && enemyCvKnown)
+		if (!v.goalValid && enemyCvKnown &&
+			!(IsApcChassis(chassis) && !EmpiresLawlietIsCrew(team, client) && rcbot_empires_apc_cover_park.GetBool()))
 		{
 			v.goal = enemyCvOrigin;
 			v.goalValid = true;
@@ -4741,8 +4912,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		if (v.goalValid && (goalKind != v.goalKind || Dist2D(v.goal, v.goalLogged) > 500.0f))
 		{
 			static const char* const kKinds[] = {"defend", "hunt", "front", "push", "cv"};
-			RCBOT_DIAG("[RCBOT2] vehicle goal userid=%d kind=%s at=(%.0f %.0f %.0f) dist=%.0f\n", userId,
-				goalKind >= 0 ? kKinds[goalKind] : "-", v.goal.x, v.goal.y, v.goal.z, Dist2D(origin, v.goal));
+			RCBOT_DIAG("[RCBOT2] vehicle goal userid=%d kind=%s at=(%.0f %.0f %.0f) dist=%.0f fair=%d\n", userId,
+				goalKind >= 0 ? kKinds[goalKind] : "-", v.goal.x, v.goal.y, v.goal.z, Dist2D(origin, v.goal), fairIntel ? 1 : 0);
 			v.goalKind = goalKind;
 			v.goalLogged = v.goal;
 		}
@@ -4843,9 +5014,17 @@ void CBotEmpires::tickEmpiresVehicle()
 	bool ram = false;
 	// The front support spot is a chosen stand: arrive close to it, then hold there.
 	float arrive = v.goalKind == 2 ? 250.0f : 600.0f;
+	const bool spawnApcHold = IsApcChassis(chassis) && !EmpiresLawlietIsCrew(team, client) && !v.billNye &&
+		rcbot_empires_apc_cover_park.GetBool();
 	if (IsApcChassis(chassis) && v.goalValid && v.goalKind == 2 && !EmpiresLawlietIsCrew(team, client))
 	{
 		driveTo = v.goal; // Hold the spawn route even while the gun tracks a target.
+	}
+	else if (spawnApcHold && target != nullptr)
+	{
+		// 5.14a: no spot yet: the spawn APC keeps its goal (staging) or holds, it never closes in to fight.
+		driveTo = v.goalValid ? v.goal : origin;
+		arrive = 250.0f;
 	}
 	else if (v.billNye && targetIsVehicle)
 	{
@@ -4913,7 +5092,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		const bool targetIsBuilding = target->GetClassName() != nullptr &&
 			std::strncmp(target->GetClassName(), "emp_building_", 13) == 0;
 		const float distance = Dist2D(origin, targetAt);
-		if (HasClearFireLine(m_pEdict, vehicle, origin + Vector(0, 0, 90), target))
+		if (HasClearFireLine(m_pEdict, vehicle, cannonEye, target))
 			v.fightSight = now;
 		const bool sight = now - v.fightSight < 3.0f;
 		if (now < v.pitchLimitUntil && v.pitchLimitDown &&
@@ -5179,7 +5358,32 @@ void CBotEmpires::tickEmpiresVehicle()
 					userId, v.vehicleIndex, v.ammoTrip ? "ammo" : "loadout", v.weaponSummary, origin.x, origin.y, origin.z);
 			}
 		}
-		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV && (hullFrac < 0.4f || armorGone) &&
+		const bool spawnApcHull = IsApcChassis(chassis) && !EmpiresLawlietIsCrew(team, client);
+		const float retreatHull = spawnApcHull ? rcbot_empires_apc_retreat_hull.GetFloat() : 0.4f;
+		// 5.14a: a park spot under fire (hit from out of sight: turrets, mortars, rockets) is given up.
+		if (spawnApcHull && !v.retreating && v.goalValid && v.goalKind == 2 && v.supportKnown &&
+			Dist2D(origin, v.supportSpot) < 300.0f)
+		{
+			if (v.parkArriveAt <= 0.0f || now - v.parkArriveAt > 15.0f)
+			{
+				v.parkArriveAt = now;
+				v.parkArriveTotal = total;
+			}
+			else if (v.parkArriveTotal > 0.0f && total < v.parkArriveTotal * 0.85f)
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=apc-park stage=1 reason=damaged lost=%.0f/%.0f in=%.0fs spot=(%.0f %.0f %.0f)\n",
+					v.parkArriveTotal - total, v.parkArriveTotal, now - v.parkArriveAt, v.supportSpot.x, v.supportSpot.y,
+					v.supportSpot.z);
+				v.rejectedPark = v.supportSpot;
+				v.rejectedParkUntil = now + 45.0f;
+				v.supportKnown = false;
+				v.nextParkSearch = 0.0f;
+				v.parkArriveAt = 0.0f;
+			}
+		}
+		else
+			v.parkArriveAt = 0.0f;
+		if (!lawlietDrive && !v.retreating && !v.billNye && !v.commanderCV && (hullFrac < retreatHull || armorGone) &&
 			now >= v.retreatCooldownUntil)
 		{
 			v.retreating = true;
@@ -6742,60 +6946,9 @@ void CBotEmpires::tickEmpiresVehicle()
 		// parallel to the view direction. Aim from the pivot, not from hull origin + 90: the NF
 		// heavy/medium/APC pivots sit 130-151 above the hull origin, so the MG went over every
 		// head (NF heavy 1.6 HP/s vs BE heavy 28.3, RE vehicle-driving.md).
-		Vector eye = origin + Vector(0, 0, 90);
-		edict_t* aimCannon = nullptr;
-		if (rcbot_empires_vehicle_cannon_eye.GetBool())
-		{
-			int turretIndex = -1, cannonIndex = -1;
-			edict_t* turret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, turretIndex) &&
-				turretIndex > 0 && turretIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(turretIndex) : nullptr;
-			edict_t* cannon = turret != nullptr && readEmpiresEntityHandleProperty(turret, "m_hCannon", 0, cannonIndex) &&
-				cannonIndex > 0 && cannonIndex < gpGlobals->maxEntities ? engine->PEntityOfEntIndex(cannonIndex) : nullptr;
-			if (cannon == nullptr)
-			{
-				// No readable handle: the emp_tank_cannon nearest to the hull (cached per vehicle).
-				edict_t* cached = v.cannonCacheVehicle == v.vehicleIndex && v.cannonCacheIndex > 0 ?
-					engine->PEntityOfEntIndex(v.cannonCacheIndex) : nullptr;
-				if (cached != nullptr && !cached->IsFree() && IsClass(cached, "emp_tank_cannon") &&
-					(CBotGlobals::entityOrigin(cached) - origin).Length() < 250.0f)
-					cannon = cached;
-				else if (now >= v.cannonSearchAt)
-				{
-					v.cannonSearchAt = now + 2.0f;
-					float best = 250.0f;
-					for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; ++i)
-					{
-						edict_t* e = engine->PEntityOfEntIndex(i);
-						if (e == nullptr || e->IsFree() || !IsClass(e, "emp_tank_cannon"))
-							continue;
-						const float d = (CBotGlobals::entityOrigin(e) - origin).Length();
-						if (d < best)
-						{
-							best = d;
-							cannon = e;
-						}
-					}
-					v.cannonCacheVehicle = v.vehicleIndex;
-					v.cannonCacheIndex = cannon != nullptr ? engine->IndexOfEdict(cannon) : -1;
-				}
-				cannonIndex = cannon != nullptr ? engine->IndexOfEdict(cannon) : -1;
-			}
-			if (cannon != nullptr && !cannon->IsFree())
-			{
-				const Vector pivot = CBotGlobals::entityOrigin(cannon);
-				if (v.cannonEyeLogged != v.vehicleIndex)
-				{
-					v.cannonEyeLogged = v.vehicleIndex;
-					RCBOT_DIAG("[RCBOT2] vehicle cannon-eye userid=%d veh=%d chassis=%d cannon=%d dz=%.1f d2=%.1f\n",
-						userId, v.vehicleIndex, chassis, cannonIndex, pivot.z - origin.z, Dist2D(pivot, origin));
-				}
-				if ((pivot - origin).Length() < 250.0f)
-				{
-					eye = pivot;
-					aimCannon = cannon;
-				}
-			}
-		}
+		// 3.21a: the pivot resolved once above (cannonEye/aimCannon), same for sight, movement and fire.
+		const Vector eye = cannonEye;
+		edict_t* const aimCannon = cannonEdict;
 		const int targetIndex = engine->IndexOfEdict(target);
 		const bool infantry = targetIndex >= 1 && targetIndex <= gpGlobals->maxClients;
 		// Lead: target velocity from its last positions (smoothed).
@@ -6818,11 +6971,13 @@ void CBotEmpires::tickEmpiresVehicle()
 		// (type 0) fire hitscan bullets with a tracer, so no lead on infantry (3.21: with the old
 		// range/1000 lead, moving infantry at 500-900 took 1.5 HP/s vs 18.9 standing, run 211230).
 		// Standard Cannon 3300 u/s, gravity 0.5, splash 250.
+		// 3.10f: with only missiles loaded in the active group (no cannon), lead at 2300 u/s without drop.
 		const float range = (centre - eye).Length();
-		const float flight = infantry ? 0.0f : range / 3300.0f;
+		const EmpiresVehicleAim::BallisticsResult ballistics = EmpiresVehicleAim::ChooseBallistics(range, infantry,
+			!v.weaponsKnown || v.weaponActiveCannonLoaded, v.weaponsKnown && v.weaponActiveMissileLoaded);
+		const float flight = ballistics.flightTime;
 		Vector aim = centre + v.aimVel * flight;
-		if (!infantry)
-			aim.z += 0.5f * 0.5f * 600.0f * flight * flight; // drop at sv_gravity 600 (assumed)
+		aim.z += ballistics.gravityDropZ; // drop at sv_gravity 600 (assumed), 0 for MG and missiles
 		QAngle worldView;
 		VectorAngles(aim - eye, worldView);
 		view = hullView(aim - eye);
@@ -6919,7 +7074,39 @@ void CBotEmpires::tickEmpiresVehicle()
 						blockIndex, blockCls, eye.x, eye.y, eye.z, blockEnd.x, blockEnd.y, blockEnd.z);
 				}
 			}
-			if (lineClear && now - v.aimSince > 1.2f && heat < 80.0f && now >= v.pitchLimitUntil)
+			// 3.21a: fire once the turret really points at the target instead of a blind 1.2 s.
+			// Chassis without a rotatable turret (no turret, or m_fMinYaw == m_fMaxYaw) keep the delay.
+			bool aimReady = false;
+			{
+				int alignTurretIndex = -1;
+				edict_t* alignTurret = readEmpiresEntityHandleProperty(vehicle, "m_hTurret", 0, alignTurretIndex) &&
+					alignTurretIndex > 0 && alignTurretIndex < gpGlobals->maxEntities ?
+					engine->PEntityOfEntIndex(alignTurretIndex) : nullptr;
+				float minYaw = 0.0f, maxYaw = 0.0f;
+				const bool yawRangeKnown = alignTurret != nullptr && !alignTurret->IsFree() &&
+					ReadEntityFloat(alignTurret, "m_fMinYaw", minYaw) && ReadEntityFloat(alignTurret, "m_fMaxYaw", maxYaw);
+				EmpiresVehicleAim::TurretAlignInput alignIn;
+				alignIn.alignCheckEnabled = rcbot_empires_vehicle_turret_align.GetBool();
+				alignIn.hasRotatableTurret = EmpiresVehicleAim::HasRotatableTurret(yawRangeKnown, minYaw, maxYaw);
+				// turret models face local +X: collision yaw = barrel world yaw (runs 121856/121916)
+				alignIn.turretYawDeg = alignIn.hasRotatableTurret && alignTurret->GetCollideable() != nullptr ?
+					alignTurret->GetCollideable()->GetCollisionAngles().y : 0.0f;
+				alignIn.wantYawDeg = worldView.y;
+				alignIn.aimedForSeconds = now - v.aimSince;
+				alignIn.infantryTarget = infantry;
+				const EmpiresVehicleAim::TurretAlignResult align = EmpiresVehicleAim::TurretAlignedToFire(alignIn);
+				aimReady = align.canFire;
+				if (lineClear && align.fallbackEscalated &&
+					(v.turretAlignTarget != targetIndex || now >= v.turretAlignLogAt))
+				{
+					v.turretAlignTarget = targetIndex;
+					v.turretAlignLogAt = now + 10.0f;
+					RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle-aim userid=%d stage=1 reason=turret-not-aligned "
+						"target=%d chassis=%d yaw_err=%.0f aimed_for=%.1f yaw_range=(%.0f %.0f)\n", userId, targetIndex,
+						chassis, align.yawErrorDeg, alignIn.aimedForSeconds, minYaw, maxYaw);
+				}
+			}
+			if (lineClear && aimReady && heat < 80.0f && now >= v.pitchLimitUntil)
 			{
 				// Fallback when the turret arrays cannot be read: the bot's own loadout has the MG on
 				// IN_ATTACK and the cannon on IN_ATTACK2 (run 150322: MG ammo drops under IN_ATTACK,
@@ -6938,18 +7125,28 @@ void CBotEmpires::tickEmpiresVehicle()
 				// buildings, group 2 (index 1: cannon + MG) against infantry, so the missiles are
 				// kept for armour. emp_change_vehicweap <1..6> selects group N-1 for the driver
 				// (CEmpPlayer::ChangeVehicleWeapon 0x663160; ignored for an empty group).
-				if (v.weaponsKnown && v.weaponGroupCount >= 2 && rcbot_empires_vehicle_missiles.GetBool() &&
-					helpers != nullptr)
+				// 3.10f: no shot in the switch tick nor in the 0.35 s until the turret reports the new
+				// group (it would fire the old group: missiles at infantry, or no missile at armour).
+				bool fireGroupHold = false;
+				if (helpers != nullptr)
 				{
-					const int wantGroup = infantry ? 1 : 0;
-					if (v.weaponGroup != wantGroup && now - v.fireGroupSentAt >= 1.0f)
+					const EmpiresVehicleAim::FireGroupDecision groupDecision = EmpiresVehicleAim::DecideFireGroupSwitch(
+						v.weaponsKnown, v.weaponGroup, v.weaponGroupCount, rcbot_empires_vehicle_missiles.GetBool(),
+						infantry, now, v.fireGroupSentAt);
+					fireGroupHold = groupDecision.suppressFireThisTick;
+					if (fireGroupHold)
+						++v.fireGroupHeld;
+					const int wantGroup = groupDecision.wantGroup;
+					if (groupDecision.sendSwitch)
 					{
 						v.fireGroupSentAt = now;
 						char cmd[48];
 						snprintf(cmd, sizeof(cmd), "emp_change_vehicweap %d\n", wantGroup + 1);
 						helpers->ClientCommand(m_pEdict, cmd);
-						RCBOT_DIAG("[RCBOT2] vehicle fire-group userid=%d from=%d to=%d target=%d infantry=%d dist=%.0f\n",
-							userId, v.weaponGroup + 1, wantGroup + 1, targetIndex, infantry ? 1 : 0, distance);
+						RCBOT_DIAG("[RCBOT2] vehicle fire-group userid=%d from=%d to=%d target=%d infantry=%d dist=%.0f "
+							"held_before=%d\n", userId, v.weaponGroup + 1, wantGroup + 1, targetIndex, infantry ? 1 : 0, distance,
+							v.fireGroupHeld);
+						v.fireGroupHeld = 1; // this tick
 						v.weaponReadAt = -1.0f; // read the new group on the next tick
 					}
 				}
@@ -6986,6 +7183,11 @@ void CBotEmpires::tickEmpiresVehicle()
 				}
 				else if (distance < 4000.0f)
 					buttons |= kCannon;
+				if (fireGroupHold)
+				{
+					buttons &= ~(IN_ATTACK | IN_ATTACK2);
+					why = "fire-group-switch";
+				}
 				// 3.21 diagnosis: one line per MG engagement on infantry (fire time, time the target
 				// moved > 80 u/s, health at start and end).
 				{
@@ -7106,10 +7308,10 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (now >= v.nextAimLog)
 				{
 					v.nextAimLog = now + 5.0f;
-					RCBOT_DIAG("[RCBOT2] vehicle fire userid=%d target=%d infantry=%d dist=%.0f buttons=%s%s why=%s lead=%.0f weapons=%s\n",
+					RCBOT_DIAG("[RCBOT2] vehicle fire userid=%d target=%d infantry=%d dist=%.0f buttons=%s%s why=%s lead=%.0f ballistics=%d weapons=%s\n",
 						userId, targetIndex, infantry ? 1 : 0, distance,
 						(buttons & IN_ATTACK) ? "a1" : "", (buttons & IN_ATTACK2) ? "a2" : "", why,
-						(aim - centre).Length(), v.weaponsKnown ? v.weaponSummary : "unknown");
+						(aim - centre).Length(), static_cast<int>(ballistics.mode), v.weaponsKnown ? v.weaponSummary : "unknown");
 				}
 			}
 		}

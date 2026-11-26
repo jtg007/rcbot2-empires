@@ -688,7 +688,15 @@ struct EmpiresLawlietImpl
 		st.enemyCvAlive = enemyCv != nullptr;
 		st.enemyCvEntity = enemyCvEntity;
 		if (enemyCv != nullptr)
+		{
 			st.enemyCvOrigin = enemyCvOrigin;
+			// 3.20 part B: with fair intel the rush heads for the team's known CV position
+			// (live sight, last sighting, else the initial enemy base).
+			Vector known;
+			bool live = false;
+			if (EmpiresFairIntelEnabled(team) && EmpiresTeamIntelEnemyBase(team, known, live))
+				st.enemyCvOrigin = known;
+		}
 
 		const int cvarMode = rcbot_empires_lawliet.GetInt();
 		if (st.phase != PHASE_IDLE && cvarMode == 0)
