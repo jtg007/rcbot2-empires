@@ -2489,6 +2489,26 @@ bool ClipsBlockSegment(const std::vector<BuildingBox>& clips, const Vector& from
 	return false;
 }
 
+// 9.8: tan of the steepest area incline a vehicle may climb into, 0 = no limit (set per BuildVehiclePath call).
+// The Palmbay CV stalls from low speed on ~23-26 deg banks (runs 20261127-185703/-190017); the planner then sent
+// it down the shore bank and up a 25-40 deg one it could not climb, and it slid into the sea.
+float s_vehicleMaxClimbTan = 0.0f;
+
+float AreaInclineTan(const CNavArea* area)
+{
+	const float sx = area->GetSizeX();
+	const float sy = area->GetSizeY();
+	if (sx < 1.0f || sy < 1.0f)
+		return 0.0f;
+	const float nw = area->GetCorner(NORTH_WEST).z;
+	const float ne = area->GetCorner(NORTH_EAST).z;
+	const float se = area->GetCorner(SOUTH_EAST).z;
+	const float sw = area->GetCorner(SOUTH_WEST).z;
+	const float gx = 0.5f * ((ne - nw) + (se - sw)) / sx;
+	const float gy = 0.5f * ((sw - nw) + (se - ne)) / sy;
+	return std::sqrt(gx * gx + gy * gy);
+}
+
 // Vehicles: no ladders, no jump steps, no crouch holes, no deep drops; narrow
 // links cost extra; links a vehicle got stuck on are closed for vehicles only.
 class VehicleNavMeshCost
@@ -2531,6 +2551,9 @@ public:
 			return -1.0f;
 		const float heightChange = fromArea->ComputeAdjacentConnectionHeightChange(area);
 		if (heightChange > kVehicleMaxStep || heightChange < -kVehicleMaxDrop)
+			return -1.0f;
+		if (s_vehicleMaxClimbTan > 0.0f && area->GetCenter().z > fromArea->GetCenter().z + 4.0f &&
+			AreaInclineTan(area) > s_vehicleMaxClimbTan)
 			return -1.0f;
 		const float dist = length > 0.0f ? length : (area->GetCenter() - fromArea->GetCenter()).Length();
 		float cost = dist + fromArea->GetCostSoFar();
@@ -2908,8 +2931,13 @@ bool VehicleClipBlocks(const Vector& from, const Vector& to, float width)
 }
 
 PathResult BuildVehiclePath(const Vector &from, const Vector &to, Path &path, float width, bool allowPartial,
-	float maxWaterDepth, const edict_t* drivenVehicle)
+	float maxWaterDepth, const edict_t* drivenVehicle, float maxClimbDeg)
 {
+	struct ClimbScope
+	{
+		explicit ClimbScope(float deg) { s_vehicleMaxClimbTan = deg > 0.0f ? std::tan(deg * 3.14159265f / 180.0f) : 0.0f; }
+		~ClimbScope() { s_vehicleMaxClimbTan = 0.0f; }
+	} climbScope(maxClimbDeg);
 	path.clear();
 	if (!IsLoaded())
 		return PathResult::NAVMESH_NOT_LOADED;

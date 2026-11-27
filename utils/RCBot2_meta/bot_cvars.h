@@ -129,6 +129,7 @@ extern ConVar rcbot_empires_self_preservation;
 extern ConVar rcbot_empires_buddy_repair;
 extern ConVar rcbot_empires_tank_escort;
 extern ConVar rcbot_empires_humans_first;
+extern ConVar rcbot_empires_cv_max_climb;
 extern ConVar rcbot_empires_seek_medic;
 extern ConVar rcbot_empires_nav_lip_escape;
 extern ConVar rcbot_empires_nav_enemy_vehicle_block;

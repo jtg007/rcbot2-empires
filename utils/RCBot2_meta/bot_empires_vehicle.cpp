@@ -64,6 +64,10 @@ ConVar rcbot_empires_vehicle_pitch_limit("rcbot_empires_vehicle_pitch_limit", "1
 	"3.21a: hold fire while the game clamps the cannon pitch (target below the chassis minimum range) and back off");
 ConVar rcbot_empires_vehicle_keep_route("rcbot_empires_vehicle_keep_route", "1", 0,
 	"Vehicles: when replanning finds no path to the same goal, keep driving the last route instead of straight at the goal");
+ConVar rcbot_empires_vehicle_ctx_ground_slopes("rcbot_empires_vehicle_ctx_ground_slopes", "1", 0,
+	"9.8: context steering and its passage scan treat level-trace hits on drivable ground (normal z >= 0.7) as free; 0 = a rising slope counts as a wall");
+ConVar rcbot_empires_cv_no_path_stop("rcbot_empires_cv_no_path_stop", "1", 0,
+	"9.8: a commander CV drive with no vehicle path (and no last route to keep) ends with reason=no-path instead of driving straight at the goal across slopes and shore");
 ConVar rcbot_empires_vehicle_deep_water("rcbot_empires_vehicle_deep_water", "1", 0,
 	"Vehicles: steering edge checks treat water deeper than the vehicle can ford as a drop");
 ConVar rcbot_empires_vehicle_hold("rcbot_empires_vehicle_hold", "0", 0,
@@ -682,6 +686,17 @@ private:
 };
 
 constexpr float kVehicleMgInfantryRange = 1200.0f; // MG round 1000 u/s (vehicle_weapons.txt)
+
+// 9.8: the context-steering traces run level, so a rising drivable slope (normal z >= 0.7) beside or ahead of
+// the route read as a wall: on Palmbay the CV was steered away from the uphill route, down the shore bank at
+// 585 u/s (runs 20261127-190553/-190533), and the side traces reported a passage on open ground.
+float CtxWallFraction(const trace_t& hit)
+{
+	if (rcbot_empires_vehicle_ctx_ground_slopes.GetBool() && !hit.startsolid && hit.fraction < 1.0f &&
+		hit.plane.normal.z >= 0.7f)
+		return 1.0f;
+	return hit.fraction;
+}
 
 // Consistent chassis-relative trace height (~42 HU above the bottom of the vehicle OBB).
 // APC/Light/AFV origins sit ~40 HU above the ground (OBBMins.z ~ -36), so a fixed +48 trace ran
@@ -6260,7 +6275,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.routeGoal = driveTo;
 			RCBotNavMesh::Path path;
 			const RCBotNavMesh::PathResult result =
-				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, vehicle);
+				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, vehicle,
+					v.commanderCV ? rcbot_empires_cv_max_climb.GetFloat() : 0.0f);
 			const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2;
 			if (static_cast<int>(result) != v.routeResult || (ok && v.route.empty()) || path.partial != v.routePartial)
 				RCBOT_DIAG("[RCBOT2] vehicle route userid=%d result=%s%s points=%zu length=%.0f from=(%.0f %.0f %.0f) "
@@ -6295,6 +6311,17 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 		}
 		clipBlockedRoute = v.routeResult == static_cast<int>(RCBotNavMesh::PathResult::VEHICLE_CLIP_BLOCKED);
+		// 9.8: without a path the CV drove straight at its goal from the Palmbay shore lowland, up a
+		// >40 deg bank, slid back and drowned (run 20261125-171744, game over at 10:53). End the drive;
+		// the commander drops the site and picks another one.
+		if (v.route.empty() && v.routeFailed && v.commanderCV && !v.cvHunt && !v.cvArrived && target == nullptr &&
+			rcbot_empires_cv_no_path_stop.GetBool())
+		{
+			v.cvArrived = true;
+			v.cvEnd = "no-path";
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=cv userid=%d stage=3 reason=no-path pos=(%.0f %.0f %.0f) "
+				"goal=(%.0f %.0f %.0f)\n", userId, origin.x, origin.y, origin.z, driveTo.x, driveTo.y, driveTo.z);
+		}
 		if (!v.route.empty())
 		{
 			// Tight-lane points (rcbot_empires_vehicle_wall_clearance): reached within 90, no lookahead past them;
@@ -6403,7 +6430,7 @@ void CBotEmpires::tickEmpiresVehicle()
 							Ray_t ray;
 							ray.Init(at, at + side * (s * (halfWidth + 300.0f)));
 							enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &gateFilter, &hit);
-							free += hit.fraction * (halfWidth + 300.0f);
+							free += CtxWallFraction(hit) * (halfWidth + 300.0f);
 						}
 						narrowest = (std::min)(narrowest, free);
 					}
@@ -6586,7 +6613,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			Ray_t ray;
 			ray.Init(eye, to + Vector(0, 0, traceLift));
 			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
-			return hit.startsolid ? 0.0f : hit.fraction;
+			return hit.startsolid ? 0.0f : CtxWallFraction(hit);
 		};
 		const float reach = (std::max)(300.0f, (std::min)(700.0f, 250.0f + speed * 0.6f));
 		// Danger along one yaw: the centre line plus both front corners swept along it (corner start
@@ -6598,7 +6625,7 @@ void CBotEmpires::tickEmpiresVehicle()
 			Ray_t ray;
 			ray.Init(from + Vector(0, 0, traceLift), to + Vector(0, 0, traceLift));
 			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
-			return hit.startsolid ? 1.0f : hit.fraction; // inside: that corner says nothing
+			return hit.startsolid ? 1.0f : CtxWallFraction(hit); // inside: that corner says nothing
 		};
 		auto dangerAt = [&](float yaw) {
 			const Vector dir = YawDir(yaw);

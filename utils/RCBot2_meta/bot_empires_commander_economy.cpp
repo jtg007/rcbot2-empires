@@ -1442,7 +1442,8 @@ void CBotEmpires::tickCommanderEconomy()
 					++routeChecks;
 					RCBotNavMesh::Path path;
 					const RCBotNavMesh::PathResult result =
-						RCBotNavMesh::BuildVehiclePath(vehicleOrigin, c.at, path, cvWidth, false, 32.0f, vehicle);
+						RCBotNavMesh::BuildVehiclePath(vehicleOrigin, c.at, path, cvWidth, false, 32.0f, vehicle,
+							rcbot_empires_cv_max_climb.GetFloat());
 					const float straight = (c.at - vehicleOrigin).Length2D();
 					const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2 &&
 						path.length <= (std::max)(straight * 1.8f, straight + 600.0f);
