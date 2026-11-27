@@ -1335,6 +1335,28 @@ void CBotEmpires::tickCommanderEconomy()
 		if (nearestRefinery >= 0.0f)
 			zone = (std::max)(kCommanderZoneMin, (std::min)(kCommanderZoneMax, nearestRefinery + kCommanderZoneMargin));
 	}
+	// The Commander is the only engineer: a building beyond his reach (zone + margin, see farCore) will not be
+	// built by anyone and must not hold the next placement (A/B 20261128-002502: BE refinery 10467 from home,
+	// no factory in 15 min with 953 resources).
+	if (rcbot_empires_commander_far_core.GetBool() && commanderEngineer && livingEngineers == 0)
+		for (const BuildingInfo& info : buildings)
+		{
+			if (!info.underConstruction)
+				continue;
+			bool givenUp = false;
+			for (const auto& entry : state.assignTries)
+				givenUp = givenUp || (entry.entity == info.entity && entry.tries >= kMaxAssignTries);
+			edict_t* e = engine->PEntityOfEntIndex(info.entity);
+			if (givenUp || e == nullptr || (CBotGlobals::entityOrigin(e) - home).Length() < zone + kCommanderZoneMargin)
+				continue;
+			--unfinished;
+			if (state.lastUnreachableLog != info.entity)
+			{
+				state.lastUnreachableLog = info.entity;
+				RCBOT_DIAG("[RCBOT2] commander-econ unreachable building=%d class=%s home_distance=%.0f reach=%.0f counted=0\n",
+					info.entity, e->GetClassName(), (CBotGlobals::entityOrigin(e) - home).Length(), zone + kCommanderZoneMargin);
+			}
+		}
 
 	// --- CV survival retreat (TODO 5.23): pull the CV back when an enemy vehicle closes in
 	// or the CV takes heavy fire, preferring a finished repair pad or open mesh away from threat. ---
@@ -1664,7 +1686,17 @@ void CBotEmpires::tickCommanderEconomy()
 			// after two assignment rounds (about 20 s) the Commander drives there himself, unless an
 			// Engineer is already at it (helper), then he builds with that help.
 			const bool farFactory = info.type == VehicleFactory && tries->tries >= 2;
-			if (helper < 0 && !enemyNear && (homeDistance < zone || farFactory))
+			// No free engineer for a core building outside the zone: nobody else will build it, and with
+			// one engineer it holds every further placement (MaxUnfinished) and the reserve (10-bot DMZ
+			// 20261127-234142: NF refinery 6237, BE barracks 6230 from home, zone 6000, no VF / no vehicle
+			// in 15 min). After two skip rounds the Commander drives there himself.
+			// Only just outside (zone + margin): an unbounded rule sent the CV 10,500 HU across DMZ to a refinery
+			// and the factory came later (A/B 20261128-001937 vs -002002).
+			const bool farCore = rcbot_empires_commander_far_core.GetBool() && candidates.empty() &&
+				tier <= EmpiresPriority::TIER_CORE && tries->tries >= 2 && homeDistance < zone + kCommanderZoneMargin;
+			// A building beside the Commander vehicle where it stands now (it drove to a remote factory site).
+			const bool nearVehicle = rcbot_empires_commander_far_core.GetBool() && cvDistance < zone;
+			if (helper < 0 && !enemyNear && (homeDistance < zone || farFactory || farCore || nearVehicle))
 			{
 				bool drive = cvDistance > rcbot_empires_commander_drive_from.GetFloat();
 				Vector back = vehicleOrigin - at;
@@ -1704,6 +1736,16 @@ void CBotEmpires::tickCommanderEconomy()
 					state.lastSelfBuildSkip = info.entity;
 					RCBOT_DIAG("[RCBOT2] commander-build skip building=%d reason=%s home_distance=%.0f zone=%.0f\n", info.entity,
 						enemyNear ? "enemy-near" : "outside-zone", homeDistance, zone);
+				}
+				// Count the round for farCore (one per 10 s), only while nothing but the zone stops him.
+				if (helper < 0 && !enemyNear && tier <= EmpiresPriority::TIER_CORE && homeDistance < zone + kCommanderZoneMargin &&
+					now >= tries->next)
+				{
+					++tries->tries;
+					tries->next = now + 10.0f;
+					if (tries->tries == 2 && rcbot_empires_commander_far_core.GetBool())
+						RCBOT_DIAG("[RCBOT2] stall-escalate who=commander-build stage=1 reason=outside-zone-no-engineer building=%d class=%s home_distance=%.0f zone=%.0f\n",
+							info.entity, building->GetClassName(), homeDistance, zone);
 				}
 				continue;
 			}

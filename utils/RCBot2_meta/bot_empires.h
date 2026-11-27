@@ -748,6 +748,7 @@ public:
 		float nextEntryTry = 0.0f;
 		int entryAttempts = 0;
 		int lastSelfBuildSkip = 0;
+		int lastUnreachableLog = 0;
 		float nextTurretCheck = 0.0f;
 		float nextHuntCheck = 0.0f;
 		float nextRetreatCheck = 0.0f;
