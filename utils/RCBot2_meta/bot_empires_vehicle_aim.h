@@ -14,7 +14,9 @@ namespace EmpiresVehicleAim
 constexpr float kMinAimSettle = 0.4f;           // allow faster fire once turret is aligned
 constexpr float kLegacyAimDelay = 1.2f;         // fallback delay when no rotatable turret exists
 constexpr float kFallbackFireTimeout = 2.5f;    // escalate & release fire if turret stalls
-constexpr float kMgAlignToleranceDeg = 8.0f;    // tighter yaw window for hitscan MG on infantry
+constexpr float kMgAlignToleranceDeg = 8.0f;    // max yaw window for hitscan MG on close infantry
+constexpr float kMgAlignMinToleranceDeg = 4.0f; // tightest yaw window at long infantry range (avoids weave stalls)
+constexpr float kMgAlignHalfWidth = 60.0f;      // lateral half-window (HU) for distance-scaled MG yaw gate
 constexpr float kCannonAlignToleranceDeg = 12.0f;
 
 // Projectile ballistics from scripts/vehicle_weapons.txt (RE vehicle-driving.md).
@@ -46,6 +48,96 @@ inline bool HasRotatableTurret(bool turretValid, float minYaw, float maxYaw)
 	return turretValid && std::fabs(maxYaw - minYaw) > 1.0f;
 }
 
+// Distance-scaled yaw tolerance for hitscan vehicle MGs against infantry: keeps the full 8 deg
+// close-range window (<= ~430 HU) while tightening to ~5.7 deg at 600 HU and 4.0 deg at >= 860 HU
+// so wide turret swings do not waste rounds without stalling while weaving.
+inline float MgAlignToleranceDeg(float range)
+{
+	if (!(range > 0.0f))
+		return kMgAlignToleranceDeg;
+	const float deg = std::atan2(kMgAlignHalfWidth, range) * (180.0f / 3.14159265f);
+	return (std::max)(kMgAlignMinToleranceDeg, (std::min)(kMgAlignToleranceDeg, deg));
+}
+
+// Local MG muzzle offset relative to the cannon convergence reference attachment
+// (CEmpTank::SetCannonAttachment 0x3e63c0: c_weapon_passenger0_type0 minus type1/forward,
+// measured from models_legacy_dir.vpk). Local +right, +fwd, +up.
+struct MgMuzzleOffset
+{
+	float right = 0.0f;
+	float fwd = 0.0f;
+	float up = 0.0f;
+};
+
+inline MgMuzzleOffset ChassisMgMuzzleOffset(int chassis, bool dualCannon = false)
+{
+	switch (chassis)
+	{
+	case 3:  return { 1.2f, -62.5f, 20.0f };    // NF Medium: roof MG +20 HU above cannon
+	case 4:  return { -100.0f, -211.3f, -3.7f }; // NF Artillery
+	case 5:  return dualCannon ? MgMuzzleOffset{ 0.0f, -50.0f, 2.5f }
+		: MgMuzzleOffset{ -31.2f, -50.0f, 2.5f }; // NF Heavy: MG 31.2 HU left of cannon
+	case 11: return { 30.0f, -147.5f, 0.0f };   // BE Medium: MG 30 HU right of cannon
+	case 12: return { 62.5f, -54.7f, 0.6f };    // BE Artillery
+	default: return {};                          // NF Light/APC, BE APC/AFV/Heavy: coaxial
+	}
+}
+
+inline bool HasMgParallaxOffset(int chassis, bool dualCannon = false)
+{
+	const MgMuzzleOffset o = ChassisMgMuzzleOffset(chassis, dualCannon);
+	return std::fabs(o.right) >= 1.0f || std::fabs(o.up) >= 2.0f;
+}
+
+// Compensates for CEmpTank::GetWeaponVectors (0x69af23): its convergence trace uses collision
+// group 14, and CEmpGameRules::ShouldCollide(8, 14) == 0 ignores players, so the MG barrel
+// converges on the ground/wall behind a soldier (at targetDist + behindDist) instead of on the
+// soldier himself. Pass behindDist < 0 when the ray hits nothing (skyline: parallel fire).
+// Returns the (right, up) shift to add to the cannon aim point so the MG ray passes through target.
+inline void MgParallaxAimShift(int chassis, bool dualCannon, float targetDist, float behindDist,
+	float& outRightShift, float& outUpShift)
+{
+	outRightShift = 0.0f;
+	outUpShift = 0.0f;
+	if (!(targetDist > 1.0f))
+		return;
+	const MgMuzzleOffset o = ChassisMgMuzzleOffset(chassis, dualCannon);
+	if (std::fabs(o.right) < 1.0f && std::fabs(o.up) < 2.0f)
+		return;
+	float scale = 1.0f;
+	if (behindDist >= 0.0f)
+	{
+		const float denom = targetDist + behindDist - o.fwd;
+		scale = denom > 1.0f ? (behindDist / denom) : 0.0f;
+		scale = (std::max)(0.0f, (std::min)(1.0f, scale));
+	}
+	outRightShift = -o.right * scale;
+	outUpShift = -o.up * scale;
+}
+
+// Chest aim height above the player's feet (mins.z) from the bounding-box height.
+// Aiming at 50% (36 HU standing) sends the cannon convergence ray (CEmpTank::GetWeaponVectors)
+// through the gap between a stationary soldier's legs onto the ground behind him, shifting offset
+// MGs (e.g. NF Heavy -31.2 HU) off his hitbox. ~68% (49 HU standing) hits the solid upper torso.
+inline float InfantryAimHeight(float boxHeight)
+{
+	if (boxHeight >= 54.0f)
+		return boxHeight * 0.68f;
+	if (boxHeight >= 28.0f)
+		return boxHeight * 0.62f;
+	return (std::max)(8.0f, boxHeight * 0.5f);
+}
+
+// Front-to-rear cannon pitch limits matching CEmpTankCannon::SetTargetRotation (0x3e6d50):
+// blends front and rear limits by t = |AngleNormalize(localYaw - 90)| / 180 (0 = front, 1 = rear).
+inline void BlendedPitchLimits(float localYawDeg, float minFront, float maxFront,
+	float minRear, float maxRear, float& outMin, float& outMax)
+{
+	const float t = std::fabs(NormalizeAngleDeg(localYawDeg - 90.0f)) / 180.0f;
+	outMin = minFront + t * (minRear - minFront);
+	outMax = maxFront + t * (maxRear - maxFront);
+}
+
 struct TurretAlignInput
 {
 	bool alignCheckEnabled = true;
@@ -54,6 +146,7 @@ struct TurretAlignInput
 	float wantYawDeg = 0.0f;
 	float aimedForSeconds = 0.0f;
 	bool infantryTarget = false;
+	float targetRange = 0.0f;    // > 0 scales MG yaw tolerance with distance
 };
 
 struct TurretAlignResult
@@ -76,7 +169,7 @@ inline TurretAlignResult TurretAlignedToFire(const TurretAlignInput& in)
 	}
 	if (in.aimedForSeconds <= kMinAimSettle)
 		return out;
-	const float tolerance = in.infantryTarget ? kMgAlignToleranceDeg : kCannonAlignToleranceDeg;
+	const float tolerance = in.infantryTarget ? MgAlignToleranceDeg(in.targetRange) : kCannonAlignToleranceDeg;
 	if (out.yawErrorDeg <= tolerance)
 	{
 		out.canFire = true;

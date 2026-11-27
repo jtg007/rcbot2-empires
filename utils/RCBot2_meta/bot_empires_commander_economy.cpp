@@ -1579,6 +1579,16 @@ void CBotEmpires::tickCommanderEconomy()
 		}
 		if (now < tries->next)
 			continue;
+		// TODO 9.8 (rcbot_empires_threat_map): an engineer stalled against a known enemy vehicle on the way
+		// to this building (or one next to it); the next one would walk into the same spot. Hold it until
+		// the vehicle is gone from the team's view (30-120 s), the other buildings go on.
+		if (EmpiresThreatBuildingBlocked(team, building))
+		{
+			tries->next = now + 5.0f;
+			RCBOT_DIAG("[RCBOT2] commander-econ defer building=%d class=%s reason=enemy-vehicle tier=%s\n", info.entity,
+				building->GetClassName(), EmpiresPriority::TierName(tier));
+			continue;
+		}
 		// The Commander Engineer builds it himself when it is in the safe zone around the CV,
 		// no enemy is near it and no other Engineer is close and not fighting (user 2026-11-12).
 		// Not for a scratch (run 100232: out of the CV for barracks 242/250 and armory 117/125,

@@ -2,6 +2,7 @@
 #define _BOT_EMPIRES_H_
 
 #include "bot.h"
+#include "bot_empires_look_logic.h"
 #include "bot_empires_skirmish_logic.h"
 #include "bot_empires_team_intel.h"
 #include "bot_empires_capture_retry.h"
@@ -388,6 +389,20 @@ struct EmpiresVehicleBrain
 	Vector routeGoal = Vector(0, 0, 0);
 	float nextReplan = 0.0f;
 	float nextAdvanceLog = 0.0f;
+	float nextTightLog = 0.0f;          // "vehicle tight" diagnostic beside walls
+	// rcbot_empires_vehicle_context_steer
+	float ctxNextEval = 0.0f;
+	float ctxNextLog = 0.0f;
+	float ctxYaw = 0.0f;
+	int ctxSlot = -1;                   // -1 route yaw kept, -2 all forward blocked
+	float ctxPrevYaw = 0.0f;
+	bool ctxHasPrev = false;
+	std::size_t ctxNarrowIndex = static_cast<std::size_t>(-1);
+	std::size_t ctxNarrowRouteSize = 0;
+	Vector ctxNarrowAt = Vector(0, 0, 0);
+	bool ctxNarrow = false;
+	float ctxAxis = 0.0f;
+	float ctxGateFree = 0.0f;
 	float nextManeuver = 0.0f;
 	float maneuverRecoverUntil = 0.0f;
 	float maneuverSteer = 0.0f;
@@ -627,6 +642,8 @@ public:
 	void getTasks(unsigned iIgnore = 0) override;
 	void handleWeapons() override;
 	void getLookAtVector() override;
+	bool handleCustomLookAtTask(eLookTask lookTask, float fTime) override;
+	bool applyCustomLookAngles(const QAngle& requiredAngles, QAngle& viewAngles) override;
 	void freeMapMemory() override;
 	bool requestNormalPathOnce(int startWaypoint = -1,
 		int destinationWaypoint = -1, bool terminalAfterStop = false);
@@ -925,6 +942,29 @@ private:
 	int m_iCalmLookEnemy = 0;
 	float m_flCalmLookMaxTurn = 0.0f;
 	float m_flCalmLookLogAt = 0.0f;
+	// Infantry realistic look & combat polish (bot_empires_look.cpp).
+	static constexpr int kEmpiresMaxTrackedWeapons = 64;
+	void resetEmpiresLookState();
+	bool empiresInfantryLookContext() const;
+	bool resolveEmpiresRealisticLookVector();
+	void tickEmpiresTacticalReload();
+	bool empiresCombatFireReady(edict_t* pEnemy, CBotWeapon* pWeapon);
+	EmpiresLookLogic::SpringAxis m_lookPitchSpring;
+	EmpiresLookLogic::SpringAxis m_lookYawSpring;
+	EmpiresLookLogic::HeadSteadyTracker m_lookHeadSteady;
+	float m_flLookSpringLastTime = 0.0f;
+	EmpiresLookLogic::LookPriority m_eLookContentPriority = EmpiresLookLogic::LookPriority::BORING;
+	float m_flLookContentExpireAt = 0.0f;
+	float m_flVerticalLookHoldUntil = 0.0f;
+	float m_flNavLookLogAt = 0.0f;
+	float m_flSmartIdleLogAt = 0.0f;
+	int m_iSmartIdleWallPicks = 0;
+	int m_iSmartIdleOpenPicks = 0;
+	float m_flCombatOffTargetSince = -1.0f;
+	float m_flCombatBurstStart = -1.0f;
+	float m_flCombatPolishLogAt = 0.0f;
+	float m_flTacticalReloadNextCheck = 0.0f;
+	int m_iMaxClipSeen[kEmpiresMaxTrackedWeapons] = {};
 	bool handleEmpiresScoutBinoculars();
 	float m_flNextBinocularSpot = 0.0f;
 	void countEmpiresFightOdds(const Vector& origin, int& allies, int& enemies);
@@ -1934,5 +1974,12 @@ bool EmpiresTeamIntelKnownPos(int team, edict_t* enemy, Vector& at);
 class CBotEmpires;
 void EmpiresTeamIntelReportSight(const CBotEmpires* reporter, edict_t* enemy);
 bool EmpiresTeamIntelEnemyBase(int team, Vector& at, bool& live);
+// rcbot_empires_threat_map (bot_empires_team_director.cpp, bot_empires_threat_map.h). Threat < 0 = map off
+// or not built for the team (consumers keep their old behaviour).
+float EmpiresThreatAt(int team, const Vector& at, bool vehicleOnly = false);
+// Engineer stalled at `at` against a known enemy vehicle on the way to / at `building` (TODO 9.8).
+void EmpiresThreatMarkVehicleBlock(int team, int building, const Vector& at);
+// True while no engineer should be sent to `building` (own or nearby vehicle-block mark active).
+bool EmpiresThreatBuildingBlocked(int team, edict_t* building);
 
 #endif // _BOT_EMPIRES_H_

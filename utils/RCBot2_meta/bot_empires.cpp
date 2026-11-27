@@ -53,6 +53,7 @@
 #include <utility>
 #include <vector>
 #include "bot_empires_internal.h"
+#include "bot_empires_threat_map.h"
 
 extern IServerGameDLL* servergamedll;
 extern IServerGameEnts* servergameents;
@@ -1944,6 +1945,10 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	bool meshCover = false;
 	int rejectMesh = 0, rejectVisible = 0, rejectPath = 0;
 	float threatDistance = -1.0f;
+	// rcbot_empires_threat_map: < 0 when off; then the cover choice is unchanged.
+	const float mapThreatHere = EmpiresThreatAt(getTeam(), getOrigin());
+	float mapThreatSpot = -1.0f;
+	bool threatRetreat = false;
 	// 3.25b: an unseen shooter (polled hit, no attacker) still has a damage origin to hide from.
 	const bool threatFromDamageOrigin = pAttacker == nullptr && m_bPolledHurt && m_bPolledHurtOriginValid &&
 		m_vPolledHurtOrigin.DistToSqr(getOrigin()) > 64.0f * 64.0f;
@@ -1966,6 +1971,18 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 			// back); straight back alone stayed in the line of fire (contact test 200641: all 6 of the
 			// old 96/240 x -160/0/160 spots visible from the shooter, 3 of 3 hurt covers).
 			const Vector dirs[] = { side, -side, (away + side) * 0.7071f, (away - side) * 0.7071f, away };
+			// Threat map: visible spots that would still lower the team-known threat (retreat fallback).
+			struct RetreatSpot { Vector at; float threat; };
+			RetreatSpot retreats[8];
+			int retreatCount = 0;
+			const auto noteRetreat = [&](const Vector& at)
+			{
+				if (mapThreatHere < 0.0f || retreatCount >= 8)
+					return;
+				const float t = EmpiresThreatAt(getTeam(), at);
+				if (EmpiresThreatMap::RetreatWorthIt(mapThreatHere, t))
+					retreats[retreatCount++] = { at, t };
+			};
 			for (float range : {140.0f, 220.0f, 300.0f, 400.0f})
 			{
 				for (const Vector& dir : dirs)
@@ -1979,6 +1996,8 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 					if (CBotGlobals::isVisible(pAttacker, threat, spot + Vector(0, 0, 48)))
 					{
 						++rejectVisible;
+						if (range >= 300.0f)
+							noteRetreat(spot);
 						continue;
 					}
 					RCBotNavMesh::Path path;
@@ -1988,13 +2007,52 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 						++rejectPath;
 						continue;
 					}
-					const float cost = path.length + (weapon && weapon->getWeaponInfo() && !weapon->primaryInRange((threat - spot).Length()) ? 250 : 0);
+					const float spotThreat = mapThreatHere >= 0.0f ? EmpiresThreatAt(getTeam(), spot) : -1.0f;
+					const float cost = path.length + (weapon && weapon->getWeaponInfo() && !weapon->primaryInRange((threat - spot).Length()) ? 250 : 0) +
+						EmpiresThreatMap::CoverThreatCost(spotThreat);
 					if (cost < score)
 					{
 						score = cost;
 						cover = spot;
 						meshCover = true;
+						mapThreatSpot = spotThreat;
 					}
+				}
+			}
+			// No hidden spot: with the threat map, back off along the fan to a clearly lower team-known
+			// threat instead of standing in the open (human test 26.11.: bots at 3-17 % stood on the field).
+			if (!meshCover && mapThreatHere >= 0.0f)
+			{
+				for (const Vector& dir : { away, (away + side) * 0.7071f, (away - side) * 0.7071f })
+				{
+					Vector spot;
+					if (RCBotNavMesh::ClosestPointOnMesh(origin + dir * 700.0f, 96, spot))
+						noteRetreat(spot);
+				}
+				for (int a = 1; a < retreatCount; ++a)
+				{
+					const RetreatSpot key = retreats[a];
+					int b = a - 1;
+					while (b >= 0 && key.threat < retreats[b].threat)
+					{
+						retreats[b + 1] = retreats[b];
+						--b;
+					}
+					retreats[b + 1] = key;
+				}
+				for (int r = 0; r < retreatCount && r < 3 && !meshCover; ++r)
+				{
+					RCBotNavMesh::Path path;
+					if (RCBotNavMesh::BuildPath(origin, retreats[r].at, path) != RCBotNavMesh::PathResult::SUCCESS ||
+						path.length > 900)
+					{
+						++rejectPath;
+						continue;
+					}
+					cover = retreats[r].at;
+					mapThreatSpot = retreats[r].threat;
+					meshCover = true;
+					threatRetreat = true;
 				}
 			}
 			if (meshCover)
@@ -2029,9 +2087,9 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 	{
 		// No navmesh cover nearby: no legacy hide route either; keep the current task and fight.
 		m_pSchedules->removeSchedule(SCHED_GOOD_HIDE_SPOT);
-		RCBOT_DIAG("[RCBOT2] cover none userid=%d reason=%s dist=%.0f reject_mesh=%d reject_visible=%d reject_path=%d\n",
+		RCBOT_DIAG("[RCBOT2] cover none userid=%d reason=%s dist=%.0f reject_mesh=%d reject_visible=%d reject_path=%d hp=%d map_threat=%.1f\n",
 			engine->GetPlayerUserId(m_pEdict), pAttacker != nullptr || threatFromDamageOrigin ? "no-navmesh-cover" : "no-attacker",
-			threatDistance, rejectMesh, rejectVisible, rejectPath);
+			threatDistance, rejectMesh, rejectVisible, rejectPath, iHealthNow, mapThreatHere);
 		return false;
 	}
 	const float waitSeconds = navmeshHurtCover ?
@@ -2039,9 +2097,11 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 		randomFloat(4.0f, 7.0f);
 	pHideSchedule->addTask(new CBotWaitTask(waitSeconds));
 	m_bEmpiresCoverScheduleActive = true;
-	RCBOT_DIAG("[RCBOT2] cover start userid=%d wait=%.1f route=%s threat=%s polled=%d\n", engine->GetPlayerUserId(m_pEdict),
-		waitSeconds, meshCover ? "navmesh" : "existing-CGotoHideSpotSched",
-		pAttacker != nullptr ? "attacker" : threatFromDamageOrigin ? "damage-origin" : "none", m_bPolledHurt ? 1 : 0);
+	RCBOT_DIAG("[RCBOT2] cover start userid=%d wait=%.1f route=%s threat=%s polled=%d hp=%d map_threat=%.1f>%.1f\n",
+		engine->GetPlayerUserId(m_pEdict), waitSeconds,
+		threatRetreat ? "threat-retreat" : (meshCover ? "navmesh" : "existing-CGotoHideSpotSched"),
+		pAttacker != nullptr ? "attacker" : threatFromDamageOrigin ? "damage-origin" : "none", m_bPolledHurt ? 1 : 0,
+		iHealthNow, mapThreatHere, mapThreatSpot);
 	return hideScheduled;
 }
 
@@ -2261,6 +2321,16 @@ void CBotEmpires::handleWeapons()
 
 	if (rcbot_empires_sniper_aim.GetBool() && pWeapon->getWeaponInfo() != nullptr &&
 		pWeapon->getWeaponInfo()->isScoped() && !empiresSniperReady(pEnemy, pWeapon))
+	{
+		if (m_pButtons != nullptr)
+			m_pButtons->letGo(IN_ATTACK);
+		m_iButtons &= ~IN_ATTACK;
+		wantToShoot(false);
+		setLookAtTask(LOOK_ENEMY);
+		return;
+	}
+
+	if (!empiresCombatFireReady(pEnemy, pWeapon))
 	{
 		if (m_pButtons != nullptr)
 			m_pButtons->letGo(IN_ATTACK);
@@ -2795,6 +2865,9 @@ void CBotEmpires::killed(edict_t* pVictim, char* weapon)
 
 void CBotEmpires::died(edict_t* pKiller, const char* pszWeapon)
 {
+	// Cover outcome for the hurt-cover A/B (rcbot_empires_threat_map): died while still in cover.
+	if (m_bEmpiresCoverScheduleActive && engine != nullptr && m_pEdict != nullptr)
+		RCBOT_DIAG("[RCBOT2] cover end userid=%d result=died\n", engine->GetPlayerUserId(m_pEdict));
 	// Hot zones (TODO 8.1): only real kills on foot; kill-spawn / void suicides are the bot's own "kill".
 	if (engine != nullptr && m_pEdict != nullptr)
 	{
@@ -5784,6 +5857,8 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 
 	if (m_bEmpiresCoverScheduleActive)
 	{
+		RCBOT_DIAG("[RCBOT2] cover end userid=%d result=alive hp=%d\n", engine->GetPlayerUserId(m_pEdict),
+			m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetHealth() : -1);
 		m_flMeshCoverUntil = 0;
 		m_bEmpiresCoverScheduleActive = false;
 		m_pEmpiresApproachTarget = nullptr;
@@ -6999,6 +7074,7 @@ void CBotEmpires::modThink()
 	const bool lawlietBusy = lawlietClient > 0 && EmpiresLawlietBlocksSideTasks(getTeam(), lawlietClient);
 	if (!empiresVehicleOwnsBot() && !commanderVehicleEntryActive() && !lawlietBusy)
 	{
+		tickEmpiresTacticalReload();
 		// EngiBots: ammo calls of vehicles at the base only (human test 15.11.: a tank called for
 		// ammo next to both EngiBots and got none); no revive, no refinery turrets.
 		const bool engibot = EmpiresIsEngibot(m_pEdict);
@@ -8146,67 +8222,102 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	}
 	CBaseEntity* const buildingEntity = building->GetUnknown()->GetBaseEntity();
 	CBuildStandTraceFilter filter(m_pEdict->GetUnknown());
+	CTraceFilterWorldOnly worldOnly;
+	ITraceFilter* const traceFilter = isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter;
 	float spotCost = (std::numeric_limits<float>::max)();
 	int noSurface = 0, noGround = 0, blocked = 0, noAim = 0;
-	for (int i = 0; i < 32; ++i)
+
+	const auto searchPass = [&](const float* heights, int heightCount, const float* steps, int stepCount, bool countStats)
 	{
-		const float angle = i * (6.28318530718f / 32.0f);
-		const Vector dir(std::cos(angle), std::sin(angle), 0.0f);
-		for (const float z : probeZ)
+		for (int i = 0; i < 32; ++i)
 		{
-			// Outer wall as seen from outside in this direction.
-			Ray_t inward;
-			inward.Init(Vector(center.x + dir.x * outer, center.y + dir.y * outer, z),
-				Vector(center.x, center.y, z));
-			trace_t wall;
-			enginetrace->ClipRayToEntity(inward, MASK_PLAYERSOLID, building->GetIServerEntity(), &wall);
-			if (wall.startsolid || wall.fraction >= 1.0f)
+			const float angle = i * (6.28318530718f / 32.0f);
+			const Vector dir(std::cos(angle), std::sin(angle), 0.0f);
+			for (int h = 0; h < heightCount; ++h)
 			{
-				++noSurface;
-				continue;
+				const float z = heights[h];
+				// Outer wall as seen from outside in this direction.
+				Ray_t inward;
+				inward.Init(Vector(center.x + dir.x * outer, center.y + dir.y * outer, z),
+					Vector(center.x, center.y, z));
+				trace_t wall;
+				enginetrace->ClipRayToEntity(inward, MASK_PLAYERSOLID, building->GetIServerEntity(), &wall);
+				if (wall.startsolid || wall.fraction >= 1.0f)
+				{
+					if (countStats)
+						++noSurface;
+					continue;
+				}
+				for (int s = 0; s < stepCount; ++s)
+				{
+					const Vector stand = wall.endpos + dir * steps[s];
+					Ray_t down;
+					down.Init(stand + Vector(0.0f, 0.0f, 80.0f), stand - Vector(0.0f, 0.0f, 240.0f));
+					trace_t ground;
+					enginetrace->TraceRay(down, MASK_PLAYERSOLID, traceFilter, &ground);
+					if (ground.startsolid || ground.fraction >= 1.0f || ground.m_pEnt == buildingEntity)
+					{
+						if (countStats)
+							++noGround;
+						continue;
+					}
+					Ray_t body;
+					body.Init(ground.endpos + Vector(0.0f, 0.0f, 2.0f), ground.endpos + Vector(0.0f, 0.0f, 3.0f),
+						Vector(-16.0f, -16.0f, 0.0f), Vector(16.0f, 16.0f, 72.0f));
+					trace_t bodyHit;
+					enginetrace->TraceRay(body, MASK_PLAYERSOLID, traceFilter, &bodyHit);
+					if (bodyHit.startsolid || bodyHit.fraction < 1.0f)
+					{
+						if (countStats)
+							++blocked;
+						continue;
+					}
+					Vector aim;
+					if (!findEmpiresKitAim(building, ground.endpos + eyeOffset, aim))
+					{
+						if (countStats)
+							++noAim;
+						continue;
+					}
+					bool bad = false;
+					for (const Vector& badSpot : m_vBuildAssignBadSpots)
+						if ((ground.endpos - badSpot).Length2D() < 150.0f)
+							bad = true;
+					if (bad)
+					{
+						if (countStats)
+							++blocked;
+						continue;
+					}
+					const float cost = (ground.endpos - getOrigin()).LengthSqr();
+					if (cost < spotCost)
+					{
+						spotCost = cost;
+						spot = ground.endpos;
+					}
+					break; // closest valid step for this angle and probe height
+				}
 			}
-			const Vector stand = wall.endpos + dir * 30.0f;
-			Ray_t down;
-			down.Init(stand + Vector(0.0f, 0.0f, 80.0f), stand - Vector(0.0f, 0.0f, 240.0f));
-			trace_t ground;
-			CTraceFilterWorldOnly worldOnly;
-			enginetrace->TraceRay(down, MASK_PLAYERSOLID, isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter, &ground);
-			if (ground.startsolid || ground.fraction >= 1.0f || ground.m_pEnt == buildingEntity)
-			{
-				++noGround;
-				continue;
-			}
-			Ray_t body;
-			body.Init(ground.endpos + Vector(0.0f, 0.0f, 2.0f), ground.endpos + Vector(0.0f, 0.0f, 3.0f),
-				Vector(-16.0f, -16.0f, 0.0f), Vector(16.0f, 16.0f, 72.0f));
-			trace_t bodyHit;
-			enginetrace->TraceRay(body, MASK_PLAYERSOLID, isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter, &bodyHit);
-			if (bodyHit.startsolid || bodyHit.fraction < 1.0f)
-			{
-				++blocked;
-				continue;
-			}
-			Vector aim;
-			if (!findEmpiresKitAim(building, ground.endpos + eyeOffset, aim))
-			{
-				++noAim;
-				continue;
-			}
-			bool bad = false;
-			for (const Vector& badSpot : m_vBuildAssignBadSpots)
-				if ((ground.endpos - badSpot).Length2D() < 150.0f)
-					bad = true;
-			if (bad)
-			{
-				++blocked;
-				continue;
-			}
-			const float cost = (ground.endpos - getOrigin()).LengthSqr();
-			if (cost < spotCost)
-			{
-				spotCost = cost;
-				spot = ground.endpos;
-			}
+		}
+	};
+
+	const float primarySteps[1] = {30.0f};
+	searchPass(probeZ, 2, primarySteps, 1, true);
+	// Buildings with a wider low apron or bevel (e.g. NF repair pad's ~4 HU concrete base at human
+	// placement height) leave step=30 from +40/+100 over or clipping the apron; retry at base height
+	// and wider wall offsets (still verified by the 92 HU kit aim check).
+	if (spotCost == (std::numeric_limits<float>::max)())
+	{
+		const float fallbackSteps[3] = {30.0f, 48.0f, 64.0f};
+		if (isMapObject)
+		{
+			searchPass(probeZ, 2, fallbackSteps + 1, 2, false);
+		}
+		else
+		{
+			const float lowZ[2] = {center.z + 2.0f, center.z + 16.0f};
+			searchPass(lowZ, 2, fallbackSteps, 3, false);
+			searchPass(probeZ, 2, fallbackSteps + 1, 2, false);
 		}
 	}
 	if (spotCost == (std::numeric_limits<float>::max)())
@@ -8386,10 +8497,30 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 		{
 			++m_iBuildAssignEscalations;
 			const bool working = m_iBuildAssignStage == 2;
-			RCBOT_DIAG("[RCBOT2] stall-escalate who=engineer userid=%d stage=%d reason=%s building=%d health=%d/%d pos=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f)\n",
-				engine->GetPlayerUserId(m_pEdict), m_iBuildAssignEscalations, working ? "no-health-gain" : "no-movement",
+			// TODO 9.8 (rcbot_empires_threat_map): a known enemy vehicle where the engineer stalls or at the
+			// site is a threat, not an obstacle. A new stand spot re-planned the same passage into the tank
+			// (crossroads 20261126-194313), so give the job up and hold the building for the team.
+			const Vector buildingAt = CBotGlobals::entityOrigin(building);
+			const float vehicleHere = EmpiresThreatAt(getTeam(), here, true);
+			const float vehicleSite = EmpiresThreatAt(getTeam(), buildingAt, true);
+			const bool vehicleBlock = (std::max)(vehicleHere, vehicleSite) >= EmpiresThreatMap::kVehicleBlockThreshold;
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=engineer userid=%d stage=%d reason=%s building=%d health=%d/%d pos=(%.0f %.0f %.0f) spot=(%.0f %.0f %.0f) vthreat=%.1f/%.1f\n",
+				engine->GetPlayerUserId(m_pEdict), m_iBuildAssignEscalations,
+				vehicleBlock ? "enemy-vehicle" : (working ? "no-health-gain" : "no-movement"),
 				engine->IndexOfEdict(building), health, maxHealth, here.x, here.y, here.z,
-				m_vBuildAssignSpot.x, m_vBuildAssignSpot.y, m_vBuildAssignSpot.z);
+				m_vBuildAssignSpot.x, m_vBuildAssignSpot.y, m_vBuildAssignSpot.z, vehicleHere, vehicleSite);
+			if (vehicleBlock)
+			{
+				EmpiresThreatMarkVehicleBlock(getTeam(), engine->IndexOfEdict(building),
+					vehicleHere >= vehicleSite ? here : buildingAt);
+				if (isEmpiresEngineerRepairActionActive())
+					failEmpiresEngineerRepairAction("build-assign-enemy-vehicle");
+				cancelNavigationAttempt("build-assign-enemy-vehicle");
+				if (m_pSchedules != nullptr)
+					m_pSchedules->freeMemory();
+				finish("FAIL_THREAT");
+				return;
+			}
 			m_vBuildAssignBadSpots.push_back(here);
 			m_vBuildAssignBadSpots.push_back(m_vBuildAssignSpot);
 			Vector spot;

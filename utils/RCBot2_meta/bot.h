@@ -766,6 +766,8 @@ public:
 
     void setLookAtTask (const eLookTask lookTask, const float fTime = 0) 
 	{ 
+		if ( handleCustomLookAtTask(lookTask, fTime) )
+			return;
 		if ( m_iMoveLookPriority >= m_iLookPriority && (fTime > 0 || m_fLookSetTime < engine->Time()) )
 		{
 			m_iLookPriority = m_iMoveLookPriority;
@@ -1070,6 +1072,8 @@ protected:
 	void doLook ();
 
 	virtual void getLookAtVector ();
+	virtual bool handleCustomLookAtTask (eLookTask /*lookTask*/, float /*fTime*/) { return false; }
+	virtual bool applyCustomLookAngles (const QAngle& /*requiredAngles*/, QAngle& /*viewAngles*/) { return false; }
 
 	void doButtons ();
 	/////////////////////////

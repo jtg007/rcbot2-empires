@@ -34,6 +34,7 @@ sourceFiles = [
   "utils/RCBot2_meta/bot_empires_revive.cpp",
   "utils/RCBot2_meta/bot_empires_heal.cpp",
   "utils/RCBot2_meta/bot_empires_skirmish.cpp",
+  "utils/RCBot2_meta/bot_empires_look.cpp",
   "utils/RCBot2_meta/bot_empires_seismic.cpp",
   "utils/RCBot2_meta/bot_empires_binary.cpp",
   "utils/RCBot2_meta/bot_empires_turret_build.cpp",

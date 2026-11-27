@@ -13,6 +13,7 @@
 
 #include "bot.h"
 #include "bot_empires_doors.h"
+#include "bot_empires_look_logic.h"
 #include "bot_empires_telemetry.h"
 #include "bot_getprop.h"
 #include "bot_globals.h"
@@ -634,6 +635,51 @@ bool IsActive(const CBot* bot)
 {
 	const Route* route = routeForBot(bot);
 	return route != nullptr && route->active && sameIntent(*route);
+}
+
+bool GetLookaheadTarget(const CBot* bot, const float lookaheadDist, Vector& outTarget, bool& outVertical)
+{
+	const Route* route = routeForBot(bot);
+	if (route == nullptr || !route->active || !sameIntent(*route) ||
+		route->point >= route->path.points.size())
+		return false;
+
+	bool ladderAhead = bot->onLadder();
+	if (!ladderAhead)
+	{
+		const Vector& curPt = route->path.points[route->point];
+		for (const Vector& lp : route->path.ladderPoints)
+		{
+			if ((lp - curPt).LengthSqr() < 1.0f)
+			{
+				ladderAhead = true;
+				break;
+			}
+		}
+	}
+	outVertical = ladderAhead;
+
+	constexpr std::size_t kMaxLookPoints = 16;
+	EmpiresLookLogic::Vec3 pts[kMaxLookPoints];
+	const std::size_t avail = route->path.points.size() - route->point;
+	const std::size_t count = (std::min)(avail, kMaxLookPoints);
+	for (std::size_t i = 0; i < count; ++i)
+	{
+		const Vector& p = route->path.points[route->point + i];
+		pts[i] = EmpiresLookLogic::Vec3{ p.x, p.y, p.z };
+	}
+
+	const Vector bo = bot->getOrigin();
+	const Vector eye = bot->getEyePosition();
+	EmpiresLookLogic::Vec3 look;
+	if (!EmpiresLookLogic::PickNavLookaheadPoint(
+		EmpiresLookLogic::Vec3{ bo.x, bo.y, bo.z },
+		EmpiresLookLogic::Vec3{ eye.x, eye.y, eye.z },
+		pts, count, 0, lookaheadDist, ladderAhead, look))
+		return false;
+
+	outTarget = Vector(look.x, look.y, look.z);
+	return true;
 }
 
 void Frame()

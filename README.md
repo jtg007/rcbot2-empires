@@ -189,6 +189,7 @@ Front support (pending match verification): spawn APCs look for dry flank parkin
 Human commanders can buy dedicated base-building engineer bots in chat with `/buildengibot` or `!buildengibot` (or `buildengibot` in console).
 
 - **Cost & limit:** `rcbot_empires_engibot_cost` team resources (default `100`), up to `rcbot_empires_engibot_limit` per team (default `2`). Status feedback appears on screen (e.g. `EngiBot ready (1/2)`, or why a purchase failed).
+- **Names:** the two EngiBots of a team are called *Builder Bob* and *Fix It Felix*; with a higher limit further ones are numbered.
 - **Base duty:** Builds and repairs unfinished/damaged buildings and friendly vehicles within 2500 units of the CV (including human-placed structures).
 - **Idle behavior:** Waits ~900 units from the CV so building spots stay clear.
 - **Orders:** *Attack location* builds an MG turret at the target; *Guard* on a building builds or repairs it.
@@ -220,6 +221,7 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 | `rcbot_empires_commander_engineer` | `1` | Bot commander spawns as an engineer and builds near the CV |
 | `rcbot_empires_commander_orders` | `1` | Bot commander issues team-director orders to free infantry |
 | `rcbot_empires_fair_intel` | `1` | Fair team knowledge: team director, commander, infantry goals, tank/APC goals and the Lawliet rush use only enemies the team could know (game spotting, own radar 1800 / camera 1200 with line of sight, a living teammate's sight up to 3500, bot sight reports; memory 10 s infantry, 20 s vehicles, 180 s buildings) plus the enemy base's start position (tanks and the Lawliet rush drive to the last known CV position, else that start position). Base alerts on building damage stay immediate. `0` off (bots read the full entity list), `1` both teams, `2` NF only, `3` BE only |
+| `rcbot_empires_threat_map` | `1` | Lean threat map per team (512-unit grid, rebuilt every 1.5 s from fair intel only: known infantry, tanks/APCs, finished enemy MG turrets with their level range, hot zones, own building damage; needs `rcbot_empires_fair_intel`). On: hurt and fight cover prefer low-threat spots and, without a hidden spot, back off to a clearly lower threat; an engineer stalled against a known enemy vehicle gives the job up and the team holds that building for 30–120 s instead of sending the next engineer into the same spot. Its consumers trigger rarely with 10 bots (one hurt cover in a 12-minute match); `scripts/dev_threat_ab.sh` compares off/on. Logs `threat-map`, `cover start … route=threat-retreat`, `cover end`, `stall-escalate who=engineer … reason=enemy-vehicle`, `commander-econ defer` |
 | `rcbot_empires_commander_drive_from` | `1000` | Distance beyond which the commander drives the CV to build sites |
 | `rcbot_empires_commander_boomtank` | `1` | Commander runs over base intruders (`0` off, `1` on except rainbowroad, `2` everywhere) |
 | `rcbot_empires_commander_build_lift` | `1` | The commander's `emp_build` request is lifted above the ground (turrets 14, other buildings 10 units) so bot buildings stand where a human commander's do; at the ground they had ended up that far sunk in |
@@ -284,6 +286,10 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 | `rcbot_empires_engineer_rear` | `1` | An engineer in a fight stays behind the teammate closest to the enemy (up to 1600 units) |
 | `rcbot_empires_calm_look` | `1` | A bot standing without a route looks toward the last enemy (20 s) or calmly around its facing, not at random points |
 | `rcbot_empires_move_look_own_sight` | `1` | A walking bot turns its view toward the last enemy only if it saw him itself; a teammate's report still sends it there but it keeps looking ahead |
+| `rcbot_empires_smooth_look` | `1` | Decoupled critically-damped pitch/yaw spring-damper turning and content-based look priorities for infantry (fixes shared pitch/yaw momentum wobble) |
+| `rcbot_empires_nav_lookahead` | `1` | Walking navmesh infantry looks smoothly ahead along its route kept level on slopes, holds lost-LOS corners at chest height for 2.5 s, and bounds last-enemy extrapolation |
+| `rcbot_empires_smart_idle_look` | `1` | Standing infantry scans open sightlines instead of staring into walls (< 140 units), adds subtle idle drift, and lifts noise look to chest height |
+| `rcbot_empires_combat_polish` | `1` | Proactive tactical reload outside combat (< 60% clip after 2.5 s without an enemy), asymmetric fire-alignment gate so bots do not fire while turning away, and long-range automatic bursts (> 750 units) |
 | `rcbot_empires_target_keep` | `600` | Units a newly seen enemy must be closer than the current target before the bot switches (no flicking between enemies firing in bursts) |
 | `rcbot_empires_target_switch_reaction` | `1` | A target switch during a fight waits 0.05–0.15 s instead of the first-sight reaction of 0.20–0.55 s |
 | `rcbot_empires_hurt_look` | `1` | A bot hit by a shooter it does not see turns toward the damage origin for 1–1.5 s; seeing an enemy ends the turn at once |
@@ -302,6 +308,7 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 ## Known Issues
 
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
+- **NF base engineer trap:** on Crossroads an NF engineer can stand stuck next to the repair station, armory or vehicle factory for minutes (up to 407 s in a 9-minute run); seen with and without the new look/steering cvars.
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset and grenadiers mortaring an enemy APC now require a driver/grenadier or teammate sightline *(pending match verification)*.
 - **Vehicle jam at Crossroads BE gates:** with many vehicles (22-bot match) BE vehicles can still queue at `be_gate1`; lane entry is improved (`scripts/dev_gate.sh`), the match effect is unmeasured. A single BE heavy still enters `be_gate1` 45–55° skewed from the north-west and scrapes the wall; earlier stuck detection raised give-ups and was not kept.
@@ -352,6 +359,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 | `scripts/dev_quick.sh [map] [min]` | Short targeted run with few bots and instant purchase (`QUICK_*`, `QUICK_FAIR=1`) |
 | `scripts/dev_team_match.sh [map] [min]` | 10-bot match at 1× with team-director metrics. A failed match returns a failure status even when its log is available. Use `scripts/dev_team_match.sh --summarize RUN_DIR` to read the same metrics from a saved run and display its recorder table if available. Both end with the match-flow check against `MATCH_FLOW.md` (milestones and standing rules per team, measurement only). |
 | `scripts/dev_econ.sh`, `dev_buy.sh` | Economy to first driven vehicle / purchase-only check |
+| `scripts/dev_threat_ab.sh [map] [min] [pairs]` | A/B for `rcbot_empires_threat_map`: 10-bot matches at 1× under real economy rules, map off/on alternating (default emp_crossroads, 18 min, 1 pair), then one table: map cost (µs per update), hurt cover (start, retreat, none, died in cover), engineer stalls at enemy vehicles, kills, STUCK, idle, MATCH_FLOW. `--summarize RUN_DIR…` reads saved runs |
 | `scripts/dev_vf_drive.sh`, `dev_turn.sh`, `dev_vehicle_obstacle.sh` | Factory exit & driving, steering/braking, obstacle handling |
 | `scripts/dev_orders.sh`, `dev_cmdorders.sh` | UI-style orders / bot commander's own orders |
 | `scripts/dev_engibot.sh`, `dev_turret.sh`, `dev_revive.sh`, `dev_heal.sh`, `dev_seismic.sh` | EngiBots, turrets (`DEV_TURRET_UPGRADE=1`), revive, teammate healing, seismic throws at a barracks |
@@ -385,6 +393,7 @@ Copy `scripts/dev.local.example` to `scripts/dev.local` and point `EMPIRES_TEST_
 - `rcbot_empires_vehicle_debug_team 2|3` (restrict vehicle purchases to one team).
 - `rcbot_empires_nav_detour_fast` (default `1`): building detour planning evaluates grid cells only when the search reaches them, shares them per building for 15 s across all bots, looks for the start cell only near the entry and stops A* at the first clear exit (same exit rule as before). Rainbowroad, 22 bots, 8 minutes: plans over 50 ms 96 → 0, longest 115 → 27 ms, planning time 22.2 → 2.2 s. `0` = old full-grid planner, `2` = plan both and log `nav-detour-compare`.
 - `rcbot_empires_vehicle_wall_clearance` (default `1`): vehicle route points keep half the vehicle width off world walls running along the route (a wall ahead hit at an angle does not count), are centred in lanes barely wider than the vehicle, and get a straight approach point before such a lane; the driver must reach these points within 90 HU and does not look past them (8 s fallback). `rcbot_empires_vehicle_narrow_cost` (default `1500`): fixed route cost per navmesh area too narrow for the vehicle, so short pillar gaps are no longer cheaper than the wide lane.
+- `rcbot_empires_vehicle_context_steer` (default `1`): context steering at tight passages. The driver scores 16 directions around the hull by route interest and short hull-width traces from the front corners (world, buildings); in front of a tight passage (free width under vehicle width + 400) it follows the passage axis as a line, merging at a flat angle, and slows down while not lined up. Outside tight passages and whenever the route direction is free it changes nothing. Crossroads east gate: single heavy tank 23 → 9 gate reversals in 11 runs each, two vehicles at once 51 → 28 reversals and 4 → 1 give-ups. Logs `vehicle ctx-steer`; every driver also logs `vehicle tight` (heading against the route segment, free space beside hull and nose) when walls are close.
 - `rcbot_empires_vehicle_maneuvers`, `rcbot_empires_vehicle_curve_speed`, `rcbot_empires_vehicle_turn_test` (experimental driving, default `0`; measurements in [docs/OPEN_WORK.md](docs/OPEN_WORK.md)).
 - `rcbot_analysis_start` records bot telemetry ([EMPIRES_ANALYSIS_RECORDER.md](EMPIRES_ANALYSIS_RECORDER.md)).
 - Game-server internals: [reverse-engineering/](reverse-engineering/).

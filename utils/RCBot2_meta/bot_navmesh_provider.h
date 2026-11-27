@@ -20,6 +20,8 @@ bool StartForIntent(CBot* bot, std::uint64_t intentId, const Vector& goal);
 bool Cancel(CBot* bot, const char* reason);
 bool StopForIntent(CBot* bot, std::uint64_t intentId);
 bool IsActive(const CBot* bot);
+// Level polyline lookahead target along the bot's active navmesh path (Stage 2).
+bool GetLookaheadTarget(const CBot* bot, float lookaheadDist, Vector& outTarget, bool& outVertical);
 
 // Called from the normal Empires GameFrame after botThink(). The next command
 // is then produced by the existing CBot::doMove()/RunPlayerMove path.

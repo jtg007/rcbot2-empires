@@ -8,6 +8,7 @@
 #include "bot_empires_binary.h"
 #include "bot_empires_lawliet.h"
 #include "bot_empires_team_director.h"
+#include "bot_empires_threat_map.h"
 #include "bot_getprop.h"
 #include "bot_globals.h"
 #include "bot_mods.h"
@@ -18,6 +19,7 @@
 #include "toolframework/itoolentity.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -83,6 +85,11 @@ struct TeamState
 	int intelSources[6] = {};                   // diagnostic: upserts per IntelSource since the last log
 	int intelTraces = 0;                        // diagnostic: LOS traces since the last log
 	int intelHidden = 0;                        // diagnostic: enemy candidates not known since the last log
+	EmpiresThreatMap::Map threat;               // rcbot_empires_threat_map, rebuilt every kUpdateSeconds
+	double threatUsSum = 0.0;                   // diagnostic: update time since the last threat-map line
+	double threatUsMax = 0.0;
+	int threatUpdates = 0;
+	float nextThreatLog = 0.0f;
 };
 TeamState s_team[4];
 
@@ -458,6 +465,120 @@ void EmpiresTeamDirectorRecordDeath(int team, float x, float y, float z, int use
 			team, zoneIndex, zone.center[0], zone.center[1], zone.center[2], zone.radius, zone.deaths,
 			kHotDeathWindow, kHotZoneSeconds);
 	PushHotZones(team, memory, now);
+}
+
+namespace
+{
+// MG turret reach by upgrade level (same model test as empiresMgTurretRange, bot_empires_objective.cpp).
+float ThreatTurretRange(edict_t* e)
+{
+	IServerEntity* entity = e != nullptr ? e->GetIServerEntity() : nullptr;
+	const char* model = entity != nullptr ? STRING(entity->GetModelName()) : nullptr;
+	if (model != nullptr && std::strstr(model, "lvl3") != nullptr)
+		return 4000.0f;
+	if (model != nullptr && std::strstr(model, "lvl2") != nullptr)
+		return 3000.0f;
+	return 2000.0f;
+}
+
+// rcbot_empires_threat_map: rebuilds the team's grid from fair knowledge only (intel contacts,
+// hot zones, own damage events). Needs fair intel for the team, else the map stays empty.
+template <typename BuiltFn>
+void UpdateThreatMap(int team, TeamState& state, float now, BuiltFn isBuilt)
+{
+	EmpiresThreatMap::Map& map = state.threat;
+	if (!rcbot_empires_threat_map.GetBool() || !EmpiresFairIntelEnabled(team))
+	{
+		if (map.built)
+			map.Reset();
+		return;
+	}
+	const auto start = std::chrono::steady_clock::now();
+	map.Clear();
+	for (const EmpiresTeamIntel::Contact& c : state.intel.contacts)
+	{
+		if (!c.active(now))
+			continue;
+		const float age = now - c.seenAt;
+		const float ttl = c.expiresAt - c.seenAt;
+		switch (c.kind)
+		{
+		case EmpiresTeamIntel::CONTACT_INFANTRY:
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_INFANTRY, c.pos[0], c.pos[1], age, ttl);
+			break;
+		case EmpiresTeamIntel::CONTACT_VEHICLE:
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_VEHICLE, c.pos[0], c.pos[1], age, ttl);
+			break;
+		case EmpiresTeamIntel::CONTACT_APC:
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_APC, c.pos[0], c.pos[1], age, ttl);
+			break;
+		case EmpiresTeamIntel::CONTACT_BUILDING:
+		{
+			// Only a finished enemy MG turret shoots; the class and model of a known building are visible.
+			edict_t* e = engine->PEntityOfEntIndex(c.entity);
+			const char* cls = e != nullptr && !e->IsFree() ? e->GetClassName() : nullptr;
+			if (cls == nullptr || e->m_NetworkSerialNumber != c.serial || std::strcmp(cls, "emp_building_mgturret") != 0)
+				break;
+			if (!isBuilt(e))
+				break;
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_TURRET, c.pos[0], c.pos[1], 0.0f, 0.0f,
+				ThreatTurretRange(e));
+			break;
+		}
+		default:
+			break; // enemy CV carries no weapon
+		}
+	}
+	for (const HotZone& zone : state.deaths.zone)
+		if (zone.active(now))
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_HOT_ZONE, zone.center[0], zone.center[1], 0.0f, 0.0f,
+				zone.radius);
+	for (const EmpiresTeamIntel::DamageEvent& d : state.intel.damageEvents)
+		if (d.active(now))
+			EmpiresThreatMap::AddSource(map, EmpiresThreatMap::SRC_OWN_DAMAGE, d.ownPos[0], d.ownPos[1], now - d.at,
+				EmpiresTeamIntel::kTtlDamageEvent);
+	map.built = true;
+	const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+	state.threatUsSum += us;
+	state.threatUsMax = (std::max)(state.threatUsMax, us);
+	++state.threatUpdates;
+	if (now >= state.nextThreatLog)
+	{
+		state.nextThreatLog = now + kLogEvery;
+		RCBOT_DIAG("[RCBOT2] threat-map team=%d updates=%d us_avg=%.1f us_max=%.1f sources=%d peak=%.1f hot=%d blocks=%d\n",
+			team, state.threatUpdates, state.threatUsSum / (std::max)(1, state.threatUpdates), state.threatUsMax,
+			map.sources, map.peak, EmpiresThreatMap::HotCells(map, 1.0f), EmpiresThreatMap::ActiveBlocks(map, now));
+		state.threatUsSum = 0.0;
+		state.threatUsMax = 0.0;
+		state.threatUpdates = 0;
+	}
+}
+} // namespace
+
+float EmpiresThreatAt(int team, const Vector& at, bool vehicleOnly)
+{
+	if (team < 0 || team >= 4 || !rcbot_empires_threat_map.GetBool() || !s_team[team].threat.built)
+		return -1.0f;
+	return EmpiresThreatMap::Sample(s_team[team].threat, at.x, at.y,
+		vehicleOnly ? EmpiresThreatMap::CH_VEHICLE : EmpiresThreatMap::CH_TOTAL);
+}
+
+void EmpiresThreatMarkVehicleBlock(int team, int building, const Vector& at)
+{
+	if (team < 0 || team >= 4 || gpGlobals == nullptr || !rcbot_empires_threat_map.GetBool() || !s_team[team].threat.built)
+		return;
+	EmpiresThreatMap::MarkBlock(s_team[team].threat, building, at.x, at.y, gpGlobals->curtime);
+}
+
+bool EmpiresThreatBuildingBlocked(int team, edict_t* building)
+{
+	if (team < 0 || team >= 4 || building == nullptr || building->IsFree() || engine == nullptr || gpGlobals == nullptr ||
+		!rcbot_empires_threat_map.GetBool() || !s_team[team].threat.built)
+		return false;
+	const Vector at = CBotGlobals::entityOrigin(building);
+	EmpiresThreatMap::Block block;
+	return EmpiresThreatMap::BuildingBlocked(s_team[team].threat, engine->IndexOfEdict(building), at.x, at.y,
+		gpGlobals->curtime, block);
 }
 
 void CBotEmpires::tickTeamDirector()
@@ -1324,6 +1445,11 @@ void CBotEmpires::tickTeamDirector()
 			state.intelHidden = 0;
 		}
 	}
+	UpdateThreatMap(team, state, now, [this](edict_t* e)
+	{
+		bool built = false;
+		return !readEmpiresEntityBoolProperty(e, "m_bFullyBuilt", built) || built;
+	});
 }
 
 // Nearest enabled own spawn point to `to` (same entities and enabled flag as resolveBootstrapSpawnId).

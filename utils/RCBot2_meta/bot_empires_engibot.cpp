@@ -228,7 +228,24 @@ void HandleEngibotRequest(edict_t* speaker, const int speakerId, const bool test
 	{
 		int slot = -1;
 		char name[32];
+		// Names from the user (27.11.): the first free of the two, further ones (engibot_limit > 2) numbered.
+		static const char* const kNames[] = {"Builder Bob", "Fix It Felix"};
 		snprintf(name, sizeof(name), "EngiBot %s %d", team == 2 ? "NF" : "BE", s_engibots[team].count + 1);
+		for (const char* candidate : kNames)
+		{
+			bool used = false;
+			for (int i = 0; i < s_engibots[team].count && !used; ++i)
+			{
+				edict_t* e = PlayerByUserId(s_engibots[team].userIds[i]);
+				IPlayerInfo* info = e != nullptr && playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(e) : nullptr;
+				used = info != nullptr && info->GetName() != nullptr && std::strstr(info->GetName(), candidate) != nullptr;
+			}
+			if (!used)
+			{
+				snprintf(name, sizeof(name), "%s", candidate);
+				break;
+			}
+		}
 		if (!CBots::createBot("3", team == 2 ? "2" : "3", name, &slot) || slot < 0 || CBots::getBot(slot) == nullptr ||
 			CBots::getBot(slot)->getEdict() == nullptr)
 			reason = "create-failed";
@@ -858,7 +875,7 @@ void CBotEmpires::empiresHelpHumanCommander()
 			bool taken = false;
 			for (CBotEmpires* e : engineers)
 				taken = taken || (e->m_iBuildAssignStage != 0 && e->m_hBuildAssignBuilding.get() == b);
-			if (taken)
+			if (taken || EmpiresThreatBuildingBlocked(team, b)) // TODO 9.8, rcbot_empires_threat_map
 				continue;
 			best = b;
 			bestDist = d;

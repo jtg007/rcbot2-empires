@@ -443,6 +443,24 @@ void CBot::runPlayerMove()
 	cmd.weaponselect = m_iSelectWeapon;
 	cmd.tick_count = gpGlobals->tickcount;
 	cmd.command_number = cmdnumbr;
+	// Populate CBotCmd::random_seed like a real client (CInput::CreateMove hashes command_number):
+	// CPlayerInfo::RunPlayerMove (0x7d7f8c) copies it to CUserCmd::random_seed ->
+	// CBaseEntity::m_nPredictionRandomSeed (0x329d9d), which Empires passes as iSeed & 0xff to
+	// FX_Vehicle_FireBullets (0x69c36f) and FX_FireBullets (0x3baec1). Leaving it 0 gave every
+	// bot shot an identical deterministic spread offset.
+	{
+		const unsigned int botSalt = (engine != nullptr && m_pEdict != nullptr)
+			? static_cast<unsigned int>(engine->IndexOfEdict(m_pEdict)) : 0u;
+		unsigned int h = static_cast<unsigned int>(cmdnumbr) ^
+			(static_cast<unsigned int>(gpGlobals->tickcount) * 0x9e3779b1u) ^
+			(botSalt * 0x85ebca77u);
+		h ^= h >> 16;
+		h *= 0x85ebca6bu;
+		h ^= h >> 13;
+		h *= 0xc2b2ae35u;
+		h ^= h >> 16;
+		cmd.random_seed = static_cast<int>(h & 0x7fffffffu);
+	}
 
 	if (bot_attack.GetInt() == 1) {
 		cmd.buttons = IN_ATTACK;
@@ -4299,8 +4317,11 @@ void CBot :: doLook ()
 			CClients::clientDebugMsg(BOT_DEBUG_AIM, "view angle invalid", this);
 		}
 
-		changeAngles(fSensitivity,&requiredAngles.x,&m_vViewAngles.x, nullptr);
-		changeAngles(fSensitivity,&requiredAngles.y,&m_vViewAngles.y, nullptr);
+		if ( !applyCustomLookAngles(requiredAngles, m_vViewAngles) )
+		{
+			changeAngles(fSensitivity,&requiredAngles.x,&m_vViewAngles.x, nullptr);
+			changeAngles(fSensitivity,&requiredAngles.y,&m_vViewAngles.y, nullptr);
+		}
 		CBotGlobals::fixFloatAngle(&m_vViewAngles.x);
 		CBotGlobals::fixFloatAngle(&m_vViewAngles.y);
 

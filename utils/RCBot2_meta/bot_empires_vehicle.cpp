@@ -8,6 +8,7 @@
 #include "bot_empires_lawliet.h"
 #include "bot_empires_wreck_clear.h"
 #include "bot_empires_vehicle_aim.h"
+#include "bot_empires_vehicle_context_steer.h"
 #include "bot_buttons.h"
 #include "bot_cvars.h"
 #include "bot_globals.h"
@@ -73,6 +74,9 @@ ConVar rcbot_empires_vehicle_curve_speed("rcbot_empires_vehicle_curve_speed", "0
 	"Experimental anticipatory curve speed for NF Light and BE AFV on ordinary routes");
 ConVar rcbot_empires_vehicle_maneuvers("rcbot_empires_vehicle_maneuvers", "0", 0,
 	"Experimental local maneuver selection for NF Light and BE AFV on ordinary routes");
+ConVar rcbot_empires_vehicle_context_steer("rcbot_empires_vehicle_context_steer", "1", 0,
+	"Context steering on routes: 16 directions scored by route interest and hull-width traces (walls, buildings); "
+	"in front of a tight passage follow its axis and slow down until lined up; only at tight passages. 0 = off");
 ConVar rcbot_empires_vehicle_maneuver_budget("rcbot_empires_vehicle_maneuver_budget", "2", 0,
 	"Local maneuver evaluations per server tick for all vehicles together (others wait a tick)");
 // SendPropArray3 arrays are datatables whose numbered children have relative offsets.
@@ -2315,6 +2319,15 @@ Vector EntityCenter(edict_t* e)
 		if (maxs.z > mins.z)
 		{
 			Vector centre = (mins + maxs) * 0.5f;
+			// Infantry: aim at solid upper chest (~49 HU standing, ~22 HU crouching) instead of
+			// 50% (36 HU = leg gap), where the cannon convergence ray passes between a stationary
+			// soldier's legs onto the ground behind him and shifts offset MGs off target.
+			const int entIndex = engine != nullptr ? engine->IndexOfEdict(e) : -1;
+			if (gpGlobals != nullptr && entIndex >= 1 && entIndex <= gpGlobals->maxClients)
+			{
+				centre.z = mins.z + EmpiresVehicleAim::InfantryAimHeight(maxs.z - mins.z);
+				return centre;
+			}
 			// Building bounds reach far below the ground (map refinery 132: z -326..32, ground -190):
 			// the box centre sat 40 HU above ground and shells hit the pad in front (run 125847:
 			// 11 cannon shots, refinery stayed 150/150). Aim halfway between origin and roof.
@@ -5280,8 +5293,12 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.fightSwitch = now + randomFloat(3.0f, 6.0f);
 			}
 			// Far: angle in. Sweet spot (750..1400): moderate weave keeping front armor angled.
-			// Too close: open the range.
-			const float offset = distance > 1400.0f ? 30.0f : distance < 750.0f ? 120.0f : 50.0f;
+			// Against infantry, keep the front angled toward the target (avoid turning 120 deg away,
+			// which blends cannon depression down to the low rear limit: +2..+3 deg).
+			const int tIdx = engine->IndexOfEdict(target);
+			const bool targetIsInfantry = tIdx >= 1 && tIdx <= gpGlobals->maxClients;
+			const float offset = distance > 1400.0f ? 30.0f :
+				(targetIsInfantry ? (distance < 550.0f ? 90.0f : 35.0f) : (distance < 750.0f ? 120.0f : 50.0f));
 			const float bearing = YawTo(origin, targetAt);
 			float yaw = NormalizeYaw(bearing + v.fightDir * offset);
 			// Narrow road (rainbowroad +-1650): weave the way that has ground ahead.
@@ -5310,11 +5327,14 @@ void CBotEmpires::tickEmpiresVehicle()
 	}
 
 	// Fair test start (rcbot_empires_vehicle_hold): wait where bought until both teams are ready.
-	if (rcbot_empires_vehicle_hold.GetBool() && target == nullptr && !v.commanderCV)
+	// Mode 2 also holds stationary while firing (controlled range tests).
+	if ((rcbot_empires_vehicle_hold.GetInt() >= 2 || (rcbot_empires_vehicle_hold.GetBool() && target == nullptr)) &&
+		!v.commanderCV)
 	{
 		driveTo = origin;
 		arrive = 200.0f;
 		throttle = 0.0f;
+		v.fightMove = false;
 	}
 
 	// TODO 8.4: advance together. On the way to the front a tank with an escorting engineer waits while
@@ -6443,6 +6463,131 @@ void CBotEmpires::tickEmpiresVehicle()
 			break;
 		}
 	}
+	// Context steering (rcbot_empires_vehicle_context_steer): gate run 20261127-104131, a BE Heavy came in
+	// at -150 for a -83 gate, chased the gate point and pressed its nose into the wall beside it for 10 s.
+	if (rcbot_empires_vehicle_context_steer.GetBool() && onRoute && found && target == nullptr && !v.billNye &&
+		!ram && enginetrace != nullptr && v.routeIndex < v.route.size())
+	{
+		namespace CS = EmpiresContextSteer;
+		CVehicleSightFilter solids(vehicle);
+		const Vector eye = origin + Vector(0, 0, 48);
+		const float halfWidth = v.width * 0.5f;
+		auto traceFrac = [&](const Vector& to) {
+			trace_t hit;
+			Ray_t ray;
+			ray.Init(eye, to + Vector(0, 0, 48));
+			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
+			return hit.startsolid ? 0.0f : hit.fraction;
+		};
+		const float reach = (std::max)(300.0f, (std::min)(700.0f, 250.0f + speed * 0.6f));
+		// Danger along one yaw: the centre line plus both front corners swept along it (corner start
+		// pulled in a little so a hull already touching a wall does not start inside it).
+		const Vector hullDir = YawDir(heading);
+		const Vector hullLeft(-hullDir.y, hullDir.x, 0.0f);
+		auto traceFrom = [&](const Vector& from, const Vector& to) {
+			trace_t hit;
+			Ray_t ray;
+			ray.Init(from + Vector(0, 0, 48), to + Vector(0, 0, 48));
+			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
+			return hit.startsolid ? 1.0f : hit.fraction; // inside: that corner says nothing
+		};
+		auto dangerAt = [&](float yaw) {
+			const Vector dir = YawDir(yaw);
+			float frac = traceFrac(origin + dir * reach);
+			for (const float s : {-1.0f, 1.0f})
+			{
+				const Vector corner = origin + hullDir * 150.0f + hullLeft * (s * (halfWidth - 20.0f));
+				frac = (std::min)(frac, traceFrom(corner, corner + dir * reach));
+			}
+			return 1.0f - frac;
+		};
+		// Tight passage at the current route point: free width across the next segment.
+		const Vector& gate = v.route[v.routeIndex];
+		if (v.ctxNarrowIndex != v.routeIndex || v.ctxNarrowRouteSize != v.route.size() ||
+			Dist2D(v.ctxNarrowAt, gate) > 1.0f)
+		{
+			v.ctxNarrowIndex = v.routeIndex;
+			v.ctxNarrowRouteSize = v.route.size();
+			v.ctxNarrowAt = gate;
+			v.ctxNarrow = false;
+			if (v.routeIndex + 1 < v.route.size())
+			{
+				v.ctxAxis = YawTo(gate, v.route[v.routeIndex + 1]);
+				const Vector dir = YawDir(v.ctxAxis);
+				const Vector side(-dir.y, dir.x, 0.0f);
+				CTraceFilterWorldOnly worldOnly;
+				// At the point and 200 further on (a gate point often sits in the mouth of the gate).
+				float narrowest = 1.0e9f;
+				for (const float ahead : {0.0f, 200.0f})
+				{
+					const Vector at = gate + dir * ahead + Vector(0, 0, 48);
+					float free = 0.0f;
+					for (const float s : {-1.0f, 1.0f})
+					{
+						trace_t hit;
+						Ray_t ray;
+						ray.Init(at, at + side * (s * (halfWidth + 300.0f)));
+						enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &worldOnly, &hit);
+						free += hit.fraction * (halfWidth + 300.0f);
+					}
+					narrowest = (std::min)(narrowest, free);
+				}
+				v.ctxGateFree = narrowest - v.width;
+				v.ctxNarrow = narrowest < v.width + 400.0f;
+			}
+		}
+		float want = chosen;
+		const float toGate = Dist2D(origin, gate);
+		if (v.ctxNarrow && toGate > 150.0f && toGate < 1200.0f)
+		{
+			want = CS::EntryAim(origin.x, origin.y, gate.x, gate.y, v.ctxAxis, TurnRadius(chassis, speed));
+			// Not lined up yet: come in slowly enough to swing onto the axis instead of into the wall.
+			const float off = std::fabs(NormalizeYaw(want - heading));
+			if (off > 25.0f && toGate < 300.0f + speed * 0.8f)
+				throttle = (std::min)(throttle, speed > 250.0f ? 0.0f : 0.5f);
+		}
+		// Only at tight passages: in open ground the route already bends around buildings, and slot
+		// scoring against them pushed drivers off it (crossroads A/B 20261127-105737: 55 reversals vs 25).
+		const bool atPassage = v.ctxNarrow && toGate < 1200.0f;
+		if (!atPassage)
+		{
+			v.ctxSlot = -2;
+			v.ctxHasPrev = false;
+		}
+		else if (now >= v.ctxNextEval)
+		{
+			v.ctxNextEval = now + 0.1f;
+			const float wantDanger = dangerAt(want);
+			CS::Result r;
+			if (wantDanger < CS::kDesiredSafe)
+				r.yaw = want;
+			else
+			{
+				float danger[CS::kSlots];
+				for (int i = 0; i < CS::kSlots; ++i)
+					danger[i] = std::fabs(CS::SlotOffset(i)) <= CS::kForwardLimit ? dangerAt(CS::SlotYaw(heading, i)) : 1.0f;
+				r = CS::Choose(heading, want, danger, wantDanger, v.ctxHasPrev, v.ctxPrevYaw);
+			}
+			v.ctxYaw = r.blocked ? chosen : r.yaw;
+			v.ctxSlot = r.blocked ? -2 : r.slot;
+			if (now >= v.ctxNextLog)
+			{
+				v.ctxNextLog = now + 0.25f;
+				RCBOT_DIAG("[RCBOT2] vehicle ctx-steer userid=%d veh=%d pos=(%.0f %.0f) heading=%.0f route_yaw=%.0f want=%.0f "
+					"yaw=%.0f slot=%d danger=%.2f narrow=%d gate_free=%.0f axis=%.0f to_gate=%.0f speed=%.0f\n", userId, v.vehicleIndex,
+					origin.x, origin.y, heading, chosen, want, v.ctxYaw, v.ctxSlot, wantDanger, v.ctxNarrow ? 1 : 0,
+					v.ctxGateFree, v.ctxAxis, toGate, speed);
+			}
+		}
+		if (v.ctxSlot != -2 && SafeHeading(origin, v.ctxYaw, lookAhead))
+		{
+			chosen = v.ctxYaw;
+			v.ctxPrevYaw = chosen;
+			v.ctxHasPrev = true;
+		}
+	}
+	else
+		v.ctxHasPrev = false;
 	const bool headingSafe = SafeHeading(origin, heading, lookAhead);
 
 	// Bail out before an unavoidable fall (user: falling off is fine, but leave the vehicle first;
@@ -6506,6 +6651,34 @@ void CBotEmpires::tickEmpiresVehicle()
 
 	float forward = kMaxMove * throttle;
 	const float routeSteer = (std::max)(-1.0f, (std::min)(1.0f, -err / 30.0f));
+	// Diagnostic for tight passages (gates): with walls close beside the hull log the heading against
+	// the route segment and the free space to both sides (4 Hz).
+	if (onRoute && v.routeIndex > 0 && v.routeIndex < v.route.size() && now >= v.nextTightLog && enginetrace != nullptr)
+	{
+		v.nextTightLog = now + 0.25f;
+		const Vector dir = YawDir(heading);
+		const Vector left(-dir.y, dir.x, 0.0f);
+		CTraceFilterWorldOnly worldOnly;
+		auto clearance = [&](const Vector& from, const Vector& way) {
+			trace_t hit;
+			Ray_t ray;
+			ray.Init(from + Vector(0, 0, 48), from + Vector(0, 0, 48) + way * 600.0f);
+			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &worldOnly, &hit);
+			return hit.fraction * 600.0f - v.width * 0.5f;
+		};
+		const Vector nose = origin + dir * 180.0f;
+		const float cl = clearance(origin, left), cr = clearance(origin, -left);
+		const float nl = clearance(nose, left), nr = clearance(nose, -left);
+		if ((std::min)((std::min)(cl, cr), (std::min)(nl, nr)) < 250.0f)
+		{
+			const float axis = YawTo(v.route[v.routeIndex - 1], v.route[v.routeIndex]);
+			RCBOT_DIAG("[RCBOT2] vehicle tight userid=%d veh=%d pos=(%.0f %.0f %.0f) heading=%.0f axis=%.0f dev=%.0f "
+				"idx=%zu/%zu to=(%.0f %.0f) clr_l=%.0f clr_r=%.0f nose_l=%.0f nose_r=%.0f ahead=%.0f err=%.0f steer=%.2f fwd=%.2f speed=%.0f\n",
+				userId, v.vehicleIndex, origin.x, origin.y, origin.z, heading, axis, NormalizeYaw(heading - axis),
+				v.routeIndex, v.route.size(), driveTo.x, driveTo.y, cl, cr, nl, nr, clearance(origin, dir) + v.width * 0.5f,
+				err, routeSteer, throttle, speed);
+		}
+	}
 	float side = routeSteer * kMaxMove;
 	if (!localManeuvers)
 	{
@@ -7070,9 +7243,12 @@ void CBotEmpires::tickEmpiresVehicle()
 		const bool infantry = targetIndex >= 1 && targetIndex <= gpGlobals->maxClients;
 		// Lead: target velocity from its last positions (smoothed).
 		Vector centre = EntityCenter(target);
+		const Vector normalCentre = centre;
+		bool mgLowAimActive = false;
 		// Human test 26.11.: a soldier revived lying keeps a standing-height box, the MG aimed at its
 		// centre and fired over him for seconds. Like a gunner who sees no hits: after 1.2 s of MG fire
 		// without damage aim at the body on the ground, after 3 s take another target for 10 s.
+		// Never lower aim while pitch-limited (already at max depression -> lowering only deadlocks).
 		if (infantry && rcbot_empires_vehicle_mg_no_damage.GetBool() && v.mgEngTarget == targetIndex &&
 			v.mgEngHp0 > 0 && v.mgEngHpLast >= v.mgEngHp0)
 		{
@@ -7086,9 +7262,10 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.nextTargetPick = now;       // pick again next frame; inSight() skips this one
 				v.mgEngTarget = -1;
 			}
-			else if (v.mgEngFired >= 1.2f)
+			else if (v.mgEngFired >= 1.2f && now >= v.pitchLimitUntil)
 			{
 				centre.z = CBotGlobals::entityOrigin(target).z + 12.0f;
+				mgLowAimActive = true;
 				if (v.mgLowAimLogged != targetIndex)
 				{
 					v.mgLowAimLogged = targetIndex;
@@ -7101,14 +7278,14 @@ void CBotEmpires::tickEmpiresVehicle()
 		{
 			v.aimTarget = targetIndex;
 			v.aimVel = Vector(0, 0, 0);
-			v.aimLastPos = centre;
+			v.aimLastPos = normalCentre;
 			v.aimLastTime = now;
 		}
 		else if (now - v.aimLastTime >= 0.2f)
 		{
-			const Vector measured = (centre - v.aimLastPos) / (now - v.aimLastTime);
+			const Vector measured = (normalCentre - v.aimLastPos) / (now - v.aimLastTime);
 			v.aimVel = measured.Length() < 2500.0f ? v.aimVel * 0.5f + measured * 0.5f : Vector(0, 0, 0);
-			v.aimLastPos = centre;
+			v.aimLastPos = normalCentre;
 			v.aimLastTime = now;
 		}
 		// vehicle_weapons.txt: "Speed"/"Gravity" apply only to projectile types 1-4; machine guns
@@ -7124,30 +7301,67 @@ void CBotEmpires::tickEmpiresVehicle()
 		aim.z += ballistics.gravityDropZ; // drop at sv_gravity 600 (assumed), 0 for MG and missiles
 		QAngle worldView;
 		VectorAngles(aim - eye, worldView);
+		// Offset-MG parallax compensation: CEmpTank::GetWeaponVectors (0x69af23) ignores players
+		// (CEmpGameRules::ShouldCollide(8, 14) == 0), so tanks with offset MGs (NF Heavy -31.2 HU
+		// left, BE Med +30 HU right, NF Med +20 HU up) converge on the ground behind a soldier and
+		// miss him laterally/vertically. Trace past the soldier to find that convergence point and
+		// shift the cannon aim so the MG ray passes through his chest.
+		if (infantry && !mgLowAimActive && range > 1.0f && enginetrace != nullptr &&
+			EmpiresVehicleAim::HasMgParallaxOffset(chassis, false))
+		{
+			const Vector rayDir = (aim - eye) / range;
+			Ray_t behindRay;
+			behindRay.Init(aim, aim + rayDir * 4000.0f);
+			CTraceFilterNoPlayers behindFilter;
+			trace_t behindHit;
+			enginetrace->TraceRay(behindRay, MASK_SOLID, &behindFilter, &behindHit);
+			const float behindDist = (!behindHit.startsolid && behindHit.fraction < 1.0f)
+				? (behindHit.fraction * 4000.0f) : -1.0f;
+			float rightShift = 0.0f, upShift = 0.0f;
+			EmpiresVehicleAim::MgParallaxAimShift(chassis, false, range, behindDist, rightShift, upShift);
+			if (rightShift != 0.0f || upShift != 0.0f)
+			{
+				Vector fwdVec, rightVec, upVec;
+				AngleVectors(worldView, &fwdVec, &rightVec, &upVec);
+				aim += rightVec * rightShift + upVec * upShift;
+				const float minAimZ = CBotGlobals::entityOrigin(target).z + 18.0f;
+				if (aim.z < minAimZ)
+					aim.z = minAimZ;
+				VectorAngles(aim - eye, worldView);
+			}
+		}
 		view = hullView(aim - eye);
 		// Minimum range (user 25.11.: every vehicle has its own distance below which it cannot aim
 		// at the ground or at players): the game clamps the requested cannon pitch to the
 		// chassis limits (CEmpTankCannon::SetTargetRotation 0x3e6d50, front/rear blended), and
 		// every turret weapon follows the cannon axis. A clamped pitch means the target is out of
 		// reach: hold fire and open the range instead of wasting rounds into the ground.
+		// Check pitch limits against normalCentre so no-damage-aim-low cannot self-lock into pitch-limit.
 		if (aimCannon != nullptr && rcbot_empires_vehicle_pitch_limit.GetBool() && now - v.aimSince > 0.8f)
 		{
 			// m_fDesiredLocalPitch reads 0 on the server (runs 130931/130951); the cannon's limits are
 			// readable, so clamp the request ourselves (Source pitch: positive = down).
-			float minPitch = 0.0f, maxPitch = 0.0f;
-			if (ReadEntityFloat(aimCannon, "m_fMinPitch", minPitch) && ReadEntityFloat(aimCannon, "m_fMaxPitch", maxPitch) &&
-				maxPitch > minPitch)
+			float minFront = 0.0f, maxFront = 0.0f;
+			if (ReadEntityFloat(aimCannon, "m_fMinPitch", minFront) && ReadEntityFloat(aimCannon, "m_fMaxPitch", maxFront) &&
+				maxFront > minFront)
 			{
+				float minRear = minFront, maxRear = maxFront;
+				ReadEntityFloat(aimCannon, "m_fMinPitchRear", minRear);
+				ReadEntityFloat(aimCannon, "m_fMaxPitchRear", maxRear);
+				const QAngle pitchCheckView = mgLowAimActive ? hullView(normalCentre - eye) : view;
+				float minPitch = minFront, maxPitch = maxFront;
+				EmpiresVehicleAim::BlendedPitchLimits(pitchCheckView.y, minFront, maxFront, minRear, maxRear, minPitch, maxPitch);
 				if (v.pitchRangeLogged != v.vehicleIndex)
 				{
 					v.pitchRangeLogged = v.vehicleIndex;
-					RCBOT_DIAG("[RCBOT2] vehicle pitch-range userid=%d veh=%d chassis=%d min=%.1f max=%.1f pivot_dz=%.0f\n",
-						userId, v.vehicleIndex, chassis, minPitch, maxPitch, eye.z - origin.z);
+					RCBOT_DIAG("[RCBOT2] vehicle pitch-range userid=%d veh=%d chassis=%d min=%.1f max=%.1f rear=(%.1f %.1f) pivot_dz=%.0f\n",
+						userId, v.vehicleIndex, chassis, minFront, maxFront, minRear, maxRear, eye.z - origin.z);
 				}
-				const float wantPitch = NormalizeYaw(view.x);
+				const float wantPitch = NormalizeYaw(pitchCheckView.x);
 				const float gotPitch = (std::min)((std::max)(wantPitch, minPitch), maxPitch);
 				const float miss = wantPitch - gotPitch; // > 0: wanted further down
-				if (std::fabs(miss) > 3.0f)
+				const float pitchThreshold = infantry ? 2.0f : 3.0f;
+				if (std::fabs(miss) > pitchThreshold)
 				{
 					v.pitchLimitUntil = now + 1.5f;
 					v.pitchLimitDown = miss > 0.0f;
@@ -7155,7 +7369,7 @@ void CBotEmpires::tickEmpiresVehicle()
 					{
 						v.pitchLimitLogAt = now + 5.0f;
 						RCBOT_DIAG("[RCBOT2] vehicle pitch-limit userid=%d chassis=%d target=%d dist=%.0f dz=%.0f want=%.1f got=%.1f %s\n",
-							userId, chassis, targetIndex, Dist2D(origin, centre), eye.z - aim.z, wantPitch,
+							userId, chassis, targetIndex, Dist2D(origin, normalCentre), eye.z - normalCentre.z, wantPitch,
 							gotPitch, v.pitchLimitDown ? "too-close" : "too-high");
 					}
 				}
@@ -7238,6 +7452,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				alignIn.wantYawDeg = worldView.y;
 				alignIn.aimedForSeconds = now - v.aimSince;
 				alignIn.infantryTarget = infantry;
+				alignIn.targetRange = range;
 				const EmpiresVehicleAim::TurretAlignResult align = EmpiresVehicleAim::TurretAlignedToFire(alignIn);
 				aimReady = align.canFire;
 				if (lineClear && align.fallbackEscalated &&
@@ -7368,6 +7583,8 @@ void CBotEmpires::tickEmpiresVehicle()
 						}
 						v.mgEngHpLast = hp;
 						v.mgEngDistSum += distance;
+						float signedYawErr = 0.0f;
+						int mgClipAmmo = -1;
 						{
 							const float want = YawTo(origin, centre);
 							const QAngle hullAng = vehicle->GetCollideable() != nullptr ?
@@ -7381,9 +7598,70 @@ void CBotEmpires::tickEmpiresVehicle()
 								turret->GetCollideable()->GetCollisionAngles() : QAngle(0, 0, 0);
 							// turret models face local +X (measured: +90 read 88-92 while aligned, runs 121856/121916)
 							v.mgEngTurretOff += std::fabs(NormalizeYaw(turretAng.y - want));
+							signedYawErr = NormalizeYaw(turretAng.y - worldView.y);
+							if (rcbot_empires_vehicle_shell_trace.GetBool() && turret != nullptr)
+							{
+								std::int32_t wIds[8], wAmmo[8];
+								if (ReadTurretArray(turret, "m_iWeapon", wIds) && ReadTurretArray(turret, "m_iWeaponAmmo", wAmmo))
+								{
+									for (int wi = 0; wi < 8; ++wi)
+									{
+										if (EmpiresVehicleAim::IsMgWeaponId(wIds[wi]))
+										{
+											mgClipAmmo = wAmmo[wi];
+											break;
+										}
+									}
+								}
+							}
 						}
 						++v.mgEngTicks;
 						v.mgEngLastTick = now;
+						if (rcbot_empires_vehicle_shell_trace.GetBool())
+						{
+							static int s_mgSecUser = -1, s_mgSecTarget = -1, s_mgSecHp0 = 0, s_mgSecAmmo0 = -1, s_mgSecTicks = 0;
+							static float s_mgSecStart = 0.0f, s_mgSecYawSum = 0.0f, s_mgSecYawMax = 0.0f;
+							if (s_mgSecUser != userId || s_mgSecTarget != targetIndex || now - s_mgSecStart > 2.0f)
+							{
+								s_mgSecUser = userId;
+								s_mgSecTarget = targetIndex;
+								s_mgSecStart = now;
+								s_mgSecHp0 = hp;
+								s_mgSecAmmo0 = mgClipAmmo;
+								s_mgSecTicks = 0;
+								s_mgSecYawSum = 0.0f;
+								s_mgSecYawMax = 0.0f;
+							}
+							const float absYaw = std::fabs(signedYawErr);
+							s_mgSecYawSum += absYaw;
+							if (absYaw > s_mgSecYawMax) s_mgSecYawMax = absYaw;
+							++s_mgSecTicks;
+							const float win = now - s_mgSecStart;
+							if (win >= 1.0f || hp <= 0)
+							{
+								Vector tmins(0, 0, 0), tmaxs(0, 0, 0);
+								if (target->GetCollideable() != nullptr)
+									target->GetCollideable()->WorldSpaceSurroundingBounds(&tmins, &tmaxs);
+								const Vector tOrig = CBotGlobals::entityOrigin(target);
+								const int shots = (s_mgSecAmmo0 >= 0 && mgClipAmmo >= 0 && s_mgSecAmmo0 >= mgClipAmmo) ?
+									(s_mgSecAmmo0 - mgClipAmmo) : -1;
+								const int dmg = s_mgSecHp0 - hp;
+								RCBOT_DIAG("[RCBOT2] vehicle mg-sec userid=%d ch=%d dist=%.0f dt=%.2f shots=%d hp=%d->%d dmg=%d hp_s=%.1f "
+									"yerr_avg=%.1f yerr_max=%.1f yerr_s=%.1f wpitch=%.1f lpitch=%.1f hull_pr=(%.1f %.1f) vspd=%.0f "
+									"tspd=%.0f tbox_h=%.0f aim_dz=%.1f eye_dz=%.1f heat=%.0f\n",
+									userId, chassis, distance, win, shots, s_mgSecHp0, hp, dmg, win > 0.05f ? dmg / win : 0.0f,
+									s_mgSecTicks > 0 ? s_mgSecYawSum / s_mgSecTicks : 0.0f, s_mgSecYawMax, signedYawErr,
+									NormalizeYaw(worldView.x), NormalizeYaw(view.x), hullAngles.x, hullAngles.z, speed,
+									Vector(v.aimVel.x, v.aimVel.y, 0.0f).Length(), tmaxs.z - tmins.z,
+									aim.z - tOrig.z, eye.z - origin.z, heat);
+								s_mgSecStart = now;
+								s_mgSecHp0 = hp;
+								s_mgSecAmmo0 = mgClipAmmo;
+								s_mgSecTicks = 0;
+								s_mgSecYawSum = 0.0f;
+								s_mgSecYawMax = 0.0f;
+							}
+						}
 					}
 				}
 				if (now >= v.nextAimLog - 3.5f && now >= v.nextAimCheck && rcbot_empires_vehicle_shell_trace.GetBool())

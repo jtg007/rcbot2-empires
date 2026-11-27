@@ -181,6 +181,16 @@ void CBotEmpires::endEmpiresSkirmish(const char* reason)
 		engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1, reason, now - m_flSkirmishStarted,
 		m_iSkirmishSteps, m_iSkirmishBlocks, m_iSkirmishPauses, m_iSkirmishCovers, m_iSkirmishOddsBack,
 		m_iSkirmishFlanks, m_iSkirmishRearHolds, m_iSkirmishClassMode);
+	if (reason != nullptr && std::strcmp(reason, "enemy-lost") == 0 && rcbot_empires_nav_lookahead.GetBool())
+	{
+		edict_t* lost = m_pSkirmishEnemy.get();
+		if (lost != nullptr && CBotGlobals::entityIsValid(lost) && CBotGlobals::entityIsAlive(lost) &&
+			isEnemy(lost, false))
+		{
+			setLastEnemy(lost);
+			m_bEmpiresLastEnemyReported = false;
+		}
+	}
 	m_bSkirmishActive = false;
 	m_pSkirmishEnemy = nullptr;
 	m_iSkirmishPhase = 0;
@@ -584,8 +594,14 @@ bool CBotEmpires::findEmpiresSkirmishCover(const Vector& origin, edict_t* enemy,
 	const Vector dirs[] = {
 		side * sideSign, side * -sideSign,
 		(away + side * sideSign) * 0.7071f, (away - side * sideSign) * 0.7071f, away };
+	// rcbot_empires_threat_map: among the hidden spots of the closest ring take the one with the lowest
+	// team-known threat (not into the next enemy's fire); off (< 0) keeps the first hidden spot.
+	const int team = CClassInterface::getTeam(m_pEdict);
+	const bool useThreat = EmpiresThreatAt(team, origin) >= 0.0f;
 	for (const float range : {140.0f, 220.0f, 300.0f})
 	{
+		bool found = false;
+		float bestThreat = 0.0f;
 		for (const Vector& dir : dirs)
 		{
 			Vector spot;
@@ -594,9 +610,21 @@ bool CBotEmpires::findEmpiresSkirmishCover(const Vector& origin, edict_t* enemy,
 			// Hidden at standing chest height from the enemy's eyes.
 			if (CBotGlobals::isVisible(enemy, eye, spot + Vector(0, 0, 48)))
 				continue;
-			out = spot;
-			return true;
+			if (!useThreat)
+			{
+				out = spot;
+				return true;
+			}
+			const float t = EmpiresThreatAt(team, spot);
+			if (!found || t < bestThreat)
+			{
+				out = spot;
+				bestThreat = t;
+				found = true;
+			}
 		}
+		if (found)
+			return true;
 	}
 	return false;
 }
@@ -843,6 +871,7 @@ void CBotEmpires::resetEmpiresSkirmishState(bool mapChange)
 	m_iJoinSkipId = 0;
 	m_flJoinNextNav = 0.0f;
 	m_flJoinNextSearch = 0.0f;
+	resetEmpiresLookState();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1026,6 +1055,8 @@ bool CBotEmpires::handleEmpiresScoutBinoculars()
 // hold, waiting) kept whipping their view around (user 23.11.: "sinnlos hin und her schauen").
 void CBotEmpires::getLookAtVector()
 {
+	if (resolveEmpiresRealisticLookVector())
+		return;
 	// A walking bot (LOOK_WAYPOINT) looked 5 s toward every enemy a teammate reported, so in a
 	// big match most bots ran sideways (human test 26.11.). A report still drives the approach;
 	// the view only follows the bot's own sightings. Hide the report from the generic branch.

@@ -37,6 +37,7 @@
 #include "bot_mtrand.h"
 #include "bot.h"
 #include "bot_cvars.h"
+#include "bot_empires_look_logic.h"
 #include "bot_schedule.h"
 #include "bot_task.h"
 
@@ -4762,7 +4763,17 @@ void CCSSGuardTask::execute(CBot *pBot, CBotSchedule *pSchedule)
 CFindLastEnemy::CFindLastEnemy (const Vector& vLast, const Vector& vVelocity)
 {
 	setCompleteInterrupt(CONDITION_SEE_CUR_ENEMY);
-	m_vLast = vLast+vVelocity*10;
+	if (rcbot_empires_nav_lookahead.GetBool())
+	{
+		const EmpiresLookLogic::Vec3 clamped = EmpiresLookLogic::ClampLastEnemyExtrapolation(
+			EmpiresLookLogic::Vec3{ vLast.x, vLast.y, vLast.z },
+			EmpiresLookLogic::Vec3{ vVelocity.x, vVelocity.y, vVelocity.z });
+		m_vLast = Vector(clamped.x, clamped.y, clamped.z);
+	}
+	else
+	{
+		m_vLast = vLast+vVelocity*10;
+	}
 	m_fTime = 0.0f;
 }
 

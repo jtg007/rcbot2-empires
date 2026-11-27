@@ -70,6 +70,61 @@ int main()
 		Expect(rLegacy.canFire && !rLegacy.fallbackEscalated, "non-rotatable turret fires after 1.2 s without escalation");
 	}
 
+	// 2b. Distance-scaled MG alignment tolerance, chest aim height, front-to-rear pitch blend, and MG parallax.
+	{
+		Expect(Near(MgAlignToleranceDeg(0.0f), 8.0f), "zero range keeps default 8 deg MG tolerance");
+		Expect(Near(MgAlignToleranceDeg(300.0f), 8.0f), "close range clamps at 8 deg MG tolerance");
+		Expect(MgAlignToleranceDeg(600.0f) > 5.5f && MgAlignToleranceDeg(600.0f) < 5.9f, "600 HU MG tolerance ~5.7 deg");
+		Expect(Near(MgAlignToleranceDeg(860.0f), 4.0f, 0.05f), "860 HU MG tolerance ~4.0 deg");
+		Expect(Near(MgAlignToleranceDeg(1100.0f), 4.0f), "1100 HU MG tolerance clamps at 4.0 deg");
+
+		TurretAlignInput in;
+		in.turretYawDeg = 90.0f;
+		in.wantYawDeg = 96.0f; // 6 deg off: OK close (300 HU), too wide at 850 HU
+		in.infantryTarget = true;
+		in.aimedForSeconds = 0.5f;
+		in.targetRange = 300.0f;
+		Expect(TurretAlignedToFire(in).canFire, "MG fires at 6 deg error when close (300 HU)");
+		in.targetRange = 850.0f;
+		Expect(!TurretAlignedToFire(in).canFire, "MG holds fire at 6 deg error at 850 HU");
+		in.wantYawDeg = 93.0f; // 3 deg off: aligned at 850 HU (no false weave stall)
+		Expect(TurretAlignedToFire(in).canFire, "MG fires at 3 deg error at 850 HU");
+
+		Expect(Near(InfantryAimHeight(72.0f), 48.96f, 0.1f), "standing soldier chest height ~49 HU");
+		Expect(Near(InfantryAimHeight(36.0f), 22.32f, 0.1f), "crouching soldier chest height ~22 HU");
+		Expect(Near(InfantryAimHeight(16.0f), 8.0f, 0.1f), "prone soldier aim height ~8 HU");
+
+		float minP = 0.0f, maxP = 0.0f;
+		BlendedPitchLimits(90.0f, -30.0f, 10.0f, -30.0f, 3.0f, minP, maxP);
+		Expect(Near(minP, -30.0f) && Near(maxP, 10.0f), "front localYaw=90 uses full front pitch limit");
+		BlendedPitchLimits(-90.0f, -30.0f, 10.0f, -30.0f, 3.0f, minP, maxP);
+		Expect(Near(minP, -30.0f) && Near(maxP, 3.0f), "rear localYaw=-90 uses rear pitch limit");
+		BlendedPitchLimits(180.0f, -30.0f, 10.0f, -30.0f, 3.0f, minP, maxP);
+		Expect(Near(minP, -30.0f) && Near(maxP, 6.5f), "side localYaw=180 blends halfway between front and rear");
+
+		// MG parallax aim shift: matches measured NF Heavy X-ray (dist=768, behind=508 -> +11.95 HU right).
+		float rShift = 0.0f, uShift = 0.0f;
+		Expect(HasMgParallaxOffset(5, false) && !HasMgParallaxOffset(2, false) && !HasMgParallaxOffset(13, false),
+			"parallax offset active for NF Heavy, inactive for coaxial NF Light / BE Heavy");
+		MgParallaxAimShift(5, false, 768.0f, 508.0f, rShift, uShift);
+		Expect(Near(rShift, 11.95f, 0.2f) && Near(uShift, -0.96f, 0.2f),
+			"NF Heavy flat-ground parallax shifts aim +12 HU right");
+		MgParallaxAimShift(5, false, 800.0f, -1.0f, rShift, uShift);
+		Expect(Near(rShift, 31.2f, 0.1f) && Near(uShift, -2.5f, 0.1f),
+			"NF Heavy skyline (no hit behind) shifts by full -mgOffset");
+		MgParallaxAimShift(5, false, 800.0f, 0.0f, rShift, uShift);
+		Expect(Near(rShift, 0.0f) && Near(uShift, 0.0f),
+			"wall directly behind target requires zero parallax shift");
+		MgParallaxAimShift(11, false, 800.0f, 400.0f, rShift, uShift);
+		Expect(rShift < -8.0f && rShift > -10.0f && Near(uShift, 0.0f),
+			"BE Medium (+30 HU right MG) shifts aim left");
+		MgParallaxAimShift(3, false, 800.0f, 400.0f, rShift, uShift);
+		Expect(uShift < -5.0f && uShift > -8.0f,
+			"NF Medium (+20 HU roof MG) shifts aim down");
+		MgParallaxAimShift(5, true, 800.0f, 400.0f, rShift, uShift);
+		Expect(Near(rShift, 0.0f), "NF Heavy dual-cannon centered MG has zero lateral parallax shift");
+	}
+
 	// 3. ChooseBallistics: MG hitscan, cannon 3300+drop, missile-only 2300 flat.
 	{
 		const BallisticsResult bInf = ChooseBallistics(900.0f, true, true, true);
