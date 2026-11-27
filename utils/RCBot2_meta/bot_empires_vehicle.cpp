@@ -50,6 +50,9 @@ ConVar rcbot_empires_vehicle_turn_test("rcbot_empires_vehicle_turn_test", "0", 0
 	"Debug purchases only: 1 normal turn, 2 handbrake pulse, 3 coast straight, 4 brake straight");
 ConVar rcbot_empires_apc_cover_park("rcbot_empires_apc_cover_park", "1", 0,
 	"8.4: a spawn APC without a contested flag parks out of sight 1000-2300 HU before the nearest enemy building (1000-1800 HU at flags; else enemy CV) instead of driving into it");
+ConVar rcbot_empires_vehicle_spread_wait("rcbot_empires_vehicle_spread_wait", "1", 0,
+	"Each vehicle claims its front support / APC park / staging spot; other vehicles of the team skip spots "
+	"within 500 HU of a claim (DMZ human test 27.11.: two tanks got the same front spot and wedged)");
 ConVar rcbot_empires_apc_retreat_hull("rcbot_empires_apc_retreat_hull", "0.6", 0,
 	"5.14a: a spawn APC retreats to the repair pad below this hull share (tanks 0.4); it also leaves a park spot "
 	"where it lost 15 % of hull+armor within 15 s, and never drives into a fight like a tank");
@@ -2293,6 +2296,57 @@ bool FindFactoryStandSpot(edict_t* factory, const Vector& near, Vector& spot, in
 		snprintf(why, whySize, "surfaces=%d blocked=%d not_factory=%d bounds=(%.0f %.0f %.0f)-(%.0f %.0f %.0f)",
 			surfaces, blocked, notFactory, mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z);
 	return candidates > 0;
+}
+
+// Waiting spots claimed by the vehicles of a team (front support, APC park, staging). A claim lasts
+// 3 s and is renewed by every goal pick (0.5 s) while the vehicle keeps that goal, so it lapses
+// when the vehicle dies or takes another goal.
+struct WaitSpotClaim
+{
+	int team = 0;
+	int vehicle = 0;
+	Vector spot = Vector(0, 0, 0);
+	float until = 0.0f;
+};
+constexpr float kWaitSpotSpacing = 500.0f;
+constexpr float kWaitSpotHold = 3.0f;
+WaitSpotClaim g_waitSpotClaims[64];
+
+void ClaimWaitSpot(int team, int vehicle, const Vector& spot, float now)
+{
+	if (!rcbot_empires_vehicle_spread_wait.GetBool() || vehicle <= 0)
+		return;
+	WaitSpotClaim* slot = nullptr;
+	for (WaitSpotClaim& claim : g_waitSpotClaims)
+		if (claim.vehicle == vehicle)
+		{
+			slot = &claim;
+			break;
+		}
+	if (slot == nullptr)
+		for (WaitSpotClaim& claim : g_waitSpotClaims)
+			if (claim.until <= now || claim.until > now + 60.0f) // expired, or left from a previous map
+			{
+				slot = &claim;
+				break;
+			}
+	if (slot == nullptr)
+		return;
+	slot->team = team;
+	slot->vehicle = vehicle;
+	slot->spot = spot;
+	slot->until = now + kWaitSpotHold;
+}
+
+bool WaitSpotTaken(int team, int vehicle, const Vector& spot, float now)
+{
+	if (!rcbot_empires_vehicle_spread_wait.GetBool())
+		return false;
+	for (const WaitSpotClaim& claim : g_waitSpotClaims)
+		if (claim.team == team && claim.vehicle != vehicle && claim.until > now && claim.until <= now + 60.0f &&
+			Dist2D(claim.spot, spot) < kWaitSpotSpacing)
+			return true;
+	return false;
 }
 
 // Open flat ground for a vehicle: road under centre and corners, no solid in
@@ -4699,7 +4753,7 @@ void CBotEmpires::tickEmpiresVehicle()
 				for (const Vector& at : ownParkVehicles)
 					if (Dist2D(at, spot) < 400.0f)
 						return false;
-				return true;
+				return !WaitSpotTaken(team, v.vehicleIndex, spot, now);
 			};
 			int rejOwnPark = 0;
 			if (!spawnApc && bestDefend < 1.0e9f)
@@ -4805,6 +4859,16 @@ void CBotEmpires::tickEmpiresVehicle()
 				if (found)
 				{
 					const bool changed = Dist2D(front, v.supportFlag) > 50.0f;
+					// Another vehicle of the team holds this spot (it claimed it while this one hunted or
+					// both picked before a claim existed): search a free one.
+					if (v.supportKnown && !changed && WaitSpotTaken(team, v.vehicleIndex, v.supportSpot, now))
+					{
+						RCBOT_DIAG("[RCBOT2] vehicle wait-spread userid=%d reason=taken spot=(%.0f %.0f %.0f)\n", userId,
+							v.supportSpot.x, v.supportSpot.y, v.supportSpot.z);
+						v.supportKnown = false;
+						if (spawnApc)
+							v.nextParkSearch = now;
+					}
 					if (spawnApc && v.supportKnown && !changed)
 					{
 						const float left = Dist2D(origin, v.supportSpot);
@@ -4840,6 +4904,9 @@ void CBotEmpires::tickEmpiresVehicle()
 						Vector fallback(0, 0, 0);
 						bool fallbackKnown = false;
 						int rejMesh = 0, rejWalk = 0, rejSeen = 0, rejFoot = 0, rejDrive = 0;
+						// Every free spot claimed by other vehicles: still take the first one rather than none.
+						Vector takenFallback(0, 0, 0);
+						bool takenFallbackKnown = false;
 						// 5.14a: the spawn APC tries the middle ring first (1200 sat in the fight at flags).
 						static const float kRadii[] = {1200.0f, 1600.0f, 2000.0f};
 						static const float kApcRadii[] = {1600.0f, 1200.0f, 2000.0f};
@@ -4907,6 +4974,16 @@ void CBotEmpires::tickEmpiresVehicle()
 									v.parkProgressAt = now;
 									break;
 								}
+								if (WaitSpotTaken(team, v.vehicleIndex, mesh, now))
+								{
+									if (!takenFallbackKnown)
+									{
+										takenFallback = mesh;
+										takenFallbackKnown = true;
+									}
+									++rejOwnPark;
+									continue;
+								}
 								if (!fallbackKnown)
 								{
 									fallback = mesh;
@@ -4927,14 +5004,19 @@ void CBotEmpires::tickEmpiresVehicle()
 							v.supportSpot = fallback;
 							v.supportKnown = true;
 						}
+						if (!v.supportKnown && takenFallbackKnown)
+						{
+							v.supportSpot = takenFallback;
+							v.supportKnown = true;
+						}
 						if (!v.supportKnown && hadSpot)
 						{
 							v.supportSpot = prevSpot;
 							v.supportKnown = true;
 						}
-						RCBOT_DIAG("[RCBOT2] vehicle front userid=%d flag=(%.0f %.0f %.0f) support=(%.0f %.0f %.0f) known=%d anchor=%s rej=mesh:%d,walk:%d,seen:%d,foot:%d,drive:%d\n", userId,
+						RCBOT_DIAG("[RCBOT2] vehicle front userid=%d flag=(%.0f %.0f %.0f) support=(%.0f %.0f %.0f) known=%d anchor=%s rej=mesh:%d,walk:%d,seen:%d,foot:%d,drive:%d,own:%d\n", userId,
 							front.x, front.y, front.z, v.supportSpot.x, v.supportSpot.y, v.supportSpot.z, v.supportKnown ? 1 : 0,
-							enemyAnchor ? "enemy-building" : "flag", rejMesh, rejWalk, rejSeen, rejFoot, rejDrive);
+							enemyAnchor ? "enemy-building" : "flag", rejMesh, rejWalk, rejSeen, rejFoot, rejDrive, rejOwnPark);
 						if (enemyAnchor && v.supportKnown)
 							RCBOT_DIAG("[RCBOT2] apc-cover-park userid=%d anchor=(%.0f %.0f) spot=(%.0f %.0f %.0f) walk=%.0f\n", userId,
 								front.x, front.y, v.supportSpot.x, v.supportSpot.y, v.supportSpot.z, Dist2D(v.supportSpot, front));
@@ -4962,6 +5044,8 @@ void CBotEmpires::tickEmpiresVehicle()
 						{
 							const bool newStage = Dist2D(v.goal, stage) > 50.0f;
 							v.goal = stage;
+							if (staged)
+								ClaimWaitSpot(team, v.vehicleIndex, stage, now);
 							v.goalValid = true;
 							goalKind = 2;
 							if (newStage)
@@ -4979,6 +5063,7 @@ void CBotEmpires::tickEmpiresVehicle()
 						v.goal = v.supportSpot;
 						v.goalValid = true;
 						goalKind = 2;
+						ClaimWaitSpot(team, v.vehicleIndex, v.supportSpot, now);
 					}
 				}
 			}
