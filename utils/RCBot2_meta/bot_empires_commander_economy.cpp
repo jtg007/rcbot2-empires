@@ -1579,15 +1579,22 @@ void CBotEmpires::tickCommanderEconomy()
 		if (candidates.empty() && !commanderEngineer)
 			continue;
 		edict_t* building = engine->PEntityOfEntIndex(info.entity);
-		bool taken = false;
-		for (int slot = 0; slot < RCBOT_MAXPLAYERS && !taken; ++slot)
+		// An unfinished vehicle factory (350 HP, the team's vehicles wait for it) takes more than one builder.
+		const bool factoryBuild = info.type == VehicleFactory && info.underConstruction;
+		const int maxBuilders = factoryBuild ? (std::max)(1, rcbot_empires_factory_builders.GetInt()) : 1;
+		int builders = 0;
+		for (int slot = 0; slot < RCBOT_MAXPLAYERS; ++slot)
 		{
 			CBot* bot = CBots::getBot(slot);
-			taken = bot != nullptr && bot != this && bot->inUse() &&
+			if (bot != nullptr && bot != this && bot->inUse() &&
 				static_cast<CBotEmpires*>(bot)->m_iBuildAssignStage != 0 &&
-				static_cast<CBotEmpires*>(bot)->m_hBuildAssignBuilding.get() == building;
+				static_cast<CBotEmpires*>(bot)->m_hBuildAssignBuilding.get() == building)
+				++builders;
 		}
-		if (taken)
+		if (builders >= maxBuilders)
+			continue;
+		// A further builder only from the free engineers (no self-build by the commander for it).
+		if (builders > 0 && candidates.empty())
 			continue;
 		CommanderEconomyState::AssignTry* tries = nullptr;
 		for (auto& entry : state.assignTries)
@@ -1703,12 +1710,17 @@ void CBotEmpires::tickCommanderEconomy()
 		}
 		// Idle engineers first, then the one on the lowest-priority job, then the nearest; the engineer that
 		// last held this order goes last when another one exists (a stalled walk is not repeated by him).
+		// The vehicle factory: the nearest preemptable engineer, whatever his job (the walk dominated:
+		// DMZ 27.11. an engineer 6500 HU away got it, the build started 30/82 s after placement).
+		const bool nearestFirst = factoryBuild && rcbot_empires_factory_builders.GetInt() > 1;
 		std::sort(candidates.begin(), candidates.end(), [&](CBotEmpires* a, CBotEmpires* b)
 		{
 			const bool aLast = engine->GetPlayerUserId(a->getEdict()) == tries->lastUserId;
 			const bool bLast = engine->GetPlayerUserId(b->getEdict()) == tries->lastUserId;
 			if (aLast != bLast)
 				return bLast;
+			if (nearestFirst)
+				return a->distanceFrom(building) < b->distanceFrom(building);
 			return EmpiresPriority::BetterCandidate(a->empiresEngineerJob(), a->distanceFrom(building),
 				b->empiresEngineerJob(), b->distanceFrom(building));
 		});
@@ -1719,10 +1731,10 @@ void CBotEmpires::tickCommanderEconomy()
 		const bool assigned = chosen->requestEmpiresBuildAssignment(building, tier);
 		if (assigned)
 			tries->lastUserId = engine->GetPlayerUserId(chosen->getEdict());
-		RCBOT_DIAG("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d tier=%s job=%s\n",
+		RCBOT_DIAG("[RCBOT2] commander-econ assign building=%d class=%s health=%d/%d engineer_userid=%d requested=%d try=%d tier=%s job=%s builder=%d/%d dist=%.0f\n",
 			info.entity, building->GetClassName(), info.health, info.maxHealth,
 			engine->GetPlayerUserId(chosen->getEdict()), assigned ? 1 : 0, tries->tries, EmpiresPriority::TierName(tier),
-			EmpiresPriority::TierName(job.tier));
+			EmpiresPriority::TierName(job.tier), builders + 1, maxBuilders, chosen->distanceFrom(building));
 		if (assigned)
 			freeEngineers.erase(std::remove(freeEngineers.begin(), freeEngineers.end(), chosen), freeEngineers.end());
 		break; // one assignment per tick
