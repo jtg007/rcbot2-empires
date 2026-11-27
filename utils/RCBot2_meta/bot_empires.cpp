@@ -8225,7 +8225,17 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	CTraceFilterWorldOnly worldOnly;
 	ITraceFilter* const traceFilter = isMapBrush ? static_cast<ITraceFilter*>(&worldOnly) : &filter;
 	float spotCost = (std::numeric_limits<float>::max)();
-	int noSurface = 0, noGround = 0, blocked = 0, noAim = 0;
+	int noSurface = 0, noGround = 0, blocked = 0, noAim = 0, inside = 0;
+	// Player hull (16) beside the building's oriented box, between its bottom and top.
+	const auto insideFootprint = [&](const Vector& p) {
+		if (isMapObject || collide == nullptr)
+			return false;
+		Vector local;
+		VectorITransform(p, collide->CollisionToWorldTransform(), local);
+		const Vector mins = collide->OBBMins(), maxs = collide->OBBMaxs();
+		return local.x > mins.x - 16.0f && local.x < maxs.x + 16.0f && local.y > mins.y - 16.0f &&
+			local.y < maxs.y + 16.0f && local.z > mins.z - 72.0f && local.z < maxs.z;
+	};
 
 	const auto searchPass = [&](const float* heights, int heightCount, const float* steps, int stepCount, bool countStats)
 	{
@@ -8259,6 +8269,14 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 					{
 						if (countStats)
 							++noGround;
+						continue;
+					}
+					// Never inside the building's footprint: an unfinished base (NF repair pad apron) lets the
+					// ground trace through, and the finished building then encloses the engineer (crossroads
+					// 20261127-122345: engineer 407 s at (-327 -11152) inside repair station #544).
+					if (insideFootprint(ground.endpos))
+					{
+						++inside;
 						continue;
 					}
 					Ray_t body;
@@ -8322,8 +8340,8 @@ bool CBotEmpires::findEmpiresBuildStandSpot(edict_t* building, Vector& spot) con
 	}
 	if (spotCost == (std::numeric_limits<float>::max)())
 	{
-		RCBOT_DIAG("[RCBOT2] build-assign result=REJECT reason=no-standing-spot building=%d no_surface=%d no_ground=%d blocked=%d no_aim=%d\n",
-			engine->IndexOfEdict(building), noSurface, noGround, blocked, noAim);
+		RCBOT_DIAG("[RCBOT2] build-assign result=REJECT reason=no-standing-spot building=%d no_surface=%d no_ground=%d blocked=%d no_aim=%d inside=%d\n",
+			engine->IndexOfEdict(building), noSurface, noGround, blocked, noAim, inside);
 		return false;
 	}
 	return true;

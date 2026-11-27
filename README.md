@@ -308,7 +308,6 @@ Bots get a fixed name in Battlefield style for the whole match: a tag, an initia
 ## Known Issues
 
 - **Infantry stuck spots:** Bots can get stuck inside barracks or vehicles; some `emp_rainbowroad` routes fail.
-- **NF base engineer trap:** on Crossroads an NF engineer can stand stuck next to the repair station, armory or vehicle factory for minutes (up to 407 s in a 9-minute run); seen with and without the new look/steering cvars.
 - On Crossroads, vehicles have timed out both on the way to the southwest repair-pad entrance and after switching to the final approach.
 - Tanks defending a friendly asset and grenadiers mortaring an enemy APC now require a driver/grenadier or teammate sightline *(pending match verification)*.
 - **Vehicle jam at Crossroads BE gates:** with many vehicles (22-bot match) BE vehicles can still queue at `be_gate1`; lane entry is improved (`scripts/dev_gate.sh`), the match effect is unmeasured. A single BE heavy still enters `be_gate1` 45–55° skewed from the north-west and scrapes the wall; earlier stuck detection raised give-ups and was not kept.
