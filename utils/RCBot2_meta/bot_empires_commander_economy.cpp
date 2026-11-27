@@ -715,6 +715,33 @@ void Footprint(int type, int team, Vector& mins, Vector& maxs)
 	maxs = Vector(h, h, 0);
 }
 
+// Smallest ground gap between a new building (type at spot/yaw) and the own buildings it must keep
+// rcbot_empires_factory_gap from: a new factory from every own building, any new building from own
+// factories. Footprints are rotated by each building's yaw. Returns 1e9 when no rule applies.
+float FactoryGap(int type, int team, const Vector& spot, float yaw, const std::vector<BuildingInfo>& buildings)
+{
+	if (rcbot_empires_factory_gap.GetFloat() <= 0.0f)
+		return 1.0e9f;
+	Vector mins, maxs;
+	Footprint(type, team, mins, maxs);
+	const EmpiresCommanderEconomy::Box2D box{spot.x, spot.y, yaw, mins.x, mins.y, maxs.x, maxs.y};
+	float gap = 1.0e9f;
+	for (const BuildingInfo& info : buildings)
+	{
+		if (type != VehicleFactory && info.type != VehicleFactory)
+			continue;
+		edict_t* e = engine->PEntityOfEntIndex(info.entity);
+		ICollideable* c = e != nullptr && !e->IsFree() ? e->GetCollideable() : nullptr;
+		if (c == nullptr)
+			continue;
+		const Vector at = c->GetCollisionOrigin(), bmin = c->OBBMins(), bmax = c->OBBMaxs();
+		const EmpiresCommanderEconomy::Box2D other{at.x, at.y, c->GetCollisionAngles().y, bmin.x, bmin.y, bmax.x, bmax.y};
+		const float d = EmpiresCommanderEconomy::BoxGap(box, other);
+		gap = d < gap ? d : gap;
+	}
+	return gap;
+}
+
 // True if a lane runs through the building box (rotated by yaw, grown by the lane's half width).
 bool BlocksLane(const Vector& at, float yaw, const Vector& mins, const Vector& maxs, const std::vector<Lane>& lanes)
 {
@@ -2174,6 +2201,11 @@ void CBotEmpires::tickCommanderEconomy()
 			return reserveActive && (Vector(p.x, p.y, p.z) - state.site).Length2D() < kFactoryReserveClear;
 		};
 		int reserveSkipped = 0;
+		int gapSkipped = 0;
+		bool haveGapFallback = false;
+		EmpiresSpatial::Point gapFallback{};
+		float gapFallbackGap = -1.0f;
+		int gapFallbackRing = -1;
 		Vector boxMins, boxMaxs;
 		Footprint(int(type), team, boxMins, boxMaxs);
 		auto yawAt = [&](const Vector& spot, bool quiet) {
@@ -2281,6 +2313,20 @@ void CBotEmpires::tickCommanderEconomy()
 				const float yaw = type == Repair ? RepairPadYaw(spot, team, true, &turn, &free) : yawAt(spot, true);
 				if (!lanes.empty() && BlocksLane(spot, yaw, boxMins, boxMaxs, lanes))
 					continue;
+				// Room between the factory and other buildings (engineers walk around it, vehicles leave it).
+				const float gap = FactoryGap(int(type), team, spot, yaw, buildings);
+				if (gap < rcbot_empires_factory_gap.GetFloat())
+				{
+					++gapSkipped;
+					if (!haveGapFallback || gap > gapFallbackGap)
+					{
+						gapFallback = candidate.origin;
+						gapFallbackGap = gap;
+						gapFallbackRing = ring;
+						haveGapFallback = true;
+					}
+					continue;
+				}
 				const bool behind = type == Repair && (enemyCv - spot).Length2D() > cvToEnemy + 300.0f;
 				if (type != Repair || (std::fabs(turn) <= 30.0f && free >= 1150.0f && !behind))
 				{
@@ -2308,6 +2354,18 @@ void CBotEmpires::tickCommanderEconomy()
 			laneFree = true;
 			usedRing = fallbackRing;
 		}
+		if (!laneFree && haveGapFallback)
+		{
+			// Every lane-free spot is tighter than the gap: the roomiest one rather than none.
+			at = gapFallback;
+			laneFree = true;
+			usedRing = gapFallbackRing;
+		}
+		if (gapSkipped > 0)
+			RCBOT_DIAG("[RCBOT2] commander-econ building-gap team=%d type=%d skipped=%d fallback=%d fallback_gap=%.0f min=%.0f\n",
+				team, int(type), gapSkipped, (haveGapFallback && usedRing == gapFallbackRing &&
+				at.x == gapFallback.x && at.y == gapFallback.y) ? 1 : 0, haveGapFallback ? gapFallbackGap : -1.0f,
+				rcbot_empires_factory_gap.GetFloat());
 		if (!haveFirst && type == VehicleFactory && state.siteValid &&
 			(state.site - vehicleOrigin).Length2D() <= 3800.0f &&
 			EmpiresNativePlacement::CanPlaceNative(context, state.site, int(type)) == EmpiresNativePlacement::Result::Valid)

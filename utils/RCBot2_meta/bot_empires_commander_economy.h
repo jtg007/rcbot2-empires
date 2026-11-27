@@ -226,6 +226,75 @@ inline bool LaneHitsBox(float atX, float atY, float yawDeg, float minX, float mi
 	}
 	return false;
 }
+
+// A building footprint on the ground: local box mins/maxs, rotated by yawDeg around (x, y).
+struct Box2D
+{
+	float x, y, yawDeg, minX, minY, maxX, maxY;
+};
+
+inline void BoxCorners(const Box2D& b, float out[4][2])
+{
+	const float r = b.yawDeg * 3.14159265f / 180.0f;
+	const float c = std::cos(r), sn = std::sin(r);
+	const float lx[4] = {b.minX, b.maxX, b.maxX, b.minX};
+	const float ly[4] = {b.minY, b.minY, b.maxY, b.maxY};
+	for (int k = 0; k < 4; ++k)
+	{
+		out[k][0] = b.x + lx[k] * c - ly[k] * sn;
+		out[k][1] = b.y + lx[k] * sn + ly[k] * c;
+	}
+}
+
+inline float PointSegmentDistance(float px, float py, float ax, float ay, float bx, float by)
+{
+	const float dx = bx - ax, dy = by - ay;
+	const float len2 = dx * dx + dy * dy;
+	float t = len2 > 0.0f ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0.0f;
+	t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+	const float ex = ax + dx * t - px, ey = ay + dy * t - py;
+	return std::sqrt(ex * ex + ey * ey);
+}
+
+// Shortest ground distance between two rotated footprints; 0 when they touch or overlap.
+inline float BoxGap(const Box2D& a, const Box2D& b)
+{
+	float ca[4][2], cb[4][2];
+	BoxCorners(a, ca);
+	BoxCorners(b, cb);
+	// Separating axis test on the four edge normals: no separating axis means overlap.
+	bool separated = false;
+	const float (*boxes[2])[2] = {ca, cb};
+	for (int s = 0; s < 2 && !separated; ++s)
+		for (int e = 0; e < 2 && !separated; ++e)
+		{
+			const float nx = boxes[s][e + 1][1] - boxes[s][e][1], ny = boxes[s][e][0] - boxes[s][e + 1][0];
+			float minA = 1.0e30f, maxA = -1.0e30f, minB = 1.0e30f, maxB = -1.0e30f;
+			for (int k = 0; k < 4; ++k)
+			{
+				const float pa = ca[k][0] * nx + ca[k][1] * ny, pb = cb[k][0] * nx + cb[k][1] * ny;
+				minA = pa < minA ? pa : minA;
+				maxA = pa > maxA ? pa : maxA;
+				minB = pb < minB ? pb : minB;
+				maxB = pb > maxB ? pb : maxB;
+			}
+			separated = maxA < minB || maxB < minA;
+		}
+	if (!separated)
+		return 0.0f;
+	// Separated convex shapes: the closest pair lies on a corner of one and an edge of the other.
+	float best = 1.0e30f;
+	for (int k = 0; k < 4; ++k)
+		for (int e = 0; e < 4; ++e)
+		{
+			const int f = (e + 1) % 4;
+			const float d1 = PointSegmentDistance(ca[k][0], ca[k][1], cb[e][0], cb[e][1], cb[f][0], cb[f][1]);
+			const float d2 = PointSegmentDistance(cb[k][0], cb[k][1], ca[e][0], ca[e][1], ca[f][0], ca[f][1]);
+			best = d1 < best ? d1 : best;
+			best = d2 < best ? d2 : best;
+		}
+	return best;
+}
 }
 
 #endif

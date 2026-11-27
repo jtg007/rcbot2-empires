@@ -1,6 +1,7 @@
 // Unit tests for the automatic Commander build policy (bot_empires_commander_economy.h).
 #include "bot_empires_commander_economy.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -155,6 +156,23 @@ int main()
 		Require(LaneHitsBox(1500.0f, 400.0f, 0.0f, -250.0f, -250.0f, 250.0f, 250.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth) &&
 			!LaneHitsBox(1500.0f, 500.0f, 0.0f, -250.0f, -250.0f, 250.0f, 250.0f, ax, 0.0f, bx, 0.0f, kFactoryExitLaneHalfWidth),
 			"LANE-5 lane half width 200");
+	}
+	{
+		auto near = [](float a, float b) { return std::fabs(a - b) < 1.0f; };
+		// Axis-aligned squares 100 apart.
+		const Box2D a{0.0f, 0.0f, 0.0f, -100.0f, -100.0f, 100.0f, 100.0f};
+		Require(near(BoxGap(a, Box2D{300.0f, 0.0f, 0.0f, -100.0f, -100.0f, 100.0f, 100.0f}), 100.0f), "GAP-1 squares 100 apart");
+		// Rotation counts: the same square turned 45 deg reaches 141 toward a (corner at 400-141).
+		Require(near(BoxGap(a, Box2D{400.0f, 0.0f, 45.0f, -100.0f, -100.0f, 100.0f, 100.0f}), 158.6f),
+			"GAP-2 turned square: corner 158.6 away");
+		Require(near(BoxGap(a, Box2D{400.0f, 0.0f, 0.0f, -100.0f, -100.0f, 100.0f, 100.0f}), 200.0f),
+			"GAP-3 unturned square 200 away");
+		// Overlap and touch are 0.
+		Require(BoxGap(a, Box2D{150.0f, 0.0f, 30.0f, -100.0f, -100.0f, 100.0f, 100.0f}) == 0.0f, "GAP-4 overlap is 0");
+		// Asymmetric box (factory -414..920): turning it 180 deg moves its long end away.
+		const Box2D vf0{1500.0f, 0.0f, 180.0f, -414.0f, -828.0f, 920.0f, 828.0f};
+		const Box2D vf180{1500.0f, 0.0f, 0.0f, -414.0f, -828.0f, 920.0f, 828.0f};
+		Require(near(BoxGap(a, vf0), 480.0f) && near(BoxGap(a, vf180), 986.0f), "GAP-5 asymmetric box uses its yaw");
 	}
 
 	std::cout << "PASS commander economy policy\n";
