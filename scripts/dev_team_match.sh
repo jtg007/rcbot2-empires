@@ -4,6 +4,7 @@
 # kill-spawns, building stalls (navmesh-building-blocked), the recorder table (kills, stuck) and the
 # match-flow check against MATCH_FLOW.md (scripts/match_flow.py; measurement only, never changes the exit status).
 # Usage: scripts/dev_team_match.sh [map] [minutes]   (default emp_palmbay 12)
+#        DEV_REAL_ECON=1 scripts/dev_team_match.sh [map] [minutes]  (production economy instead of fast server.cfg/testing.cfg)
 #        scripts/dev_team_match.sh --summarize RUN_DIR  (read-only, no server start)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -18,6 +19,15 @@ else
   MAP="${1:-emp_palmbay}"
   MINUTES="${2:-12}"
   export DEV_TIMESCALE="${DEV_TIMESCALE:-1}"
+  REAL_ECON="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;emp_sv_refinery_multiplier 1;emp_sv_research_complete 0;emp_sv_research_multiplier 1;emp_sv_debug_build_vehicles 0;emp_sv_respawn_penalty 10;emp_sv_commander_freeze_time 60"
+  if [[ "${DEV_REAL_ECON:-0}" == 1 ]]; then
+    export DEV_PRE="$REAL_ECON${DEV_PRE:+;$DEV_PRE}"
+    echo "== Economy: real (DEV_REAL_ECON=1: resources x1, research from 0)"
+  elif [[ "${DEV_PRE:-}" == *"emp_sv_research_complete 0"* ]]; then
+    echo "== Economy: real (via DEV_PRE)"
+  else
+    echo "== Economy: fast (test server.cfg/testing.cfg; set DEV_REAL_ECON=1 for production rules)"
+  fi
   OUT="$(mktemp)"
   trap 'rm -f "$OUT"' EXIT
   "$ROOT/scripts/dev.sh" "$MAP" 10 "$MINUTES" 2>&1 | tee "$OUT" |

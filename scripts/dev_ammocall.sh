@@ -25,8 +25,8 @@ else
   MINUTES=15; WAIT="${DEV_AMMO_WAIT:-40}"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="${DEV_ROSTER:-$ROSTER}" \
-DEV_PRE="emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0" \
-DEV_CMDS="wait 5;ent_fire emp_params ModifyNFResources 3000;waitfor 200 pad-yaw;wait 5;ent_fire emp_params ModifyNFResources 3000;rcbot_empires_vehicles 1;$BOUGHT;wait $WAIT;mark;rcbotd empires_vehicle_setammo 0 0$DONE" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_resource_multiplier_be 10;emp_sv_resource_multiplier_nf 10;emp_sv_refinery_multiplier 30;emp_sv_research_complete 1;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;rcbot_empires_engineer_turrets 0;rcbot_empires_engineer_deployables 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0" \
+DEV_CMDS="wait 5;waitfor 200 pad-yaw;wait 5;rcbot_empires_vehicles 1;$BOUGHT;wait $WAIT;mark;rcbotd empires_vehicle_setammo 0 0$DONE" \
 DEV_UNTIL="$RESULT" DEV_EXPECT="$RESULT" \
 DEV_FAIL='^\[RCBOT2\] vehicle (retreat-timeout|retreat-abort|give-up) ' \
 DEV_SHOW="\[RCBOT2\] (vehicle (bought|debug-ammo|retreat|ammo-call|crate-|resupplied|refit-sent|repaired|retreat-timeout|retreat-abort|pad-enter|loadout-check)|ammo-crate)" \

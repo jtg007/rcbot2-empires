@@ -1346,20 +1346,9 @@ bool EmpiresLawlietActive(int team)
 	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) && s_team[team].phase != PHASE_IDLE;
 }
 
-int EmpiresLawlietPhase(int team)
-{
-	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) ? s_team[team].phase : PHASE_IDLE;
-}
-
 bool EmpiresLawlietIsCrew(int team, int client)
 {
 	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) && FindCrewSlot(s_team[team], client) >= 0;
-}
-
-bool EmpiresLawlietIsDriver(int team, int client)
-{
-	return (team == EMP_TEAM_NF || team == EMP_TEAM_BE) && s_team[team].phase != PHASE_IDLE &&
-		client > 0 && s_team[team].driverClient == client;
 }
 
 bool EmpiresLawlietWantsApcBuy(int team, int client)

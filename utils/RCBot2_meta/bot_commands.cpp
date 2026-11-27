@@ -3005,7 +3005,7 @@ CBotCommandInline EmpiresCommanderBuildProbeCommand("empires_commander_build", C
 				return COMMAND_ACCESSED;
 			using Fn = int (*)(int, const Vector&, int, int, const void*, const Vector&, void*);
 			const float radius = static_cast<float>(std::atof(args[2]));
-			const float step = std::max(50.0f, static_cast<float>(std::atof(args[3])));
+			const float step = (std::max)(50.0f, static_cast<float>(std::atof(args[3])));
 			const Vector cv = CBotGlobals::entityOrigin(vehicle);
 			// Optional scan centre (obstruct_grid <type> <radius> <step> [x y]); distances are still measured from the CV.
 			const Vector centre = args.size() >= 6 ? Vector(static_cast<float>(std::atof(args[4])), static_cast<float>(std::atof(args[5])), cv.z) : cv;

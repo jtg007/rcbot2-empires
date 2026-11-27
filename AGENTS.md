@@ -87,9 +87,11 @@ Purchase only (~30 s, instant factory, extra money): `scripts/dev_buy.sh [map] [
 Lawliet rush (forced NF crewed APC on the BE CV, 1x): `scripts/dev_lawliet.sh [map] [minutes]`; success ends the run at `lawliet end team=2 reason=cv-destroyed`.
 Gate passage (~1.5 min per batch, 4x): `scripts/dev_gate.sh [east|west] [runs] ["B cvars"]` spawns two BE vehicles north of a Crossroads BE base exit (east: one behind the other) and prints passes, reversals and give-ups per run; every second run gets the B cvars, so a lane or queue change is compared in one batch instead of a 20-minute match. `GATE_VEHICLES=1` drives a single vehicle.
 Team match check (10 bots, 1x, recorder, then role swaps, alerts, kill-spawns, building stalls):
-`scripts/dev_team_match.sh [map] [minutes]`. To read the same metrics from a saved match, use
+`scripts/dev_team_match.sh [map] [minutes]` (`DEV_REAL_ECON=1` forces production economy rules). To read the same metrics from a saved match, use
 `scripts/dev_team_match.sh --summarize RUN_DIR`. It reads the log and any saved recorder table, then checks the
 `match-flow` lines against the milestones and standing rules in `MATCH_FLOW.md` (measurement only).
+Threat-map A/B (`rcbot_empires_threat_map` 0/1 alternating, 10 bots at 1x under production economy rules):
+`scripts/dev_threat_ab.sh [map] [minutes] [pairs]` (`--summarize RUN_DIR...` reads saved runs).
 Short targeted run instead of a full match (3 bots, instant purchase, 1x, 1-4 min; adapt with
 `QUICK_ROSTER`, `QUICK_PRE`, `QUICK_CMDS`, `QUICK_UNTIL`, `QUICK_SHOW`; `QUICK_FAIR=1` = both teams start together): `scripts/dev_quick.sh [map] [minutes]`.
 `rcbot_empires_vehicle_shell_trace 1` logs shell flight and impact (`vehicle shell-end`) and turret aim.
@@ -194,8 +196,9 @@ Use the dedicated server console for Empires test and diagnostic commands.
 `rcbotd empires_test_botcmd` accepts repeat counts from 1 to 32.
 
 **Test server economy:** a typical isolated test config uses resource ×10, research
-complete and debug vehicle purchase. For a realistic match pass production values,
+complete and debug vehicle purchase (scenario scripts set their fast economy explicitly in `DEV_PRE`, while `dev_econ.sh`, `dev_threat_ab.sh`, and `DEV_REAL_ECON=1 dev_team_match.sh` enforce production rules). For a realistic match pass production values,
 e.g. `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;emp_sv_refinery_multiplier 1;emp_sv_research_complete 0;emp_sv_research_multiplier 1;emp_sv_debug_build_vehicles 0"`.
+Active tactical defaults include `rcbot_empires_fair_intel` (1), `rcbot_empires_threat_map` (1), and `rcbot_empires_vehicle_context_steer` (1).
 
 ## Tools for root-cause work
 

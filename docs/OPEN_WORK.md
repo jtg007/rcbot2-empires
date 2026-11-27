@@ -15,7 +15,7 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 1. **Palmbay vehicles (3.27, 5.14a).** In a 10-bot 1x match (`20261122-124651`) bots climbed the boat ladders and started a capture, no ladder blockage lasted over 20 s, and no APC was lost in water. A spawn APC no longer takes a push or enemy-CV goal: it parks out of sight or waits at a staging point, leaves a spot where it lost 15 % of hull and armor within 15 s, and retreats below 60 % hull (`20261125-175209`: retreats at 75/61/52 of 150 HP instead of 26–38; lifetime not distinguishable in one match). Open: the staging point 2500 units before an enemy building can still lie in reach of its base defense, and the NF commander vehicle can drown on the drive to a remote factory site on `emp_palmbay`.
 2. **Front support (3.10c, 5.26, 3.25, 5.30).** Engineers can answer a human infantry ammo request, infantry can seek navmesh cover under fire, and a seated commander can assign one attacking grenadier to an APC seen by a teammate. Observe actual refills, target engagement and resumption of the original objective. These changes have a Linux x86 build; gameplay verification is pending.
-3. **Team roles (5.4, 5.8, 5.28).** In a 10-bot Coast match at 1x (`20261122-124709`) two bots ordered to push flag 168 stayed together and reached it. Review pressure on flags and the role of the last free infantry bot with players. A defender redeploying on a base alert remains unobserved.
+3. **Team roles (5.4, 5.8, 5.28).** In a 10-bot Coast match at 1x (`20261122-124709`) two bots ordered to push flag 168 stayed together and reached it. Review pressure on flags and the role of the last free infantry bot with players. Defender kill-spawn on a base alert was confirmed in Crossroads (`20261124-162008`, respawned 672 HU from the CV instead of 11,361 HU).
 4. **Lawliet (5.14b).** Forced Crossroads runs at 1x destroyed the enemy CV on the first rush in six runs (45–63 s of assault), and after fixing boarding aim/distance (`20261122-223256`) a forced 4-minute Crossroads run boarded cleanly (`aboard=3/3`, `cv-stunned`, BE CV HP 1.00 → 0.55). Run `021732` also recorded a crate 388 units from the CV. Open cases are boarding under the automatic match trigger (which previously timed out once in `20261122-213339`), a crew member actually replenishing grenades, and a Scout throwing again after an APC respawn. The driver seat is checked before departure and disconnected crew members release their assignments.
 5. **Target knowledge (3.20).** `rcbot_empires_fair_intel` (default 1) gives each team a board of enemies it could know (spotting, radar/camera, teammate sight, bot sight reports, memory 10/20/180 s) plus the enemy start base; director, commander, mortar, infantry goals, tank defend/hunt/push, spawn APC anchor and the Lawliet rush read it. A forced Lawliet run with it destroyed the CV. Earlier A/B pairs showed abandoned own vehicles at the front (a second NF pad in the factory exit lane, tanks jammed at the origin of the only known building); with the factory exit lane kept free and a fanned push hold point the last Crossroads pair had stuck 86 against 83 and one vehicle give-up each, with kills and engagements on par. Open: a spawn APC can still stage on the Crossroads middle crossing and be abandoned there (one case); knowledge of enemy buildings stays thin (one known building for most of a match), so pushes concentrate on it. Check on a flag map and with human players.
 6. **Human test findings (26.11., 11v11, real economy).** Built and short-tested, each with its own cvar (see README): walking bots look ahead instead of at teammate reports, keep their target, turn toward an unseen shooter, get up after a revive (duck), snipers scope in and pace their shots, vehicle MGs drop dead targets, aim low or run a soldier over when they do no damage, and bot commander buildings stand at human height. Open: their effect in the next human game, sniper hit rate, a tank stuck at its own gate on the way to the repair pad, vehicle MG damage at 600-1100 units, badly hurt bots standing in the open.
@@ -417,11 +417,7 @@ When the following cases recur, compare the relevant trace and route.
 
 ## 4. Missing features
 
-- Bots that react to the match and to people (8.2-8.6): fall back when two teammates die right next to
-  them; wait while a human heals them, repair a human's tank unasked, stop an APC for a human on foot;
-  an engineer escorting a friendly tank, APCs parking behind cover as spawn points; recognisable
-  personalities per bot name (base builder, saboteur, tank hunter) as weights on existing decisions;
-  rare, precise call-outs and visible answers to player commands.
+- Remaining match-feel items (8.3, 8.5-8.6): wait briefly while a human heals a bot or tries to board an APC; recognisable personalities per bot name (base builder, saboteur, tank hunter) as weights on existing decisions; rare, precise call-outs and visible answers to player commands (8.1-8.4 core mechanics are implemented and tracked above).
 
 - Commander research pause/resume (measured): the research tick used to sit behind the "wait for
   unfinished buildings" and "check last emp_build" early returns, so it ran only once in a while
@@ -509,13 +505,7 @@ When the following cases recur, compare the relevant trace and route.
   within 700 units with the kit; the hurt bot gives up its route and waits up to 8 s
   (`scripts/dev_heal.sh`). Pitfall: the navmesh follower rewrites the move target every server frame,
   so `stopMoving()` alone never holds a bot with an active route - release the route first.
-- Engineer seismic grenades (built, not yet triggered in a match): lobbed at enemy buildings up to
-  1400 units to a landing point in front of the building's `emp_building_vehicle_physbox` (it bounces
-  grenades back); turrets > camera/radar > large buildings > walls; 20 damage per hit on a barracks;
-  projectile gravity measured ~320 (not 800), so a standing throw reaches ~1750 flat
-  (`scripts/dev_seismic.sh`; numbers in `reverse-engineering/notes/engineer.md`). Open: a run-up throw at
-  a firing turret from outside its 2000-unit range (the turret retreat keeps engineers out today),
-  map barricades, damage on turrets/cameras.
+- Engineer seismic grenades (done, 5.31.2): lobbed at enemy buildings, turrets, cameras/radars, walls and built destructible map models (`emp_eng_map_model`, skipping `GrenadierOnly`), standing up to 1550 HU and running (`run=1`) up to 2250 HU (`scripts/dev_seismic.sh`); verified against barracks (standing and 1989 HU running), cameras (1861 HU) and enemy refineries in 10-bot matches.
 - Refinery fortification (5.9, built; `bot_empires_deployables.cpp`, cvar `rcbot_empires_engineer_deployables`):
   per own refinery one engineer builds a three-part wall facing the enemy CV (kit item 6; the game chains
   wall points, so it is one line of four clicks; engineer walls are free), then a camera behind it (item 4)
@@ -528,8 +518,7 @@ When the following cases recur, compare the relevant trace and route.
   (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); whether engineers reach rank 30 in a match is open.
 - Team: defend own refineries, react to base attacks, squad roles; squad passengers in
   vehicles (gunner seats), jeep raids on refineries, a turret line at the refinery.
-- Keep the vehicle factory's build spot clear: a vehicle there blocks every purchase. Enemy
-  vehicle → a grenadier is sent to destroy it; wreck → an engineer dismantles it.
+- Keep the vehicle factory's build spot clear (done for carcasses and live enemies, 5.8a): engineers dismantle destroyed vehicle carcasses on the VF spot and in base (`scripts/run_wreck_clear_tests.sh`, verified 23 s dismantle) and grenadiers move to clear live enemy vehicles (`bay-enemy-clear`); only twice-abandoned live stuck own vehicles (3.17) remain open.
 - Base layout on `emp_rainbowroad`: a forward barracks in front of the refinery (seen from the
   spawn, towards the front), later at least two repair pads there, and more vehicle factories
   before the first ramp from the spawn as the match goes on. First inspect route geometry and
@@ -539,28 +528,7 @@ When the following cases recur, compare the relevant trace and route.
   Scouts walk up to a visible enemy vehicle (<= 1200) with the sticky stun grenade and throw from 250; in short 1x
   runs a driving tank outran the scout. Outside throw range, Scouts now drop chases above 150 HU/s. Verify stun and sticky hits at 1x.
 - Maps (closed 2026-11-24): `emp_crossroads` base gates/ramps (`20261124-180923`, `20261124-181243`) and `as_escort` pillar tunnel (`20261124-181431`).
-- Vehicle weapons: done for the active fire group. The bot reads the turret's weapon IDs,
-  modes, groups, magazine and reserve every 0.25 s; hitscan MG only against infantry (up to 1200;
-  never the cannon, no infantry target without MG ammo), no fire while the MG reloads;
-  cannon/missiles against vehicles and buildings. Run `20261114-150322-emp_crossroads-10b-12m`
-  (10 bots, real time): MG magazine 60→0 and reserve 4→0 under IN_ATTACK, then IN_ATTACK2 and
-  cannon 40→36; one armour target used the cannon. Still open: switching fire groups,
-  adding a missile launcher to the bots' loadout, and measured damage. Weapons must match slot
-  type and size per chassis (light tank/AFV take only size-1 weapons; slot 2 is the missile slot).
-  If the MG shares its button with another weapon (a loadout the bot did not buy), the bot holds
-  fire at infantry (`why=mg-mixed`). Built for all tank chassis (Light/AFV, Medium, Heavy): the loadout is read every 3 s; a
-  mixed one sends the tank to the own finished repair pad (`vehicle retreat reason=loadout`), which
-  refits the bot loadout and logs `vehicle loadout-check` (measured on Light/AFV: `12:a2,0:a2` before, MG alone
-  on IN_ATTACK after). Without a pad the trip gives up after 30 s and waits 120 s. Test cvar
-  `rcbot_empires_vehicle_debug_mixed 1` buys such a loadout. Medium/Heavy refit awaits match verification.
-  Vehicles have multiple weapon slots assignable to primary or secondary fire; account
-  for the actual loadout and groups instead of assuming a fixed slot or button. Requested
-  setup: group 1 cannon primary and missile secondary for buildings and vehicles; group 2
-  cannon primary and MG secondary for infantry, with cannon fallback only after the MG and
-  its reserve are empty, where those weapons are fitted.
-  Run `20261114-144912-emp_crossroads-6b-25m` read one BE vehicle's weapon slots, group,
-  magazines and reserve; actual shots and group/button behavior remain to be compared.
-  The diagnostic build passed all five regression checks.
+- Vehicle weapons and fire groups (done, 3.10f): the bot reads turret weapon IDs, modes, groups, magazine and reserve every 0.25 s; hitscan MG targets infantry up to 1200 HU, cannon/missiles target vehicles and buildings. With `rcbot_empires_vehicle_missiles` (1, default), tanks carry the Standard Missile Launcher in fire group 1 and switch between group 1 (vehicles/buildings) and group 2 (infantry) via `emp_change_vehicweap`. Mixed loadouts (`why=mg-mixed`, test cvar `rcbot_empires_vehicle_debug_mixed 1`) retreat to a repair pad for refit (`scripts/dev_mixed.sh`).
 - Taking empty vehicles (measured): an empty own vehicle is eligible within 1500 of the
   team's CV or a building after 30 s without a driver or movement. The passenger-handle
   reader recognizes the game's DataTable array. The empty timer starts on observation and restarts after movement over 100 units. In the factory bay, a human teammate within 250 units has priority even after 30 s. Other fake clients do not reserve the vehicle. A human handover and taking the vehicle
@@ -584,8 +552,6 @@ When the following cases recur, compare the relevant trace and route.
   and one driver gave up after four reverses. The single-crate and pad checks passed.
 - Infantry ammunition: verify and complete ammo requests, engineer crate placement and
   resupply for every class; an engineer can now respond to a human infantry caller. Actual ammunition gain and autonomous requests from ordinary infantry bots remain open.
-- Fairness: vehicle and objective targets are picked from the full entity list; limit to
-  what a player could know.
 - Full pad refit (5.10) is covered by the `dev_check` pad test; bot-bought loadouts never trigger
   it in matches (0 of 25), where the pad only repairs with the same loadout.
 

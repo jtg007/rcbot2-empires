@@ -38,6 +38,10 @@ wait
 for ((i = 1; i <= runs; i++)); do
   run="$(sed -nE 's/^== Run: .*\((.*)\)$/\1/p' "$out/run$i.log")"
   label=A; [[ -n "$alt" && $((i % 2)) == 0 ]] && label=B
+  if [[ -z "$run" || ! -f "$run/server.log" ]]; then
+    printf '%s run%d FAILED (no server.log)\n' "$label" "$i"
+    continue
+  fi
   printf '%s %s ' "$label" "$(basename "$run")"
   # x0 x1 = gate corridor, south = passed below, north = started above
   python3 -I - "$run/server.log" $box <<'EOF'

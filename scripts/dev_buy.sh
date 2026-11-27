@@ -6,8 +6,8 @@
 # Usage: scripts/dev_buy.sh [map] [timescale]
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="${DEV_ROSTER:-2:1 2:1 2:3}" \
-DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 5;emp_sv_debug_build_vehicles 0;rcbot_empires_vehicle_debug_buy 0${DEV_PRE:+;$DEV_PRE}" \
-DEV_CMDS="${DEV_CMDS:-wait 5;ent_fire emp_params ModifyNFResources 3000}" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_resource_multiplier_be 10;emp_sv_resource_multiplier_nf 10;emp_sv_refinery_multiplier 30;emp_sv_research_complete 1;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 5;emp_sv_debug_build_vehicles 0;rcbot_empires_vehicle_debug_buy 0${DEV_PRE:+;$DEV_PRE}" \
+DEV_CMDS="${DEV_CMDS:-}" \
 DEV_UNTIL="${DEV_UNTIL:-gameplay vehicle_purchase|vehicle bought|reason=stage-timeout}" \
 DEV_EXPECT="${DEV_EXPECT:-^\[RCBOT2\] vehicle bought |gameplay vehicle_purchase}" \
 DEV_SHOW="${DEV_SHOW:-vehicle econ|vehicle_purchase|commander-econ result=CREATED|vehicle skip|stage-timeout}" \

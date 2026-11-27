@@ -31,22 +31,24 @@ Synergy, FF ... files that Empires does not use). `scripts/` and `tools/` are co
 | `bot_empires_objective.cpp` | Capture approach and retries, start-anchor recovery, navmesh goals, turret rocket fallback and enemy-turret threat circles. |
 | `bot_empires_commander_economy.cpp` / `.h` | Automatic commander: seat entry, `emp_build` placement, build order, research, engineer assignment, CV drive/survival. Policy header is engine-free and unit tested. |
 | `bot_empires_commander_orders.cpp`, `bot_empires_commander_order_adapter.*` | Seated commander gives *attack location* orders like a human (`emp_unit_order_list` + `emp_unit_order`); MOVE order adapter and telemetry. |
-| `bot_empires_team_director.cpp` / `.h` | Per-team situation board (phases push/alert/stabilize, goals, alerts), role split, kill-spawn. `.h` is SDK-free. |
+| `bot_empires_team_director.cpp` / `.h`, `bot_empires_team_intel.h`, `bot_empires_threat_map.h` | Per-team situation board (phases push/alert/stabilize, goals, alerts), role split, kill-spawn, fair team intelligence board, and 2D threat map (`512 HU` grid). Headers are SDK-free and unit tested. |
 | `bot_empires_priority.h` | Priority tiers 0–4 for engineer work (core, front, map play, comfort); a higher-tier build order preempts a lower-tier job. SDK-free, unit test `scripts/run_priority_tests.sh`. |
+| `bot_empires_doors.h` | SDK-free BSP door/button link parser and live built-state helpers for destructible map models/ramps (`scripts/run_doors_tests.sh`). |
 | `bot_empires_match_flow.cpp` | Match-flow telemetry (debug log only): team status every 30 game seconds and building/vehicle events, checked by `scripts/match_flow.py` against `MATCH_FLOW.md`. |
 | `bot_empires_team_economy.h` | Shared money picture (reserve, buyer choice). Pure logic. |
-| `bot_empires_vehicle.cpp` / `bot_empires_vehicle_loadout.h` | Everything vehicles: buy, enter, drive, fight, retreat/repair, ammo, adopt, Bill Nye, test hooks (6900 lines; `tickEmpiresVehicle`). Loadout choice by research/budget in the header. |
+| `bot_empires_vehicle.cpp` / `bot_empires_vehicle_loadout.h` / `_aim.h` / `_context_steer.h` / `_wreck_clear.h` | Everything vehicles: buy, enter, drive, fight, retreat/repair, ammo, adopt, Bill Nye, test hooks (`tickEmpiresVehicle`). Loadout choice, turret aim geometry, tight-passage context steering, and factory wreck-clearing logic live in the headers. |
 | `bot_empires_lawliet.cpp` / `.h` | Lawliet APC rush: team coordinator (about 0.5 s), crew tasks, UserCmd overrides. Policy in header (unit tested). |
 | `bot_empires_engineer.cpp` | Engineer support targets, repair/build/resupply actions, interruption for combat. |
 | `bot_empires_engibot.cpp` | EngiBot purchase via chat, limit/leash, cleanup; team resource ledger read/write. |
-| `bot_empires_turret_build.cpp` | Refinery MG turret placement (front side heading). |
+| `bot_empires_turret_build.cpp` / `bot_empires_turret_plan.h` | Refinery MG/ML turret placement and rank-30+ upgrades (`scripts/run_turret_plan_tests.sh`). |
 | `bot_empires_deployables.cpp` | Refinery three-part wall and radar/camera behind it (engineer kit items 4/5/6). |
 | `bot_empires_ammo_crate.cpp` | Answers vehicle ammo calls with a supply crate (`engSelect 7`). |
 | `bot_empires_heal.cpp` | Engineer heals hurt teammates with the kit (5.31.1). |
 | `bot_empires_revive.cpp`, `bot_empires_vacancy_revive.h` | Individual revive (`emp_revive`) and vacancy Mass Revive policy. |
-| `bot_empires_seismic.cpp` | Seismic grenade target choice, throw pitch solver (g about 320), flight/damage tracing (5.31.2). |
+| `bot_empires_seismic.cpp` / `bot_empires_seismic_logic.h` | Seismic grenade target choice, throw pitch solver (g about 320, standing/running), flight/damage tracing (`scripts/run_seismic_logic_tests.sh`). |
 | `bot_empires_grenadier.cpp` | Mortar and mine actions (`handleEmpiresMortarAction`, `handleEmpiresMineAction`). |
-| `bot_empires_skirmish.cpp` | Infantry fight movement: side steps, fight odds, cover, join fight, callouts (`handleEmpiresSkirmish`, `handleEmpiresJoinFight`, `calloutEmpiresEnemy`). Reads the five infantry cvars. |
+| `bot_empires_skirmish.cpp` / `bot_empires_skirmish_logic.h` | Infantry fight movement: side steps, fight odds, cover, join fight, callouts, class combat roles (`handleEmpiresSkirmish`, `handleEmpiresJoinFight`, `calloutEmpiresEnemy`). |
+| `bot_empires_look.cpp` / `bot_empires_look_logic.h` | Decoupled infantry pitch/yaw look spring, navmesh lookahead, anti-wall idle scan, tactical reload, and fire alignment (`scripts/run_look_logic_tests.sh`). |
 | `bot_empires_squad_runtime.*`, `bot_empires_squad_join.h`, `bot_empires_squad_observation.h`, `bot_empires_leader_actuation.h` | Squad observation/shadow runtime, join policy, native leader change (`emp_make_lead`). |
 | `bot_empires_spatial.*`, `bot_empires_native_placement.*`, `bot_empires_barracks_execution.*` | Building placement: spatial checks, calls of the game's own placement functions by address (Linux only), dispatcher for `emp_build`. |
 | `bot_empires_binary.*` | Game-binary size/CRC check (`kKnownBinaries`); gates all fixed-offset reads (`rcbot_empires_force_offsets`). |

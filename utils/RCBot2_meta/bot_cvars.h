@@ -3,7 +3,6 @@
 
 extern ConVar rcbot_tf2_debug_spies_cloakdisguise;
 extern ConVar rcbot_tf2_medic_letgotime;
-extern ConVar rcbot_const_point_master_offset;
 extern ConVar rcbot_tf2_pyro_airblast;
 extern ConVar rcbot_projectile_tweak;
 extern ConVar eta_nav_learning;
@@ -69,7 +68,6 @@ extern ConVar rcbot_taunt;
 extern ConVar rcbot_notarget;
 extern ConVar rcbot_nocapturing;
 extern ConVar rcbot_jump_obst_dist;
-extern ConVar rcbot_jump_obst_speed;
 extern ConVar rcbot_speed_boost;
 extern ConVar rcbot_melee_only;
 extern ConVar rcbot_debug_iglev;
@@ -167,8 +165,6 @@ extern ConVar rcbot_gamerules_offset;
 extern ConVar rcbot_datamap_offset;
 extern ConVar rcbot_bot_quota_interval;
 extern ConVar rcbot_wait_for_human_team;
-//extern ConVar rcbot_const_point_master_offset;
-extern ConVar rcbot_util_learning;
 
 //Synergy Cvars
 extern ConVar rcbot_runplayercmd_syn;

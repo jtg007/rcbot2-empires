@@ -9,8 +9,8 @@
 # Usage: scripts/dev_pad.sh [map] [timescale]   (DEV_PRE="cvar 1" is appended to the setup)
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="2:1 2:1 2:3" \
-DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;rcbot_empires_engineer_turrets 0;rcbot_empires_engineer_deployables 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0${DEV_PRE:+;$DEV_PRE}" \
-DEV_CMDS="wait 5;ent_fire emp_params ModifyNFResources 3000;waitfor 200 pad-yaw;wait 5;ent_fire emp_params ModifyNFResources 3000;rcbot_empires_vehicles 1;waitfor 200 vehicle bought;wait 1;rcbotd empires_vehicle_scalehp 0.5 0.1 0.2 0.25 0.25" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_resource_multiplier_be 10;emp_sv_resource_multiplier_nf 10;emp_sv_refinery_multiplier 30;emp_sv_research_complete 1;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;rcbot_empires_engineer_turrets 0;rcbot_empires_engineer_deployables 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0${DEV_PRE:+;$DEV_PRE}" \
+DEV_CMDS="wait 5;waitfor 200 pad-yaw;wait 5;rcbot_empires_vehicles 1;waitfor 200 vehicle bought;wait 1;rcbotd empires_vehicle_scalehp 0.5 0.1 0.2 0.25 0.25" \
 DEV_UNTIL="vehicle (repaired .*refit_sent=1|retreat-timeout|retreat-abort|give-up)" \
 DEV_EXPECT='^\[RCBOT2\] vehicle repaired .*refit_sent=1' \
 DEV_SHOW="\[RCBOT2\] (vehicle (bought|buy-spot|retreat|pad-|park-retry|refit-sent|repaired|give-up)|commander-econ (pad-yaw|factory-yaw))" \

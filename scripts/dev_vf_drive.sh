@@ -19,13 +19,13 @@ if [[ -n "$approach" && ( -z "$position" || ! "$approach" =~ $coordinates ) ]]; 
   exit 2
 fi
 case "$mode:$team" in
-  0:nf|1:nf|place:nf) side=2; crew="2:3 2:3"; chassis=2; driver="4"; grant="ModifyNFResources" ;;
+  0:nf|1:nf|place:nf) side=2; crew="2:3 2:3"; chassis=2; driver="4" ;;
   # Give the Engineer the first chance at the CV and the Rifleman time to leave the barracks.
-  0:be|1:be|place:be) side=3; crew="3:3 3:1"; chassis=10; driver="[34]"; grant="ModifyBEResources" ;;
+  0:be|1:be|place:be) side=3; crew="3:3 3:1"; chassis=10; driver="[34]" ;;
   *) echo "Usage: $0 [0|1|place] [map] [nf|be] [\"x y z\"]" >&2; exit 2 ;;
 esac
 
-pre="rcbot_empires_vehicle_vf_grace 0;ent_fire emp_params $grant 5000;rcbot_empires_engineer_turrets 0;rcbot_empires_vehicle_drivers 1"
+pre="rcbot_empires_vehicle_vf_grace 0;rcbot_empires_engineer_turrets 0;rcbot_empires_vehicle_drivers 1"
 created='^\[RCBOT2\] commander-econ result=CREATED type=5 '
 placement_failed='^\[RCBOT2\] commander-econ result=(NO_SPOT|REJECTED) type=5 '
 panel='^\[RCBOT2\] NavMesh building-registry .*classname=emp_building_vehiclefactory_panel '

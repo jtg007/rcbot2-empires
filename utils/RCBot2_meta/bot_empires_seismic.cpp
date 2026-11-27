@@ -126,11 +126,6 @@ Vector SeismicLandPoint(edict_t* building, const Vector& origin, const Vector& e
 }
 }
 
-bool EmpiresSeismicThrowPitch(const float dist, const float dz, float& outPitch, float& outElev, float& outSpeed)
-{
-	return EmpiresSeismic::SolveThrowPitch(dist, dz, 0.0f, outPitch, outElev, outSpeed);
-}
-
 bool CBotEmpires::armEmpiresSeismicThrow(const float now, const int userId, const int team)
 {
 	const char* weaponName = SeismicWeaponName(team);

@@ -7,8 +7,8 @@
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 RESULT='^\[RCBOT2\] vehicle loadout-check .* known=1 .*heavy-left=1 '
 DEV_NO_RECORDER="${DEV_NO_RECORDER-1}" DEV_TIMESCALE="${2:-4}" DEV_ROSTER="2:1 2:1 2:3" \
-DEV_PRE="emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0" \
-DEV_CMDS="wait 5;ent_fire emp_params ModifyNFResources 3000;waitfor 200 pad-yaw;wait 5;ent_fire emp_params ModifyNFResources 3000;rcbot_empires_vehicles 1;waitfor 200 vehicle bought;wait ${DEV_CRATE_WAIT:-4};rcbotd empires_vehicle_crate ${3:-1200};wait 1;mark;rcbotd empires_vehicle_setammo 0 0;waitfor 180 ^\[RCBOT2\] vehicle crate-done ;waitfor 20 $RESULT" \
+DEV_PRE="rcbot_empires_vehicle_vf_grace 0;emp_sv_resource_multiplier_be 10;emp_sv_resource_multiplier_nf 10;emp_sv_refinery_multiplier 30;emp_sv_research_complete 1;emp_sv_debug_instant_build 1;rcbot_empires_commander_first 4;rcbot_empires_engineer_turrets 0;rcbot_empires_engineer_deployables 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_vehicles 0" \
+DEV_CMDS="wait 5;waitfor 200 pad-yaw;wait 5;rcbot_empires_vehicles 1;waitfor 200 vehicle bought;wait ${DEV_CRATE_WAIT:-4};rcbotd empires_vehicle_crate ${3:-1200};wait 1;mark;rcbotd empires_vehicle_setammo 0 0;waitfor 180 ^\[RCBOT2\] vehicle crate-done ;waitfor 20 $RESULT" \
 DEV_UNTIL="$RESULT" DEV_EXPECT="$RESULT" \
 DEV_FAIL='^\[RCBOT2\] vehicle (retreat-timeout|retreat-abort|give-up) ' \
 DEV_SHOW="\[RCBOT2\] vehicle (bought|debug-ammo|debug-crate|retreat|crate-|resupplied|refit-sent|repaired|retreat-timeout|retreat-abort|pad-enter|loadout-check)|empires_vehicle_crate" \

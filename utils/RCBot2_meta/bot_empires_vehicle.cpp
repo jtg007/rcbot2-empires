@@ -49,7 +49,7 @@ namespace
 ConVar rcbot_empires_vehicle_turn_test("rcbot_empires_vehicle_turn_test", "0", 0,
 	"Debug purchases only: 1 normal turn, 2 handbrake pulse, 3 coast straight, 4 brake straight");
 ConVar rcbot_empires_apc_cover_park("rcbot_empires_apc_cover_park", "1", 0,
-	"8.4: a spawn APC without a contested flag parks out of sight 1000-1800 HU before the nearest enemy building (else enemy CV) instead of driving into it");
+	"8.4: a spawn APC without a contested flag parks out of sight 1000-2300 HU before the nearest enemy building (1000-1800 HU at flags; else enemy CV) instead of driving into it");
 ConVar rcbot_empires_apc_retreat_hull("rcbot_empires_apc_retreat_hull", "0.6", 0,
 	"5.14a: a spawn APC retreats to the repair pad below this hull share (tanks 0.4); it also leaves a park spot "
 	"where it lost 15 % of hull+armor within 15 s, and never drives into a fight like a tank");

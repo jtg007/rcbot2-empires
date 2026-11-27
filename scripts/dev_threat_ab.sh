@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A/B for rcbot_empires_threat_map: 10-bot matches at 1x under real economy rules (DEV_PRE from
-# dev_econ.sh: resources x1, research from 0), alternating map off (A) / on (B), then the A/B table
+# dev_econ.sh: resources x1, research from 0, plus rcbot_empires_vehicle_vf_grace 0 for immediate
+# vehicle comparisons), alternating map off (A) / on (B), then the A/B table
 # (scripts/threat_ab_summary.py: map cost, hurt cover, engineer stalls at enemy vehicles, kills,
 # STUCK, idle, MATCH_FLOW). Runs one after another on DEV_PORT (default 49925).
 # Usage: scripts/dev_threat_ab.sh [map] [minutes] [pairs]   (default emp_crossroads 18 1)

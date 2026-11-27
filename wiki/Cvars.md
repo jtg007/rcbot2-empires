@@ -1,9 +1,9 @@
 # Cvars
 
 Sources: `utils/RCBot2_meta/bot_cvars.cpp` (authoritative: definitions, defaults, help text), `utils/RCBot2_meta/bot_empires_vehicle.cpp`
-(14 more cvars defined there), `bot_empires.cpp` and `bot_navmesh_api.cpp`, the readers found with `grep`, [README.md](../README.md) (Settings), [AGENTS.md](../AGENTS.md). Refresh: grep `ConVar rcbot_empires_`.
+(15 more cvars defined there), `bot_empires.cpp` and `bot_navmesh_api.cpp`, the readers found with `grep`, [README.md](../README.md) (Settings), [AGENTS.md](../AGENTS.md). Refresh: grep `ConVar rcbot_empires_`.
 
-63 `rcbot_empires_*` cvars exist: 46 in `bot_cvars.cpp`, 14 in `bot_empires_vehicle.cpp`, 2 in `bot_navmesh_api.cpp` and 1 in `bot_empires.cpp`. The README documents the player-facing ones;
+82 `rcbot_empires_*` cvars exist: 63 in `bot_cvars.cpp`, 15 in `bot_empires_vehicle.cpp`, 3 in `bot_navmesh_api.cpp` and 1 in `bot_empires.cpp`. The README documents the player-facing ones;
 this page lists all of them, including test and development switches. Set them on the server console, in `server.cfg`, or with `DEV_PRE="cvar value;..."` in the dev harness.
 
 ## Bot names
@@ -32,7 +32,7 @@ this page lists all of them, including test and development switches. Set them o
 | `rcbot_empires_engineer_first_perk_now` | 1 | An engineer's slot-1 perk (repair/revive) is active from its first life, as if picked before spawning. | `bot_empires.cpp` |
 | `rcbot_empires_vehicle_vf_grace` | 90 | Seconds after a team's first finished vehicle factory in a map before its bots start a vehicle purchase (infantry opening; base building, research and infantry go on). Once per map; a known living enemy vehicle or APC (fair intel, or all enemy vehicles with fair intel off) ends it at once; 0 = off. Vehicle test scripts run with 0. | `bot_empires_team_director.h/.cpp`, `bot_empires_vehicle.cpp` |
 | `rcbot_empires_tank_escort` | 1 | One free engineer per team follows an own driven tank within 3000 HU about 350 HU behind it and repairs it when it stands damaged. | `bot_empires_vehicle.cpp` |
-| `rcbot_empires_engineer_turrets` | 1 | Repair-role engineers build an MG turret on the front side of own refineries. | `bot_empires_turret_build.cpp`, `bot_empires_commander_economy.cpp` |
+| `rcbot_empires_engineer_turrets` | 1 | Repair-role engineers build MG and ML turrets on the front side of own refineries. | `bot_empires_turret_build.cpp`, `bot_empires_commander_economy.cpp` |
 | `rcbot_empires_engineer_deployables` | 3 | Bits: 1 camera (plus radar with a second detection slot) behind the refinery wall, 2 three-part wall on the refinery's enemy side. | `bot_empires_deployables.cpp` |
 | `rcbot_empires_engineer_help_human` | 2 | With a human commander, up to this many engineer bots per team build/repair unfinished or damaged buildings near the CV on their own (0 = only on the commander's guard order). | `bot_empires_engibot.cpp`, `bot_commands.cpp`, `bot_empires.h` |
 | `rcbot_empires_engibot` | 1 | Commanders can buy base engineer bots with `/buildengibot`. | `bot_empires_engibot.cpp` |
@@ -78,7 +78,7 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | Cvar | Default | Meaning | Read in |
 |---|---:|---|---|
 | `rcbot_empires_fair_intel` | 1 | Fair team knowledge: director, commander, infantry goals, tank/APC goals and the Lawliet rush use only enemies the team could know (spotting, own radar/camera, teammate sight, bot sight reports; memory 10/20/180 s for infantry/vehicles/buildings) plus the enemy start base. `0` off (full entity list), `1` both teams, `2` NF, `3` BE. Crossroads A/B (15 min, 1x): stuck counts and vehicle give-ups on par with `0` after the factory-lane and push-hold fixes. | `bot_empires_team_director.cpp` and consumers |
-| `rcbot_empires_apc_cover_park` | 1 | Without a contested flag the spawn APC parks out of sight 1000-1800 HU before the nearest enemy building (else waits 2500 HU before it); park and waiting spots keep 800 HU from own buildings and 400 HU from other own vehicles. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_apc_cover_park` | 1 | Without a contested flag the spawn APC parks out of sight 1000-2300 HU before the nearest enemy building (1000-1800 HU at flags; else waits 2500 HU before it); park and waiting spots keep 800 HU from own buildings and 400 HU from other own vehicles. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_missiles` | 1 | Tanks buy the Standard Missile Launcher (fire group 1); the driver selects group 1 against vehicles and buildings and group 2 otherwise. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_cannon_eye` | 1 | Turret weapons aim from the cannon pivot; 0 = hull origin + 90. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_turret_align` | 1 | Fire once the turret yaw is within 8° (MG on infantry) or 12° (cannon) and the aim is older than 0.4 s, else after 2.5 s; fixed-turret chassis keep 1.2 s. 0 = always 1.2 s. | `bot_empires_vehicle.cpp` |
@@ -97,10 +97,10 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_squad_flanks` | 0 | 1: from 3 free infantry bots per team the director picks one push and one hold goal left and one right of the axis between both bases (each at least 1000 HU off it, else rank order as before); odd squads (Alpha, Charlie) take the left goal, even squads (Bravo, Delta) the right one; bots without a squad or in a human-led squad are spread as before. Off by default: two 22-bot Crossroads pairs showed no clear gain. | `bot_empires_team_director.h/.cpp` |
 | `rcbot_empires_defend_patrol` | 1 | A bot holding a defend or sector spot moves on to another spot around it after 12 s instead of standing 30 s, and must walk to within 100 of the spot (0 = 30 s hold, 250 arrive radius). | `bot_empires_objective.cpp` |
 | `rcbot_empires_hot_zones` | 1 | Three deaths of a team on foot within 30 s and 700 HU make the spot hot for 90 s (renewed by each death there); that team's routes pay 1500 to enter and 3x per unit inside. | `bot_empires_team_director.cpp`, `bot_navmesh_api.cpp` |
-| `rcbot_empires_self_preservation` | 1 | Two teammates killed by the enemy within 8 s and 600 HU of a bot make it fall back 300-450 HU from the killer (preferably out of sight) or back off out of the fight for 5 s; 20 s cooldown. |
-| `rcbot_empires_buddy_repair` | 1 | A free engineer bot repairs a damaged, standing own vehicle within 1200 HU unasked when a human drives it or it is parked empty (hull below 90 % or an armor side below 85 %); 2 also includes bot-driven vehicles (test). |
-| `rcbot_empires_humans_first` | 1 | Engineers heal hurt humans before bots (a bot patient is left for a hurt human in reach), serve human ammo calls first; a bot's repair call does not take over the request of a human-driven vehicle, and a damaged human-driven vehicle nearby replaces a bot call. |
-| `rcbot_empires_test_human_userid` | 0 | Test only: the bot with this userid counts as a human for `rcbot_empires_humans_first` and `rcbot_empires_buddy_repair`. |
+| `rcbot_empires_self_preservation` | 1 | Two teammates killed by the enemy within 8 s and 600 HU of a bot make it fall back 300-450 HU from the killer (preferably out of sight) or back off out of the fight for 5 s; 20 s cooldown. | `bot_empires_skirmish.cpp` |
+| `rcbot_empires_buddy_repair` | 1 | A free engineer bot repairs a damaged, standing own vehicle within 1200 HU unasked when a human drives it or it is parked empty (hull below 90 % or an armor side below 85 %); 2 also includes bot-driven vehicles (test). | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_humans_first` | 1 | Engineers heal hurt humans before bots (a bot patient is left for a hurt human in reach), serve human ammo calls first; a bot's repair call does not take over the request of a human-driven vehicle, and a damaged human-driven vehicle nearby replaces a bot call. | `bot_empires_heal.cpp`, `bot_empires_ammo_crate.cpp`, `bot_empires_vehicle.cpp` |
+| `rcbot_empires_test_human_userid` | 0 | Test only: the bot with this userid counts as a human for `rcbot_empires_humans_first` and `rcbot_empires_buddy_repair`. | `bot_empires_heal.cpp` |
 | `rcbot_empires_kill_spawn` | 1 | A defender on a base alert or a far vehicle buyer may respawn (via `kill`) at a spawn at least 3800 HU closer to its goal (no combat for 6 s, tickets > 20 and > 25 %, 90 s per bot). | `bot_empires_team_director.cpp` |
 | `rcbot_empires_vehicle_mg_no_damage` | 1 | A vehicle MG without damage for 1.2 s aims at the body on the ground; after 3 s it takes another target for 10 s. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_runover` | 1 | An armed vehicle runs a soldier over after 2 s of MG fire without damage (or below the gun) when the straight way is safe; at most 6 s. | `bot_empires_vehicle.cpp` |
@@ -135,7 +135,7 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_bot_squads_percent` | 50 | Percentage of time bots form squads with other bots (set in `config.ini`: `rcbot_bots_form_squads 1`). |
 | `eta_nav_learning`, `eta_recovery_active`, `eta_local_yielding` | 0 | Experimental kill switches: learned navigation edge costs, bot-local active recovery for captures, deterministic WAIT-only ally yielding. Passive telemetry stays on. |
 | `rcbot_analysis_*` | - | Console commands (not cvars): recorder start/stop/mark/status, see [Console commands](Console-Commands.md). |
-| `emp_sv_research_complete` | 1 in `dev.sh` | Game cvar. `dev.sh` defaults to 1 (all research done); use `0` for natural research. |
+| `emp_sv_research_complete` | 1 in test `server.cfg` | Game cvar. Test server `server.cfg` sets 1 (all research done); `dev_econ.sh`, `dev_threat_ab.sh` and `DEV_REAL_ECON=1 dev_team_match.sh` set 0 for natural research. |
 | `emp_sv_resource_multiplier_be/nf`, `emp_sv_refinery_multiplier`, `emp_sv_research_multiplier`, `emp_sv_debug_build_vehicles` | - | Game cvars for economy values; production values: `1`, `1`, `1`, `1`, `0`. The test server defaults to resource x10, research complete, debug purchase. |
 | `host_timescale` | 1 | Set by `DEV_TIMESCALE`; mortars and tank shells only work at 1 (see [Known facts](Known-Facts-and-Pitfalls.md)). |
 

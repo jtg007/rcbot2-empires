@@ -25,17 +25,17 @@ map="${1:-emp_crossroads}"
 minutes="${2:-3}"
 roster="${QUICK_ROSTER:-2:1 3:3 3:1}"
 bots=$(wc -w <<<"$roster")
-pre="rcbot_empires_vehicle_vf_grace 0;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_engineer_turrets 0"
-cmds="ent_fire emp_params ModifyNFResources 3000;ent_fire emp_params ModifyBEResources 3000"
+pre="rcbot_empires_vehicle_vf_grace 0;emp_sv_resource_multiplier_be 10;emp_sv_resource_multiplier_nf 10;emp_sv_refinery_multiplier 30;emp_sv_research_complete 1;emp_sv_debug_build_vehicles 1;rcbot_empires_vehicle_debug_buy 1;rcbot_empires_engineer_turrets 0"
+cmds=""
 if [[ "${QUICK_FAIR:-0}" == 1 ]]; then
   # No commanders: their orders (escort, move) cancel the purchase walk; debug buying needs no factory.
   pre+=";rcbot_empires_vehicle_hold 1;rcbot_empires_auto_commander 0"
-  cmds+=";waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(2|3|4|5) ;waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(10|11|12|13) "
+  cmds="waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(2|3|4|5) ;waitfor 240 ^\[RCBOT2\] vehicle bought .* chassis=(10|11|12|13) "
   cmds+=";echo FAIR_START;mark;rcbot_empires_vehicle_hold 0"
 fi
 DEV_NO_RECORDER="${DEV_NO_RECORDER:-1}" DEV_TIMESCALE="${DEV_TIMESCALE:-1}" DEV_ROSTER="$roster" \
 DEV_PRE="$pre${QUICK_PRE:+;$QUICK_PRE}" \
-DEV_CMDS="$cmds${QUICK_CMDS:+;$QUICK_CMDS}" \
+DEV_CMDS="${cmds}${QUICK_CMDS:+${cmds:+;}$QUICK_CMDS}" \
 DEV_UNTIL="${QUICK_UNTIL:-}" \
 DEV_SHOW="${QUICK_SHOW:-vehicle (bought|fire |fire-blocked|stuck-reverse|bail-exit userid=[0-9]+ t=)|building-(rpg|mortar)}" \
 exec scripts/dev.sh "$map" "$bots" "$minutes"

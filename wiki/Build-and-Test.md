@@ -50,8 +50,8 @@ sessions `<test server>/empires/analysis/session-*`. Run folder names look like 
 | `RCBOT_CPUS` (default `4,5,10,11`, empty = all), `RCBOT_NICE` (10) | Builds and test servers run on a few CPUs with low priority (`scripts/dev_cpu.sh`) so a game client stays smooth. |
 | `RCBOT_DEV_MIRROR` | Location of the incremental build mirror. |
 
-Default test server economy: resource x10, research complete, debug vehicle purchase (`dev.sh` sets `emp_sv_research_complete 1`).
-For a realistic match pass production values:
+Default test server economy: `server.cfg`/`testing.cfg` set resource x10, research complete and debug vehicle purchase (scenario scripts set their fast economy explicitly in `DEV_PRE`).
+For a realistic match pass `DEV_REAL_ECON=1` to `dev_team_match.sh` or set production values:
 `DEV_PRE="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;emp_sv_refinery_multiplier 1;emp_sv_research_complete 0;emp_sv_research_multiplier 1;emp_sv_debug_build_vehicles 0"`.
 
 ## Scenario scripts (`scripts/`)
@@ -64,7 +64,8 @@ Each takes `[map] [timescale]` unless noted and ends at the observable result. P
 | `dev_chain.sh` | Commander seat, barracks placement, engineer builds it | 1-2 min |
 | `dev_quick.sh [map] [min]` | Short targeted run: few bots (`QUICK_ROSTER`), instant purchase, 1x; `QUICK_PRE/CMDS/UNTIL/SHOW`, `QUICK_FAIR=1` fair tank start | 1-4 min |
 | `dev_econ.sh [map] [min]` | Production economy until the first driven vehicle, 6 bots, timescale 4 | about 5 min |
-| `dev_team_match.sh [map] [min]` | 10-bot match at 1x with recorder, then director numbers (role swaps, alerts, kill-spawns, building stalls, recorder table) and the match-flow check against `MATCH_FLOW.md`. `--summarize RUN_DIR` reads saved numbers without a server | 12-15 min |
+| `dev_team_match.sh [map] [min]` | 10-bot match at 1x with recorder (`DEV_REAL_ECON=1` for production economy rules), then director numbers (role swaps, alerts, kill-spawns, building stalls, recorder table) and the match-flow check against `MATCH_FLOW.md`. `--summarize RUN_DIR` reads saved numbers without a server | 12-15 min |
+| `dev_threat_ab.sh [map] [min] [pairs]` | A/B for `rcbot_empires_threat_map` (0/1 alternating, 10 bots at 1x under production economy rules, `vf_grace 0`), then one summary table; `--summarize RUN_DIR...` reads saved runs | ~36 min/pair |
 | `dev_buy.sh` | Vehicle purchase only (instant VF, extra money) | about 30-60 s |
 | `dev_vf_drive.sh [0\|1\|place] [map] [nf\|be] ["x y z"]` | Regular purchase, VF exit, drive; `place` stops at first factory placement; `DEV_VF_APPROACH` | - |
 | `dev_turn.sh <1-4> [map] [nf\|be]` | Steering, handbrake pulse, coast, brake at 1x | - |
@@ -80,8 +81,8 @@ Each takes `[map] [timescale]` unless noted and ends at the observable result. P
 | `dev_lawliet.sh [map] [min]` | Forced NF APC rush on the BE CV at 1x; success ends at `lawliet end team=2 reason=cv-destroyed` | about 4 min |
 | `dev_navgen.sh <map>` | Generate a navmesh on the test server (`DEV_NAVGEN_PRE`) | up to minutes (20 min timeout hit on `emp_mvalley`) |
 | `dev_maps.sh [out] ["map:min:ts ..."]` | Map sweep, 10 bots per map one after another | - |
-| `manual_match.sh [map] [bots]` | Watch match with a person; records server.log, recorder and a SourceTV demo, writes `fehler.txt` error counts | - |
-| `run_unit_tests.sh` | All offline unit tests in parallel (needs only a C++17 compiler and python3); 34 tests in `dev_check` as of 23.11 | about 5 s |
+| `manual_match.sh [map] [bots]` | Watch match with a person (production economy + `sv_cheats 0` by default; `MANUAL_FAST_ECON=1` for fast test economy); records server.log, recorder and a SourceTV demo, writes `fehler.txt` error counts | - |
+| `run_unit_tests.sh` | All offline unit tests in parallel (needs only a C++17 compiler and python3); 46 tests in `dev_check` | about 5 s |
 | `run_*_tests.sh` | One header's unit tests (ai_decision, capture_retry, combat_relevance, lawliet, squad_*, team_director, vehicle_loadout ...) | - |
 | `publish_tree.sh ["subject"] ["extra"]` | Builds the public branch commit (internal notes excluded); pushing is a separate manual step | - |
 
