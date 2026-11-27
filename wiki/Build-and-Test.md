@@ -81,7 +81,7 @@ Each takes `[map] [timescale]` unless noted and ends at the observable result. P
 | `dev_lawliet.sh [map] [min]` | Forced NF APC rush on the BE CV at 1x; success ends at `lawliet end team=2 reason=cv-destroyed` | about 4 min |
 | `dev_navgen.sh <map>` | Generate a navmesh on the test server (`DEV_NAVGEN_PRE`) | up to minutes (20 min timeout hit on `emp_mvalley`) |
 | `dev_maps.sh [out] ["map:min:ts ..."]` | Map sweep, 10 bots per map one after another | - |
-| `manual_match.sh [map] [bots]` | Watch match with a person (production economy + `sv_cheats 0` by default; `MANUAL_FAST_ECON=1` for fast test economy); records server.log, recorder and a SourceTV demo, writes `fehler.txt` error counts | - |
+| `manual_match.sh [map] [bots]` | Watch match with a person (production economy + `sv_cheats 0` by default, start resources as set by the map; `MANUAL_FAST_ECON=1` for fast test economy); records server.log, recorder and a SourceTV demo, writes `fehler.txt` error counts | - |
 | `run_unit_tests.sh` | All offline unit tests in parallel (needs only a C++17 compiler and python3); 46 tests in `dev_check` | about 5 s |
 | `run_*_tests.sh` | One header's unit tests (ai_decision, capture_retry, combat_relevance, lawliet, squad_*, team_director, vehicle_loadout ...) | - |
 | `publish_tree.sh ["subject"] ["extra"]` | Builds the public branch commit (internal notes excluded); pushing is a separate manual step | - |
