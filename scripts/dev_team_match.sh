@@ -22,6 +22,7 @@ else
   REAL_ECON="emp_sv_resource_multiplier_be 1;emp_sv_resource_multiplier_nf 1;emp_sv_refinery_multiplier 1;emp_sv_research_complete 0;emp_sv_research_multiplier 1;emp_sv_debug_build_vehicles 0;emp_sv_respawn_penalty 10;emp_sv_commander_freeze_time 60"
   if [[ "${DEV_REAL_ECON:-0}" == 1 ]]; then
     export DEV_PRE="$REAL_ECON${DEV_PRE:+;$DEV_PRE}"
+    export DEV_SERVER_CFG="$REAL_ECON"  # start pool at map load (dev_run.py)
     echo "== Economy: real (DEV_REAL_ECON=1: resources x1, research from 0)"
   elif [[ "${DEV_PRE:-}" == *"emp_sv_research_complete 0"* ]]; then
     echo "== Economy: real (via DEV_PRE)"

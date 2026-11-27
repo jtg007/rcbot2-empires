@@ -5,6 +5,7 @@ Drives the server console through a PTY (srcds reads stdin), so no RCON setup
 is needed. `--summarize RUN_DIR SESSION_DIR` re-runs only the evaluation.
 """
 import argparse
+import atexit
 import collections
 import glob
 import json
@@ -17,6 +18,7 @@ import signal
 import struct
 import subprocess
 import sys
+import tempfile
 import termios
 import threading
 import time
@@ -67,6 +69,25 @@ class ScenarioFailed(Exception):
     pass
 
 
+def server_cfg_args(server_root):
+    """DEV_SERVER_CFG="cmd;cmd": run with the test server.cfg minus testing.cfg plus these commands as the
+    server config (+servercfgfile). The team start pool is the map's NFRes/ImpRes times
+    emp_sv_resource_multiplier when the map loads, i.e. before DEV_PRE (DMZ 27.11.: 5036 instead of 500)."""
+    commands = [c.strip() for c in os.environ.get("DEV_SERVER_CFG", "").split(";") if c.strip()]
+    if not commands:
+        return []
+    cfg_dir = os.path.join(server_root, "empires", "cfg")
+    with open(os.path.join(cfg_dir, "server.cfg"), errors="replace") as base:
+        lines = [line for line in base if not re.match(r"\s*exec\s+testing\.cfg", line)]
+    fd, path = tempfile.mkstemp(prefix="dev_server_", suffix=".cfg", dir=cfg_dir)
+    with os.fdopen(fd, "w") as out:
+        out.writelines(lines)
+        out.write("\n// dev_run.py DEV_SERVER_CFG\n" + "\n".join(commands) + "\n")
+    os.chmod(path, 0o644)
+    atexit.register(lambda: os.path.exists(path) and os.remove(path))
+    return ["+servercfgfile", os.path.basename(path)]
+
+
 class Server:
     def __init__(self, args, log_path):
         master, slave = pty.openpty()
@@ -78,10 +99,11 @@ class Server:
         self.lock = threading.Lock()
         source_tv = os.environ.get("DEV_SOURCETV") == "1" or MANUAL
         self.source_tv = source_tv
+        cfg_args = server_cfg_args(args.server_root)
         self.proc = subprocess.Popen(
             ["./srcds_run", "-norestart", "-console", "-game", "empires",
              "-insecure", "-nomaster", *([] if source_tv else ["-nohltv"]), "-nojoy",
-             "-ip", args.ip, "-port", SERVER_PORT, *os.environ.get("DEV_SRCDS_ARGS", "").split(),
+             "-ip", args.ip, "-port", SERVER_PORT, *cfg_args, *os.environ.get("DEV_SRCDS_ARGS", "").split(),
              "+sv_lan", "1", "+rcbot_empires_debug_log", "1", "+tv_enable", "1" if source_tv else "0", "+map", args.map],
             cwd=args.server_root, env=dict(os.environ, SteamAppId="17740", SteamGameId="17740"),
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True, close_fds=True)

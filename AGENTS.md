@@ -181,6 +181,7 @@ Environment variables for `dev.sh`:
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
 - `DEV_PORT=49926`: own server port so several runs can go at once (default 49925).
 - `DEV_BOT_NAMES=fixed`: name bots `NF_01`, `BE_01`, … instead of their generated faction names.
+- `DEV_SERVER_CFG="cmd;cmd"`: server config = test `server.cfg` without `testing.cfg` plus these commands, applied before the map creates the start resources (used by `DEV_REAL_ECON=1` and `dev_econ.sh`).
   `DEV_SKIP_BUILD=1`: reuse the last build, including in `dev_check.sh` and
   `dev_maps.sh`. Set `DEV_BUILD_HASH` to verify its SHA-256 (16 or 64 characters).
   The build and server startup use `flock` to protect the selected binary.
