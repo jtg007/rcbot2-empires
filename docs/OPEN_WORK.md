@@ -176,15 +176,16 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 - [ ] **Hot zones (built, measuring, 8.1, `rcbot_empires_hot_zones`):** three deaths of a team on foot within
   30 s and 700 units make the spot hot for 90 s (each further death there renews it); that team's routes pay to
   enter and per unit inside, so the next wave detours. Only real kills count. Test kill zone at the NF base exit on
-  Crossroads (9 bots, 4x, 5 on/off pairs): 41 vs 84 deaths in the zone. Recorder data of 15 bot-only 10-bot
-  matches showed such clusters about once in 15 matches, so the effect is meant for human or turret positions
-  and still needs a human test. Open: bots already on a route do not replan; waiting for armour, seismic or
-  mortar on the spot.
-- [ ] **Self-preservation (built, measuring, 8.2, `rcbot_empires_self_preservation`):** two teammates (humans
+  Crossroads (9 bots, 4x, 5 on/off pairs): 41 vs 84 deaths in the zone. Earlier 10-bot matches rarely formed such
+  clusters (about once in 15 matches), while 21-/22-bot matches naturally created, extended, and expired 10–26 hot
+  zones per match (33 multi-bot runs total); in-match route detouring has no separate log line. Open: bots already on
+  a route do not replan; waiting for armour, seismic or mortar on the spot.
+- [x] **Self-preservation (verified in matches, 8.2, `rcbot_empires_self_preservation`):** two teammates (humans
   too) killed by the enemy within 8 s and 600 units of a bot make it fall back 300-450 units from the killer,
   preferably out of his sight, and crouch there for 5 s; in a fight it backs off and breaks the sight like when
   outnumbered. 20 s cooldown. Scripted test (`empires_test_near_death`): 316 units back, killer distance 800 ->
-  1116. A bot-only 10-bot match never had two deaths that close together; needs a human test.
+  1116. Naturally confirmed across 21 multi-bot matches (10-bot Palmbay and 21-/22-bot Crossroads/Rainbowroad runs,
+  with hidden fallback spots, completed 5 s retreats, and in-combat `shaken` cover).
 - [ ] **Engineers help human tanks (built, measuring, 8.3, `rcbot_empires_buddy_repair`):** a free engineer bot
   repairs a damaged own vehicle that stands within 1200 units, unasked, when a human drives it or it is parked
   empty; it uses the normal repair walk and works until hull and armor are full. Scripted test (empty damaged tank
@@ -515,7 +516,8 @@ When the following cases recur, compare the relevant trace and route.
   vehicle lanes at refineries.
   Turret upgrade (5.6) is done: an engineer with the upgrade skill raises its own finished
   turrets 1 -> 2 -> 3 with `emp_eng_upgrade` (only up to the map's turret restriction) and rebuilds them
-  (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); whether engineers reach rank 30 in a match is open.
+  (`DEV_TURRET_UPGRADE=1 scripts/dev_turret.sh`); natural rank gain (`0 -> 30+`) and level `1 -> 2 -> 3` upgrades
+  are confirmed in three full 21-/22-bot Crossroads matches (`20261124-202404`, `20261126-194313`, `20261126-203307`).
 - Team: defend own refineries, react to base attacks, squad roles; squad passengers in
   vehicles (gunner seats), jeep raids on refineries, a turret line at the refinery.
 - Keep the vehicle factory's build spot clear (done for carcasses and live enemies, 5.8a): engineers dismantle destroyed vehicle carcasses on the VF spot and in base (`scripts/run_wreck_clear_tests.sh`, verified 23 s dismantle) and grenadiers move to clear live enemy vehicles (`bay-enemy-clear`); only twice-abandoned live stuck own vehicles (3.17) remain open.
