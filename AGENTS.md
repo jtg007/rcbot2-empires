@@ -180,6 +180,7 @@ Environment variables for `dev.sh`:
   start of the run; `mark` resets that point (for repeated results such as `build-assign result=`). A `NOT found` stops the sequence.
 - `DEV_TIMESCALE=4`: fast-forward (breaks mortars, see below). `DEV_NO_RECORDER=1`: faster.
 - `DEV_PORT=49926`: own server port so several runs can go at once (default 49925).
+- `DEV_BOT_NAMES=fixed`: name bots `NF_01`, `BE_01`, … instead of their generated faction names.
   `DEV_SKIP_BUILD=1`: reuse the last build, including in `dev_check.sh` and
   `dev_maps.sh`. Set `DEV_BUILD_HASH` to verify its SHA-256 (16 or 64 characters).
   The build and server startup use `flock` to protect the selected binary.

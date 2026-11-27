@@ -56,6 +56,7 @@ SHOW = os.environ.get("DEV_SHOW")
 # no health check, the run ends only after that person disconnected
 # (waits DEV_MANUAL_JOIN_MIN minutes for the join, at most DEV_MANUAL_MAX_MIN in total).
 MANUAL = os.environ.get("DEV_MANUAL") == "1"
+FIXED_BOT_NAMES = os.environ.get("DEV_BOT_NAMES") == "fixed"
 MANUAL_JOIN_MIN = float(os.environ.get("DEV_MANUAL_JOIN_MIN", "30"))
 MANUAL_MAX_MIN = float(os.environ.get("DEV_MANUAL_MAX_MIN", "240"))
 HUMAN_CONNECT_RE = re.compile(r'"(.+?)<(\d+)><((?!BOT>|HLTV>)[^>]*)><[^>]*>" connected, address')
@@ -442,7 +443,10 @@ def run_match(args):
             server.send(command)
         for team, bot_class in roster:
             team_counts[team] += 1
-            server.send(f"rcbotd addbot {bot_class} {team} {names[team]}_{team_counts[team]:02d}")
+            # Default: no name, the bot draws its faction name ("[AI] M. Berg", rcbot_empires_bot_name_tag).
+            # DEV_BOT_NAMES=fixed keeps the old NF_01/BE_01 names.
+            fixed = f" {names[team]}_{team_counts[team]:02d}" if FIXED_BOT_NAMES else ""
+            server.send(f"rcbotd addbot {bot_class} {team}{fixed}")
             time.sleep(max(ADD_BOT_GAP_S / TIMESCALE, 2.0))
 
         try:
