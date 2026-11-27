@@ -18,7 +18,8 @@ constexpr int kMaxClients = 65; // client indices 1..64
 constexpr int kMaxCrew = 6;
 
 constexpr float kMinMatchSeconds = 180.0f;
-constexpr int kForcedFullCrew = 3;
+// Scout + Rifleman + Engineer + a driver who stays in the APC (user 27.11.).
+constexpr int kForcedFullCrew = 4;
 constexpr float kForcedCrewWait = 90.0f;
 constexpr float kCooldownSeconds = 120.0f;
 constexpr float kAcquireTimeout = 120.0f;
@@ -119,6 +120,8 @@ struct DesperationInput
 	float matchElapsed = 0.0f;
 	int eligibleScouts = 0;
 	int eligibleTotal = 0;
+	int eligibleEngineers = -1; // -1 = not counted
+
 
 	bool researchKnown = false;
 	int ownResearchCount = 0;
@@ -155,7 +158,9 @@ inline const char* TriggerReason(const DesperationInput& in)
 	if (in.eligibleTotal < (forced ? 1 : 2))
 		return nullptr;
 	// Forced: wait for a real crew while the team is still joining (011639: lone scout rush, no damage).
-	if (forced && in.eligibleTotal < kForcedFullCrew && in.matchElapsed < kForcedCrewWait)
+	// Also wait for an engineer (crate): with a second rifleman in the roster the first four
+	// eligible bots had none (20261127-153532: crew=3 eng=0).
+	if (forced && (in.eligibleTotal < kForcedFullCrew || in.eligibleEngineers == 0) && in.matchElapsed < kForcedCrewWait)
 		return nullptr;
 	if (forced)
 		return "forced";

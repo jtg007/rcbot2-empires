@@ -93,11 +93,17 @@ struct TeamLawlietState
 
 	int crateEntity = -1;
 	Vector crateOrigin = Vector(0, 0, 0);
+	float cratePlacedAt = -1.0f; // own crate placed: the assault runs on for kCrateResupplyGrace
 };
+
+// The crew resupplies at a freshly placed crate (K3, 20261127-152708: crate 2 s before the
+// assault timeout, the scout stood there with 0 stuns and the run ended).
+constexpr float kCrateResupplyGrace = 45.0f;
 
 struct BotLawlietAction
 {
 	int userId = -1;
+	float nextEngLog = 0.0f;
 	int mode = ACT_NONE;
 	int subStage = 0;
 	float stageAt = 0.0f;
@@ -852,6 +858,10 @@ struct EmpiresLawlietImpl
 			in.onCooldown = now < st.cooldownUntil;
 			in.matchElapsed = now - st.matchStart;
 			in.eligibleScouts = eligibleScouts;
+			in.eligibleEngineers = 0;
+			for (int c = 0; c < candCount; ++c)
+				if (cands[c].classId == EMP_CLASS_ENGINEER)
+					++in.eligibleEngineers;
 			in.eligibleTotal = candCount;
 
 			ConVar* completeVar = g_pCVar != nullptr ? g_pCVar->FindVar("emp_sv_research_complete") : nullptr;
@@ -1295,7 +1305,8 @@ struct EmpiresLawlietImpl
 				ResetTeamToIdle(team, st, now);
 				return;
 			}
-			if (now - st.phaseSince > kAssaultTimeout)
+			if (now - st.phaseSince > kAssaultTimeout &&
+				(st.cratePlacedAt < 0.0f || now - st.cratePlacedAt > kCrateResupplyGrace))
 			{
 				RCBOT_DIAG("[RCBOT2] stall-escalate who=lawliet team=%d stage=2 reason=assault-timeout\n", team);
 				ResetTeamToIdle(team, st, now);
@@ -1406,8 +1417,10 @@ bool EmpiresLawlietShouldDisembark(int team, int client, int vehicleIndex)
 	if (team != EMP_TEAM_NF && team != EMP_TEAM_BE)
 		return false;
 	const TeamLawlietState& st = s_team[team];
+	// The driver stays in the APC (user 27.11.): it holds near the CV as cover and spawn point,
+	// the passengers fight on foot.
 	return st.phase == PHASE_ASSAULT && vehicleIndex > 0 && st.apcEntity == vehicleIndex &&
-		FindCrewSlot(st, client) >= 0;
+		FindCrewSlot(st, client) >= 0 && (client != st.driverClient || !rcbot_empires_lawliet_driver_stays.GetBool());
 }
 
 bool EmpiresLawlietOverrideDriving(int team, int client, int vehicleIndex, Vector& driveTo, float& arrive,
@@ -1431,6 +1444,13 @@ bool EmpiresLawlietOverrideDriving(int team, int client, int vehicleIndex, Vecto
 		driveTo = st.enemyCvOrigin;
 		arrive = 250.0f;
 		throttle = 1.0f;
+		return true;
+	}
+	if (st.phase == PHASE_ASSAULT && client == st.driverClient && rcbot_empires_lawliet_driver_stays.GetBool())
+	{
+		holdPosition = true;
+		arrive = 300.0f;
+		throttle = 0.0f;
 		return true;
 	}
 	return false;
@@ -1812,6 +1832,7 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 		{
 			st.crateEntity = crateEnt;
 			st.crateOrigin = cratePos;
+			st.cratePlacedAt = now;
 			RCBOT_DIAG("[RCBOT2] lawliet ammo-crate placed userid=%d team=%d cv=%d crate=%d dist=%.0f\n",
 				uid, team, st.enemyCvEntity, crateEnt, Dist2D(cratePos, cvOrigin));
 			act.mode = ACT_NONE;
@@ -1946,8 +1967,8 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 		}
 		if (now - act.stageAt > 10.0f)
 		{
-			RCBOT_DIAG("[RCBOT2] stall-escalate who=lawliet-resupply userid=%d stage=1 reason=no-ammo-gain ammo=%d\n",
-				uid, curAmmo);
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=lawliet-resupply userid=%d stage=1 reason=no-reach ammo=%d crate_dist=%.0f\n",
+				uid, curAmmo, cDist);
 			act.mode = ACT_NONE;
 			act.cooldownUntil = now + 4.0f;
 			return true;
@@ -1978,11 +1999,16 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 		act.cmdView.z = 0.0f;
 		act.cmdForward = 0.0f;
 		act.cmdSide = 0.0f;
-		act.cmdButtons = IN_USE;
-		if (now - act.stageAt > 2.5f)
+		// CEngineerCrate::Use (0x62bc60): the first use only opens the crate ("Open" sequence), the
+		// ammo comes on a later use, per player rate-limited. Run 20261127-153719: both bots pressed
+		// 2.5 s about 3 s after the crate went down and got nothing. Let a fresh crate settle, press
+		// up to 6 s and give a new press edge every second.
+		const float crateAge = st.cratePlacedAt >= 0.0f ? now - st.cratePlacedAt : 99.0f;
+		act.cmdButtons = crateAge >= 2.0f && std::fmod(now - act.stageAt, 1.0f) < 0.8f ? IN_USE : 0;
+		if (now - act.stageAt > 6.0f)
 		{
-			RCBOT_DIAG("[RCBOT2] stall-escalate who=lawliet-resupply userid=%d stage=1 reason=no-ammo-gain ammo=%d\n",
-				uid, curAmmo);
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=lawliet-resupply userid=%d stage=1 reason=no-ammo-gain ammo=%d "
+				"crate_dist=%.0f crate_age=%.1f\n", uid, curAmmo, cDist, crateAge);
 			act.mode = ACT_NONE;
 			act.cooldownUntil = now + 4.0f;
 		}
@@ -1998,6 +2024,12 @@ bool CBotEmpires::handleEmpiresLawlietTask()
 			float nextSupply = 0.0f;
 			const bool supplyReady = !readEmpiresFloatProperty(m_pEdict, "m_flEngineerNextSupply", nextSupply) ||
 				nextSupply <= now;
+			if (now >= act.nextEngLog)
+			{
+				act.nextEngLog = now + 5.0f;
+				RCBOT_DIAG("[RCBOT2] lawliet crate-wait userid=%d dist=%.0f supply_in=%.1f stunned=%d ever=%d\n", uid, cvDist,
+					supplyReady ? 0.0f : nextSupply - now, st.cvStunned ? 1 : 0, st.cvStunnedEver ? 1 : 0);
+			}
 			if (cvDist > 320.0f)
 			{
 				Vector delta = cvOrigin - origin;

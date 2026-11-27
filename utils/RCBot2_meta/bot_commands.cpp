@@ -1665,6 +1665,54 @@ CBotCommandInline EmpiresBotClientCommandTest("empires_test_botcmd", CMD_ACCESS_
 		return COMMAND_ACCESSED;
 	}, R"(usage "empires_test_botcmd <bot_userid> <repeat> <command> [args]" : test-only, the bot runs a client command)");
 
+int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player); // bot_empires_vehicle.cpp
+
+// Test only (TODO K9): puts a bot <dist> units beside another player, or beside that player's vehicle,
+// so a scenario does not depend on where the bot happened to roam (setpos, needs sv_cheats 1).
+CBotCommandInline EmpiresTestBringCommand("empires_test_bring", CMD_ACCESS_CONSOLE_ONLY,
+	[](const CClient* pClient, const BotCommandArgs& args)
+	{
+		edict_t* pEntity = pClient != nullptr ? pClient->getPlayer() : nullptr;
+		if (args.size() < 2 || args[0] == nullptr || args[1] == nullptr)
+		{
+			CBotGlobals::botMessage(pEntity, 0, "usage: rcbotd empires_test_bring <bot_userid> <target_userid> [dist]");
+			return COMMAND_ACCESSED;
+		}
+		edict_t* pBotEdict = CBotGlobals::playerByUserId(std::atoi(args[0]));
+		edict_t* target = CBotGlobals::playerByUserId(std::atoi(args[1]));
+		CBot* pBaseBot = pBotEdict != nullptr ? CBots::getBotPointer(pBotEdict) : nullptr;
+		CBotMod* pMod = CBotGlobals::getCurrentMod();
+		if (pBaseBot == nullptr || target == nullptr || pMod == nullptr || pMod->getBotType() != BOTTYPE_EMPIRES)
+		{
+			CBotGlobals::botMessage(pEntity, 0, "error: no Empires bot or target with that userid");
+			return COMMAND_ACCESSED;
+		}
+		const float dist = args.size() > 2 && args[2] != nullptr && *args[2] != '\0' ? std::atof(args[2]) : 250.0f;
+		const int vehicle = EmpiresVehiclePlayerVehicle(static_cast<CBotEmpires*>(pBaseBot), target);
+		edict_t* vehicleEdict = vehicle > 0 ? INDEXENT(vehicle) : nullptr;
+		const Vector at = CBotGlobals::entityOrigin(vehicleEdict != nullptr && !vehicleEdict->IsFree() ? vehicleEdict : target);
+		// First of four sides whose nearest navmesh point stays clear of the target (a raw offset
+		// stood the engineer in a prop, run 20261127-143911: 47 blocked side switches).
+		Vector to(at.x + dist, at.y, at.z);
+		static const float kDirs[4][2] = { { 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f } };
+		for (const auto& d : kDirs)
+		{
+			Vector p;
+			if (RCBotNavMesh::ClosestPointOnMesh(Vector(at.x + d[0] * dist, at.y + d[1] * dist, at.z), 300.0f, p) &&
+				(p - at).Length2D() >= dist * 0.6f)
+			{
+				to = p;
+				break;
+			}
+		}
+		char command[128];
+		snprintf(command, sizeof(command), "setpos %.0f %.0f %.0f\n", to.x, to.y, to.z + 20.0f);
+		helpers->ClientCommand(pBotEdict, command);
+		Msg("[RCBOT2] test-bring userid=%s target=%s veh=%d to=(%.0f %.0f %.0f)\n", args[0], args[1], vehicle,
+			to.x, to.y, to.z + 20.0f);
+		return COMMAND_ACCESSED;
+	}, R"(usage "empires_test_bring <bot_userid> <target_userid> [dist]" : test-only, puts the bot dist units (default 250) beside the target player or its vehicle)");
+
 CBotCommandInline EmpiresKillZoneTestCommand("empires_test_kill_zone", CMD_ACCESS_CONSOLE_ONLY,
 	[](const CClient* pClient, const BotCommandArgs& args)
 	{
@@ -3700,6 +3748,7 @@ CBotSubcommands* CBotGlobals::m_pCommands = new CBotSubcommands("rcbot", CMD_ACC
 	&EmpiresCommanderYieldTestCommand,
 	&EmpiresBotClientCommandTest,
 	&EmpiresExitBlockTestCommand,
+	&EmpiresTestBringCommand,
 	&EmpiresKillZoneTestCommand,
 	&EmpiresNearDeathTestCommand,
 	&EmpiresRecoveryCaptureAcceptanceCommand,

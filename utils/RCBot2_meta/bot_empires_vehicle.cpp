@@ -70,8 +70,8 @@ ConVar rcbot_empires_vehicle_hold("rcbot_empires_vehicle_hold", "0", 0,
 	"Test only: bought vehicles wait in place (fire at targets) until set to 0, for a fair start of both teams");
 ConVar rcbot_empires_vehicle_shell_trace("rcbot_empires_vehicle_shell_trace", "0", 0,
 	"Diagnosis: log where cannon shells/missiles end while a driver bot has a target");
-ConVar rcbot_empires_vehicle_curve_speed("rcbot_empires_vehicle_curve_speed", "0", 0,
-	"Experimental anticipatory curve speed for NF Light and BE AFV on ordinary routes");
+ConVar rcbot_empires_vehicle_curve_speed("rcbot_empires_vehicle_curve_speed", "1", 0,
+	"Anticipatory curve speed along the route for all chassis (arc-length Menger curvature); 0 = off");
 ConVar rcbot_empires_vehicle_maneuvers("rcbot_empires_vehicle_maneuvers", "0", 0,
 	"Experimental local maneuver selection for NF Light and BE AFV on ordinary routes");
 ConVar rcbot_empires_vehicle_context_steer("rcbot_empires_vehicle_context_steer", "1", 0,
@@ -651,17 +651,24 @@ public:
 
 	bool ShouldHitEntity(IHandleEntity* handle, int) override
 	{
+		if (handle == nullptr)
+			return false;
+		if (staticpropmgr != nullptr && staticpropmgr->IsStaticProp(handle))
+			return !m_entitiesOnly;
 		IServerUnknown* unknown = static_cast<IServerUnknown*>(handle);
 		IServerNetworkable* networkable = unknown != nullptr ? unknown->GetNetworkable() : nullptr;
 		edict_t* e = networkable != nullptr ? networkable->GetEdict() : nullptr;
 		const char* cls = e != nullptr ? e->GetClassName() : nullptr;
 		if (cls == nullptr || e == m_ignored)
 			return false;
-		if (std::strcmp(cls, "prop_dynamic") == 0)
+		if (std::strcmp(cls, "prop_dynamic") == 0 ||
+			std::strcmp(cls, "func_button") == 0 ||
+			std::strcmp(cls, "func_brush") == 0 ||
+			std::strcmp(cls, "func_wall") == 0)
 		{
 			ICollideable* col = e->GetCollideable();
 			return col != nullptr && col->GetSolid() != SOLID_NONE &&
-				(col->GetSolidFlags() & FSOLID_NOT_SOLID) == 0;
+				(col->GetSolidFlags() & (FSOLID_NOT_SOLID | FSOLID_TRIGGER)) == 0;
 		}
 		if (std::strcmp(cls, "emp_eng_map_model") == 0)
 			return RCBotNavMesh::IsBuiltEmpiresMapObject(e);
@@ -676,6 +683,18 @@ private:
 
 constexpr float kVehicleMgInfantryRange = 1200.0f; // MG round 1000 u/s (vehicle_weapons.txt)
 
+// Consistent chassis-relative trace height (~42 HU above the bottom of the vehicle OBB).
+// APC/Light/AFV origins sit ~40 HU above the ground (OBBMins.z ~ -36), so a fixed +48 trace ran
+// ~88 HU above ground and shot straight over low solid prop_dynamic obstacles (crossroads 20261127-162205
+// BE APC veh=563 hung on prop_dynamic #221 at z=-240).
+float VehicleTraceLift(const edict_t* vehicle)
+{
+	edict_t* edict = const_cast<edict_t*>(vehicle);
+	if (edict != nullptr && !edict->IsFree() && edict->GetCollideable() != nullptr)
+		return (std::max)(8.0f, (std::min)(48.0f, edict->GetCollideable()->OBBMins().z + 42.0f));
+	return 42.0f;
+}
+
 bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth, const edict_t* drivenCV = nullptr,
 	trace_t* blockedBy = nullptr, bool buildingsOnly = false)
 {
@@ -686,13 +705,15 @@ bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth, const
 		return true;
 	dir /= len;
 	const Vector side(-dir.y, dir.x, 0.0f);
+	const float fromLift = VehicleTraceLift(drivenCV);
+	constexpr float kGoalLift = 42.0f; // route points sit on the navmesh floor
 	CTraceFilterWorldOnly worldOnly;
 	CVehicleSightFilter buildings(drivenCV, buildingsOnly);
 	ITraceFilter* filter = drivenCV != nullptr ? static_cast<ITraceFilter*>(&buildings) : &worldOnly;
 	for (const float s : {-1.0f, 1.0f})
 	{
-		const Vector a = from + side * (s * halfWidth) + Vector(0, 0, 48);
-		const Vector b = to + side * (s * halfWidth) + Vector(0, 0, 48);
+		const Vector a = from + side * (s * halfWidth) + Vector(0, 0, fromLift);
+		const Vector b = to + side * (s * halfWidth) + Vector(0, 0, kGoalLift);
 		trace_t hit;
 		Ray_t ray;
 		ray.Init(a, b);
@@ -710,7 +731,7 @@ bool DriveLineClear(const Vector& from, const Vector& to, float halfWidth, const
 // Full-lock turn response from the turn-test samples (20261119-103539/-103623, 1x,
 // full side input for 0.5 s): yaw starts after ~0.25 s and peaks at ~85 deg/s at
 // ~680 HU/s (NF Light) and ~67 deg/s at ~725 HU/s (BE AFV), i.e. about 1000 and
-// 850 HU/s^2 lateral. Use ~80 % of that. The radius at low speed is not measured.
+// 850 HU/s^2 lateral. Per-chassis profiles live in EmpiresContextSteer.
 struct VehicleTurnModel
 {
 	float lateralAccel;
@@ -719,46 +740,35 @@ struct VehicleTurnModel
 
 VehicleTurnModel TurnModel(int chassis)
 {
-	return chassis == 10 ? VehicleTurnModel{680.0f, 300.0f} : VehicleTurnModel{800.0f, 260.0f};
+	const EmpiresContextSteer::TurnProfile p = EmpiresContextSteer::ProfileForChassis(chassis);
+	return {p.lateralAccel, p.minRadius};
 }
 
 // Radius of a full-lock arc at this speed; side input s gives radius / |s|.
 float TurnRadius(int chassis, float speed)
 {
-	const VehicleTurnModel model = TurnModel(chassis);
-	return (std::max)(model.minRadius, speed * speed / model.lateralAccel);
+	return EmpiresContextSteer::TurnRadiusFor(chassis, speed);
 }
 
-float RouteCurveSpeed(const Vector& origin, const std::vector<Vector>& route, std::size_t first, float lateralAccel)
+float RouteCurveSpeed(const Vector& origin, const std::vector<Vector>& route, std::size_t first, int chassis)
 {
-	constexpr float brakeDecel = 300.0f; // HU/s², below the measured straight-line brake average
-	constexpr float minTurnSpeed = 200.0f;
-	constexpr float previewDistance = 1400.0f;
-	float limitSquared = 0.0f;
-	float distance = Dist2D(origin, route[first]);
-	for (std::size_t i = first; i + 1 < route.size() && i < first + 3 && distance < previewDistance; ++i)
+	if (first >= route.size())
+		return 0.0f;
+	constexpr std::size_t kMaxPoints = 32;
+	EmpiresContextSteer::Point2D pts[kMaxPoints];
+	std::size_t count = 0;
+	float dist = 0.0f;
+	Vector prev = origin;
+	for (std::size_t i = first; i < route.size() && count < kMaxPoints; ++i)
 	{
-		const Vector incoming = route[i] - (i == first ? origin : route[i - 1]);
-		const Vector outgoing = route[i + 1] - route[i];
-		const float inLength = incoming.Length2D();
-		const float outLength = outgoing.Length2D();
-		if (inLength >= 40.0f && outLength >= 40.0f)
-		{
-			const float cosine = (incoming.x * outgoing.x + incoming.y * outgoing.y) / (inLength * outLength);
-			if (cosine < 0.90f)
-			{
-				// Fit a tangent arc using up to half of each adjacent segment.
-				const float tangent = (std::min)(320.0f, (std::min)(inLength, outLength) * 0.5f);
-				const float radius = tangent * std::sqrt((std::max)(0.0f, 1.0f + cosine) / (1.0f - cosine));
-				const float atTurnSquared = (std::max)(minTurnSpeed * minTurnSpeed, lateralAccel * radius);
-				const float brakeDistance = (std::max)(0.0f, distance - tangent);
-				const float allowedSquared = atTurnSquared + 2.0f * brakeDecel * brakeDistance;
-				limitSquared = limitSquared == 0.0f ? allowedSquared : (std::min)(limitSquared, allowedSquared);
-			}
-		}
-		distance += outLength;
+		pts[count++] = {route[i].x, route[i].y};
+		dist += Dist2D(prev, route[i]);
+		prev = route[i];
+		if (dist > 1900.0f)
+			break;
 	}
-	return std::sqrt(limitSquared);
+	return EmpiresContextSteer::PolylineCurveSpeed({origin.x, origin.y}, pts, count, 0,
+		EmpiresContextSteer::ProfileForChassis(chassis));
 }
 
 // A damaged vehicle's call for engineers (emp_menu_command 30), one per team.
@@ -3870,13 +3880,32 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.assistSide = r.side >= 0 ? r.side : 0;
 			v.assistLastRise = now;
 			v.assistLastTotal = total;
+			v.assistWinAt = 0.0f;
 		}
-		if (total > v.assistLastTotal + 0.5f)
+		// Progress = the kit mends: hull up, or one side up >= 3 in a second (kit ~4.7/s). All four
+		// sides also regenerate by themselves (~1.5/s each); counting that as progress kept the
+		// engineer at reach 73 for minutes with the hull stuck at 154 (K9 run 20261127-151142).
+		if (now >= v.assistWinAt + 1.0f)
 		{
-			v.assistLastRise = now;
-			// A side takes ~27 s (126 armor at ~4.7/s); 60 s cut the job after
-			// two sides (run 120808). Keep going while it mends.
-			v.stageUntil = (std::max)(v.stageUntil, now + 20.0f);
+			float hullNow = 0.0f;
+			ReadVehicleHealth(hurt, hullNow);
+			float maxRise = 0.0f;
+			for (int k = 0; k < 4; ++k)
+			{
+				const float armorNow = static_cast<float>((std::max)(0, ReadArmorSide(hurt, k)));
+				if (v.assistWinAt > 0.0f)
+					maxRise = (std::max)(maxRise, armorNow - v.assistWinArmor[k]);
+				v.assistWinArmor[k] = armorNow;
+			}
+			if (v.assistWinAt > 0.0f && (hullNow > v.assistWinHull + 0.5f || maxRise >= 3.0f))
+			{
+				v.assistLastRise = now;
+				// A side takes ~27 s (126 armor at ~4.7/s); 60 s cut the job after
+				// two sides (run 120808). Keep going while it mends.
+				v.stageUntil = (std::max)(v.stageUntil, now + 20.0f);
+			}
+			v.assistWinHull = hullNow;
+			v.assistWinAt = now;
 		}
 		v.assistLastTotal = total;
 		matrix3x4_t toWorld;
@@ -4110,6 +4139,17 @@ void CBotEmpires::tickEmpiresVehicle()
 		v.passengerExit = true;
 		v.nextAction = now;
 		setStage(EmpiresVehicleStage::GIVE_UP_EXIT, 3.0f);
+		return;
+	}
+	// Test only (TODO K9): the bot marked as human sits still like a parked player; no throttle,
+	// no retreat, no ammo or repair call of its own (a human's vehicle is found by the buddy scan).
+	if (rcbot_empires_test_human_hold.GetBool() && EmpiresIsHuman(m_pEdict) && !v.commanderCV)
+	{
+		if (!v.testHumanHoldLogged)
+		{
+			v.testHumanHoldLogged = true;
+			RCBOT_DIAG("[RCBOT2] vehicle test-human-hold userid=%d veh=%d\n", userId, v.vehicleIndex);
+		}
 		return;
 	}
 
@@ -5529,6 +5569,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			v.nextReplan = 0.0f;
 			v.parkCount = 0;
 			v.padEntryAttempt = 0;
+			v.padStalls = 0;
+			v.padGiveUp = false;
 			RCBOT_DIAG("[RCBOT2] vehicle retreat userid=%d veh=%d hp=%.0f/%.0f armor=%d/%d/%d/%d max=%d worst=%d "
 				"pos=(%.0f %.0f %.0f)\n", userId, v.vehicleIndex, health, v.maxHealth, armor[0], armor[1],
 				armor[2], armor[3], armorMax, worstSide, origin.x, origin.y, origin.z);
@@ -5555,6 +5597,8 @@ void CBotEmpires::tickEmpiresVehicle()
 			// Never park for good (user): after 20 s without repairs try again
 			// (the stuck edge is blocked for vehicles, the other pad entrance
 			// next); after three parks give the retreat up and fight on.
+			if (end == nullptr && v.padGiveUp)
+				end = "retreat-abort";
 			if (end == nullptr && v.parkValid && now - v.parkSince > 20.0f && now - v.lastHealthRise > 8.0f)
 			{
 				if (v.parkCount >= 3)
@@ -5583,6 +5627,8 @@ void CBotEmpires::tickEmpiresVehicle()
 				v.retreating = false;
 				v.parkValid = false;
 				v.homeParkValid = false;
+				v.padGiveUp = false;
+				v.padStalls = 0;
 				if (v.loadoutRefit)
 				{
 					// Read the loadout again soon; a refused refit (money) is not retried for 2 min.
@@ -6199,8 +6245,8 @@ void CBotEmpires::tickEmpiresVehicle()
 	Vector maneuverFrom = origin; // start of the route line the local planner scores against
 	Vector maneuverNext = origin; // route point after the lookahead point
 	float curveSpeed = 0.0f;
-	const bool regulateCurveSpeed = (chassis == 2 || chassis == 10) && target == nullptr &&
-		!v.retreating && !v.billNye && rcbot_empires_vehicle_curve_speed.GetBool();
+	const bool regulateCurveSpeed = target == nullptr && !v.padInside &&
+		!v.billNye && rcbot_empires_vehicle_curve_speed.GetBool();
 	if (!closeManeuver && Dist2D(origin, driveTo) > 300.0f)
 	{
 		const Vector routeTarget = driveTo;
@@ -6312,13 +6358,76 @@ void CBotEmpires::tickEmpiresVehicle()
 			// Off the route: plan again soon.
 			if (Dist2D(origin, v.route[v.routeIndex]) > 1200.0f)
 				v.nextReplan = (std::min)(v.nextReplan, now + 0.5f);
-			// Look ahead along the route as far as the body has a clear line.
+			// Scan ahead along the route (up to ~1100 HU, cached per routeIndex) for the next tight passage
+			// using world + static props + solid buildings/gates, so both lookahead and context steering
+			// prepare before entering the bend in front of a gate.
+			if (rcbot_empires_vehicle_context_steer.GetBool() && enginetrace != nullptr &&
+				v.routeIndex < v.route.size() &&
+				(v.ctxNarrowIndex != v.routeIndex || v.ctxNarrowRouteSize != v.route.size() ||
+					Dist2D(v.ctxNarrowAt, v.route[v.routeIndex]) > 1.0f))
+			{
+				v.ctxNarrowIndex = v.routeIndex;
+				v.ctxNarrowRouteSize = v.route.size();
+				v.ctxNarrowAt = v.route[v.routeIndex];
+				v.ctxNarrow = false;
+				v.ctxGateRouteIndex = static_cast<std::size_t>(-1);
+				CVehicleSightFilter gateFilter(vehicle);
+				const float halfWidth = v.width * 0.5f;
+				float scanArc = 0.0f;
+				for (std::size_t k = v.routeIndex; k + 1 < v.route.size() && k < v.routeIndex + 8; ++k)
+				{
+					if (k > v.routeIndex)
+					{
+						scanArc += Dist2D(v.route[k - 1], v.route[k]);
+						if (scanArc > 1100.0f)
+							break;
+					}
+					const Vector& cand = v.route[k];
+					// Measure the passage axis over at least one vehicle width so a short navmesh edge
+					// cannot tilt the gate axis.
+					std::size_t axisEnd = k + 1;
+					while (axisEnd + 1 < v.route.size() && axisEnd < k + 4 &&
+						Dist2D(cand, v.route[axisEnd]) < v.width)
+						++axisEnd;
+					const float candAxis = YawTo(cand, v.route[axisEnd]);
+					const Vector dir = YawDir(candAxis);
+					const Vector side(-dir.y, dir.x, 0.0f);
+					float narrowest = 1.0e9f;
+					for (const float ahead : {0.0f, 200.0f})
+					{
+						const Vector at = cand + dir * ahead + Vector(0, 0, 40);
+						float free = 0.0f;
+						for (const float s : {-1.0f, 1.0f})
+						{
+							trace_t hit;
+							Ray_t ray;
+							ray.Init(at, at + side * (s * (halfWidth + 300.0f)));
+							enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &gateFilter, &hit);
+							free += hit.fraction * (halfWidth + 300.0f);
+						}
+						narrowest = (std::min)(narrowest, free);
+					}
+					if (narrowest < v.width + 400.0f)
+					{
+						v.ctxNarrow = true;
+						v.ctxGateRouteIndex = k;
+						v.ctxGatePoint = cand;
+						v.ctxAxis = candAxis;
+						v.ctxGateFree = narrowest - v.width;
+						break;
+					}
+				}
+			}
+			// Look ahead along the route as far as the body has a clear line; do not cut past an
+			// upcoming tight passage while still approaching it.
 			const float look = (std::max)(350.0f, (std::min)(1400.0f, 300.0f + speed * 0.7f));
 			std::size_t pick = v.routeIndex;
 			float along = Dist2D(origin, v.route[v.routeIndex]);
 			for (std::size_t k = v.routeIndex + 1; k < v.route.size(); ++k)
 			{
 				if (!v.routePrecise.empty() && precisePoint(k - 1))
+					break;
+				if (v.ctxNarrow && k > v.ctxGateRouteIndex)
 					break;
 				along += Dist2D(v.route[k - 1], v.route[k]);
 				if (along > look || std::fabs(v.route[k].z - origin.z) > 200.0f ||
@@ -6339,10 +6448,9 @@ void CBotEmpires::tickEmpiresVehicle()
 				driveTo = routeTarget;
 			if (pick + 1 < v.route.size() || Dist2D(origin, driveTo) > 300.0f || v.routePartial)
 				arrive = 0.0f;
-			// Preview the line the driver actually follows. Points skipped by
-			// the clearance-checked lookahead cannot define its next corner.
+			// Preview curvature along the actual upcoming route (arc-length resampled, all chassis).
 			if (regulateCurveSpeed)
-				curveSpeed = RouteCurveSpeed(origin, v.route, pick, TurnModel(chassis).lateralAccel);
+				curveSpeed = RouteCurveSpeed(origin, v.route, v.routeIndex, chassis);
 			// Slow down before a sharp corner.
 			else if (pick + 1 < v.route.size())
 			{
@@ -6470,12 +6578,13 @@ void CBotEmpires::tickEmpiresVehicle()
 	{
 		namespace CS = EmpiresContextSteer;
 		CVehicleSightFilter solids(vehicle);
-		const Vector eye = origin + Vector(0, 0, 48);
+		const float traceLift = VehicleTraceLift(vehicle);
+		const Vector eye = origin + Vector(0, 0, traceLift);
 		const float halfWidth = v.width * 0.5f;
 		auto traceFrac = [&](const Vector& to) {
 			trace_t hit;
 			Ray_t ray;
-			ray.Init(eye, to + Vector(0, 0, 48));
+			ray.Init(eye, to + Vector(0, 0, traceLift));
 			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
 			return hit.startsolid ? 0.0f : hit.fraction;
 		};
@@ -6487,7 +6596,7 @@ void CBotEmpires::tickEmpiresVehicle()
 		auto traceFrom = [&](const Vector& from, const Vector& to) {
 			trace_t hit;
 			Ray_t ray;
-			ray.Init(from + Vector(0, 0, 48), to + Vector(0, 0, 48));
+			ray.Init(from + Vector(0, 0, traceLift), to + Vector(0, 0, traceLift));
 			enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &solids, &hit);
 			return hit.startsolid ? 1.0f : hit.fraction; // inside: that corner says nothing
 		};
@@ -6501,47 +6610,23 @@ void CBotEmpires::tickEmpiresVehicle()
 			}
 			return 1.0f - frac;
 		};
-		// Tight passage at the current route point: free width across the next segment.
-		const Vector& gate = v.route[v.routeIndex];
-		if (v.ctxNarrowIndex != v.routeIndex || v.ctxNarrowRouteSize != v.route.size() ||
-			Dist2D(v.ctxNarrowAt, gate) > 1.0f)
-		{
-			v.ctxNarrowIndex = v.routeIndex;
-			v.ctxNarrowRouteSize = v.route.size();
-			v.ctxNarrowAt = gate;
-			v.ctxNarrow = false;
-			if (v.routeIndex + 1 < v.route.size())
-			{
-				v.ctxAxis = YawTo(gate, v.route[v.routeIndex + 1]);
-				const Vector dir = YawDir(v.ctxAxis);
-				const Vector side(-dir.y, dir.x, 0.0f);
-				CTraceFilterWorldOnly worldOnly;
-				// At the point and 200 further on (a gate point often sits in the mouth of the gate).
-				float narrowest = 1.0e9f;
-				for (const float ahead : {0.0f, 200.0f})
-				{
-					const Vector at = gate + dir * ahead + Vector(0, 0, 48);
-					float free = 0.0f;
-					for (const float s : {-1.0f, 1.0f})
-					{
-						trace_t hit;
-						Ray_t ray;
-						ray.Init(at, at + side * (s * (halfWidth + 300.0f)));
-						enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &worldOnly, &hit);
-						free += hit.fraction * (halfWidth + 300.0f);
-					}
-					narrowest = (std::min)(narrowest, free);
-				}
-				v.ctxGateFree = narrowest - v.width;
-				v.ctxNarrow = narrowest < v.width + 400.0f;
-			}
-		}
+		// Tight passage detected ahead by the cached route scan (above): line up early onto its axis
+		// and actively brake if arriving off-axis or off-centre.
 		float want = chosen;
+		const Vector& gate = v.ctxNarrow ? v.ctxGatePoint : v.route[v.routeIndex];
 		const float toGate = Dist2D(origin, gate);
 		if (v.ctxNarrow && toGate > 150.0f && toGate < 1200.0f)
 		{
-			want = CS::EntryAim(origin.x, origin.y, gate.x, gate.y, v.ctxAxis, TurnRadius(chassis, speed));
-			// Not lined up yet: come in slowly enough to swing onto the axis instead of into the wall.
+			const float entryYaw = CS::EntryAim(origin.x, origin.y, gate.x, gate.y, v.ctxAxis, TurnRadius(chassis, speed));
+			// Follow EntryAim immediately when on the final segment before the passage, or earlier when
+			// the line onto the passage axis is unobstructed (avoid cutting through blind corners).
+			if (v.ctxGateRouteIndex == v.routeIndex || (toGate < 900.0f && dangerAt(entryYaw) < CS::kDesiredSafe))
+				want = entryYaw;
+			const float passCap = CS::PassageApproachSpeed(origin.x, origin.y, heading, gate.x, gate.y, v.ctxAxis,
+				v.ctxGateFree, CS::ProfileForChassis(chassis));
+			if (passCap > 0.0f)
+				curveSpeed = curveSpeed > 0.0f ? (std::min)(curveSpeed, passCap) : passCap;
+			// Fallback throttle moderation if already close and misaligned.
 			const float off = std::fabs(NormalizeYaw(want - heading));
 			if (off > 25.0f && toGate < 300.0f + speed * 0.8f)
 				throttle = (std::min)(throttle, speed > 250.0f ? 0.0f : 0.5f);
@@ -7004,6 +7089,26 @@ void CBotEmpires::tickEmpiresVehicle()
 		v.padProgressSince = now;
 		RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=1 reason=pad-no-progress userid=%d veh=%d pos=(%.0f %.0f) moved=%.0f\n",
 			userId, v.vehicleIndex, origin.x, origin.y, Dist2D(origin, v.padProgressOrigin));
+		// TODO K6 (human test 26.11., crossroads 20261126-203307: NF heavy ~2 min at its own gate pillar on
+		// the way to the pad, only stage 1 five times): next entrance after 2 stalls, give up after 4.
+		if (rcbot_empires_pad_stall_escalate.GetBool())
+		{
+			++v.padStalls;
+			if (v.padStalls >= 4)
+			{
+				v.padGiveUp = true;
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=3 reason=pad-no-progress-give-up userid=%d veh=%d stalls=%d\n",
+					userId, v.vehicleIndex, v.padStalls);
+			}
+			else if (v.padStalls == 2)
+			{
+				v.padStation = -1;
+				++v.padEntryAttempt;
+				v.nextReplan = 0.0f;
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=2 reason=pad-no-progress-next-entry userid=%d veh=%d try=%d\n",
+					userId, v.vehicleIndex, v.padEntryAttempt);
+			}
+		}
 	}
 
 	// Stuck while throttling: back off with the wheels turned the other way.

@@ -2257,7 +2257,7 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 	const Vector origin = getOrigin();
 	const Vector eye = getEyePosition();
 
-	// Rifleman sticky grenade attack on close enemy buildings/CV.
+	// Rifleman sticky grenade attack on close enemy vehicles and the enemy CV (not buildings, user 27.11.).
 	if (classId == EMP_CLASS_RIFLEMAN)
 	{
 		const char* stickyName = team == EMP_TEAM_BE ? "weapon_emp_imp_sticky_grenade" : "weapon_emp_nf_sticky_grenade";
@@ -2310,25 +2310,11 @@ bool CBotEmpires::handleEmpiresBuildingAttack()
 					isApc = (chassis == 1 || chassis == 9);
 				}
 			}
+			// Stickies only on vehicles and the enemy CV, never on buildings (user 27.11.).
 			if (!isCv && !isEnemyVehicle)
-			{
-				if (std::strncmp(className, "emp_building_", 13) != 0 ||
-					std::strstr(className, "physbox") != nullptr ||
-					std::strstr(className, "panel") != nullptr)
-					continue;
-				int buildingTeam = -1;
-				if (!readEmpiresEntityIntProperty(e, "m_iTeamNum", buildingTeam) ||
-					(buildingTeam != EMP_TEAM_NF && buildingTeam != EMP_TEAM_BE))
-				{
-					buildingTeam = std::strncmp(className, "emp_building_nf_", 16) == 0 ? EMP_TEAM_NF :
-						(std::strncmp(className, "emp_building_imp_", 17) == 0 ? EMP_TEAM_BE : -1);
-				}
-				if (buildingTeam != enemyTeam)
-					continue;
-			}
-			int health = 0;
-			if ((isCv || isEnemyVehicle) ? !EmpiresVehicleAlive(this, e) :
-				(!readEmpiresEntityIntProperty(e, "m_iHealth", health) || health <= 0))
+				continue;
+			const int health = 0;
+			if (!EmpiresVehicleAlive(this, e))
 				continue;
 			const Vector at = CBotGlobals::entityOrigin(e);
 			const float dist = empiresNavGoalDistance2D(origin, at);

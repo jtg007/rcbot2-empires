@@ -24,6 +24,14 @@ BE median 244 → 153 HU/s) and a scripted spectator camera for build-site scree
 
 ## 1. Being measured
 
+- [x] **Engineer blocked after a rejected turret placement (K11):** a rejected placement leaves the kit's build
+  item selected, so later repair attacks kept trying to place and no building gained health until the engineer
+  died; the turret build action could also outlive its 20 s deadline. Engineers now deselect the item before
+  repairing (`engineer-repair deselect`), and a watchdog ends a build action 10 s past its deadline
+  (`stall-escalate who=engineer-build reason=deadline-missed`). 10-bot Crossroads matches at 1x with real economy:
+  before, the NF vehicle factory stayed at 50/350 for 17 minutes and NF bought no vehicle (2 matches); after, the
+  factory was finished at 5:08 and NF bought 12 vehicles. Open: why the build action misses its own deadline in its
+  selection state (once per match, about 765 frames).
 - [x] **Progress instead of fixed timers (`stall-escalate`):** each action checks locally whether it gets
   anywhere and escalates in steps (try differently, other goal, give up) with a `stall-escalate who=... reason=...`
   log line. Built: commander CV drive (25 s without net progress), vehicle buyers (skip unreachable route

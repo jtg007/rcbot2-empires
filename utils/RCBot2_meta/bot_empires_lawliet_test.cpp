@@ -73,7 +73,13 @@ int main()
 		forcedEarly.matchElapsed = 20.0f;
 		Check(TriggerReason(forcedEarly) == nullptr, "forced mode waits for a crew while the team joins");
 		forcedEarly.eligibleTotal = 3;
+		Check(TriggerReason(forcedEarly) == nullptr, "forced mode waits for the driver (4 with driver)");
+		forcedEarly.eligibleTotal = 4;
 		Check(TriggerReason(forcedEarly) != nullptr, "forced mode starts early with a full crew");
+		forcedEarly.eligibleEngineers = 0;
+		Check(TriggerReason(forcedEarly) == nullptr, "forced mode waits for an engineer");
+		forcedEarly.eligibleEngineers = 1;
+		Check(TriggerReason(forcedEarly) != nullptr, "forced mode starts with an engineer");
 
 		DesperationInput wrongForce = early;
 		wrongForce.cvarMode = 3;

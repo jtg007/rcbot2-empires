@@ -401,6 +401,8 @@ struct EmpiresVehicleBrain
 	std::size_t ctxNarrowRouteSize = 0;
 	Vector ctxNarrowAt = Vector(0, 0, 0);
 	bool ctxNarrow = false;
+	std::size_t ctxGateRouteIndex = static_cast<std::size_t>(-1);
+	Vector ctxGatePoint = Vector(0, 0, 0);
 	float ctxAxis = 0.0f;
 	float ctxGateFree = 0.0f;
 	float nextManeuver = 0.0f;
@@ -442,6 +444,9 @@ struct EmpiresVehicleBrain
 	int assistSide = -1;
 	float assistLastTotal = -1.0f;
 	float assistLastRise = 0.0f;
+	float assistWinAt = 0.0f;        // 1-s progress window: kit mending vs. passive armor regen
+	float assistWinHull = 0.0f;
+	float assistWinArmor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 	Vector assistWalkFrom = Vector(0, 0, 0);
 	float assistWalkSince = 0.0f;
 	bool assistOverride = false;
@@ -452,6 +457,7 @@ struct EmpiresVehicleBrain
 	// Commander drives the CV from the driver seat (still commander): to a goal
 	// set by the commander economy; no retreat, no weapons.
 	bool commanderCV = false;
+	bool testHumanHoldLogged = false; // TODO K9 test hold logged once per vehicle brain
 	Vector cvGoal = Vector(0, 0, 0);
 	float cvArrive = 300.0f;
 	bool cvArrived = false;
@@ -583,6 +589,8 @@ struct EmpiresVehicleBrain
 	Vector padEntry = Vector(0, 0, 0);
 	Vector padProgressOrigin = Vector(0, 0, 0);
 	float padProgressSince = -1.0f;
+	int padStalls = 0;        // pad-no-progress stalls in this retreat (TODO K6)
+	bool padGiveUp = false;   // end the retreat next tick (stage 3)
 	float refitNext = 0.0f;
 	Vector homePark = Vector(0, 0, 0);
 	Vector homeParkFor = Vector(0, 0, 0);
@@ -1025,6 +1033,19 @@ private:
 	void tickEmpiresHealPatient();
 	bool empiresHealPatientWaiting();
 	bool m_bHealPatientHeld = false;
+	// Badly hurt, no fight: walk to the nearest team engineer and wait there (TODO K5).
+	void tickEmpiresSeekMedic();
+	bool empiresSeekMedicActive() const { return m_iSeekMedicUserId >= 0; }
+	void endEmpiresSeekMedic(const char* reason, float cooldown);
+	int m_iSeekMedicUserId = -1;
+	float m_flSeekMedicStarted = 0.0f;
+	float m_flSeekMedicNextCheck = 0.0f;
+	float m_flSeekMedicProgressAt = 0.0f;
+	float m_flSeekMedicBestDist = 0.0f;
+	float m_flSeekMedicNextNav = 0.0f;
+	float m_flSeekMedicNearSince = 0.0f;
+	int m_iSeekMedicStartHealth = 0;
+	Vector m_vSeekMedicNavGoal;
 	void holdEmpiresHealPosition();
 	void lookEmpiresHealTarget(const Vector& at);
 	float m_flHealNextLog = 0.0f;
@@ -1324,6 +1345,8 @@ private:
 	void failEmpiresEngineerBuildSelection(const char* reason);
 	void handleEmpiresEngineerBuildAction();
 	void failEmpiresEngineerBuildAction(const char* reason);
+	// Fails a build action that is well past its deadline because its handler was not ticked; logs the blockers.
+	bool watchdogEmpiresEngineerBuildAction(const char* where);
 	void handleEmpiresEngineerResupplyAction();
 	void failEmpiresEngineerResupplyAction(const char* reason);
 	bool isEmpiresMineActionActive() const;
@@ -1614,6 +1637,7 @@ private:
 	int m_iEmpiresEngineerRepairActionMaxHealth = -1;
 	int m_iEmpiresEngineerRepairActionFrames = 0;
 	float m_flEmpiresEngineerRepairActionDeadline = 0.0f;
+	float m_flEmpiresEngineerRepairDeselectNext = 0.0f;  // rate limit for engSelect 0 before repairing
 	float m_flEmpiresEngineerRepairApproachLast = 0.0f;  // view-ray distance last frame while walking in
 	bool m_bEmpiresEngineerRepairActionRequireFullHealth = false;
 	bool m_bEmpiresEngineerRepairActionProgressLogged = false;

@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstring>
 
+int EmpiresVehiclePlayerVehicle(const CBotEmpires* bot, const edict_t* player); // bot_empires_vehicle.cpp
+
 namespace
 {
 constexpr float kHealSearchRange = 700.0f;
@@ -483,4 +485,175 @@ void CBotEmpires::tickEmpiresHealPatient()
 		RCBOT_DIAG("[RCBOT2] heal patient-wait userid=%d\n", engine->GetPlayerUserId(m_pEdict));
 	}
 	holdEmpiresHealPosition();
+}
+
+// TODO K5 (human test 26.11.: NF_03 at 17 %, NF_06 at 3 % stood in the open): a badly hurt bot
+// without an enemy in sight walks to the nearest team engineer and waits there; the engineer's own
+// heal search (700 units, line of sight) then takes it and empiresHealPatientWaiting() holds it.
+// Escalation: no approach for 8 s or no heal 12 s after arriving -> give up for 30 s.
+void CBotEmpires::endEmpiresSeekMedic(const char* reason, float cooldown)
+{
+	if (m_iSeekMedicUserId >= 0)
+	{
+		const int hp = m_pPlayerInfo != nullptr ? m_pPlayerInfo->GetHealth() : -1;
+		RCBOT_DIAG("[RCBOT2] seek-medic end userid=%d engineer=%d reason=%s hp=%d->%d secs=%.1f\n",
+			engine != nullptr ? engine->GetPlayerUserId(m_pEdict) : -1, m_iSeekMedicUserId, reason,
+			m_iSeekMedicStartHealth, hp, gpGlobals != nullptr ? gpGlobals->curtime - m_flSeekMedicStarted : 0.0f);
+		if (m_bEmpiresNavGoalActive)
+			endEmpiresNavmeshGoal("drop", "seek-medic", 0.0f);
+		cancelNavigationAttempt("seek-medic");
+		if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+			m_pSchedules->freeMemory();
+	}
+	m_iSeekMedicUserId = -1;
+	m_flSeekMedicNearSince = 0.0f;
+	if (gpGlobals != nullptr)
+		m_flSeekMedicNextCheck = gpGlobals->curtime + cooldown;
+}
+
+void CBotEmpires::tickEmpiresSeekMedic()
+{
+	if (gpGlobals == nullptr || engine == nullptr || playerinfomanager == nullptr || m_pEdict == nullptr ||
+		m_pPlayerInfo == nullptr)
+		return;
+	const float now = gpGlobals->curtime;
+	const float threshold = rcbot_empires_seek_medic.GetFloat();
+	const bool dead = m_pPlayerInfo->IsDead() || m_pPlayerInfo->IsInAVehicle();
+	const int health = m_pPlayerInfo->GetHealth(), maxHealth = m_pPlayerInfo->GetMaxHealth();
+	const bool enemy = hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && m_pEnemy.get() != nullptr;
+	const bool busy = commanderDutyBlocksSideTasks() || m_iReviveTarget != 0 || m_iBuildAssignStage > 0 ||
+		m_iAmmoCrateStage != 0 || m_iEmpiresBuildingActionMode != 0 || m_iHealTarget != 0 ||
+		empiresVehicleOwnsBot() || EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0;
+	if (m_iSeekMedicUserId >= 0)
+	{
+		if (dead || threshold <= 0.0f)
+		{
+			endEmpiresSeekMedic(dead ? "dead" : "off", 0.0f);
+			return;
+		}
+		if (maxHealth > 0 && health * 100 >= maxHealth * 85)
+		{
+			endEmpiresSeekMedic("healed", 0.0f);
+			return;
+		}
+		if (enemy || busy)
+		{
+			endEmpiresSeekMedic(enemy ? "enemy" : "busy", 5.0f);
+			return;
+		}
+	}
+	if (dead || threshold <= 0.0f || maxHealth <= 0 || m_bHealPatientHeld)
+		return;
+
+	const int userId = engine->GetPlayerUserId(m_pEdict);
+	const int team = getTeam();
+	if (m_iSeekMedicUserId < 0)
+	{
+		if (now < m_flSeekMedicNextCheck || static_cast<float>(health) >= threshold * static_cast<float>(maxHealth) ||
+			enemy || busy || EmpiresLawlietBlocksSideTasks(team, engine->IndexOfEdict(m_pEdict)))
+			return;
+		m_flSeekMedicNextCheck = now + 2.0f;
+		edict_t* best = nullptr;
+		float bestDist = 3000.0f;
+		for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; ++i)
+		{
+			edict_t* player = engine->PEntityOfEntIndex(i);
+			if (player == nullptr || player->IsFree() || player == m_pEdict)
+				continue;
+			IPlayerInfo* info = playerinfomanager->GetPlayerInfo(player);
+			if (info == nullptr || !info->IsConnected() || info->IsDead() || info->IsInAVehicle() ||
+				info->GetTeamIndex() != team || info->GetHealth() <= 0)
+				continue;
+			int cls = -1;
+			bool desired = false, known = false;
+			const char* prop = nullptr;
+			if (!readEmpiresClass(player, cls, desired, known, prop) || cls != EMP_CLASS_ENGINEER)
+				continue;
+			if (EmpiresIsEngibot(player))
+				continue;
+			const float d = (CBotGlobals::entityOrigin(player) - getOrigin()).Length();
+			if (d < bestDist)
+			{
+				bestDist = d;
+				best = player;
+			}
+		}
+		if (best == nullptr)
+		{
+			RCBOT_DIAG("[RCBOT2] seek-medic none userid=%d hp=%d/%d\n", userId, health, maxHealth);
+			m_flSeekMedicNextCheck = now + 15.0f;
+			return;
+		}
+		m_iSeekMedicUserId = engine->GetPlayerUserId(best);
+		m_flSeekMedicStarted = now;
+		m_flSeekMedicProgressAt = now;
+		m_flSeekMedicBestDist = bestDist;
+		m_flSeekMedicNextNav = 0.0f;
+		m_flSeekMedicNearSince = 0.0f;
+		m_iSeekMedicStartHealth = health;
+		m_vSeekMedicNavGoal = Vector(0, 0, 0);
+		RCBOT_DIAG("[RCBOT2] seek-medic start userid=%d engineer=%d hp=%d/%d dist=%.0f\n", userId,
+			m_iSeekMedicUserId, health, maxHealth, bestDist);
+	}
+
+	edict_t* engineer = CBotGlobals::playerByUserId(m_iSeekMedicUserId);
+	if (engineer == nullptr || !CBotGlobals::entityIsAlive(engineer))
+	{
+		endEmpiresSeekMedic("engineer-gone", 2.0f);
+		return;
+	}
+	const Vector goal = CBotGlobals::entityOrigin(engineer);
+	const float dist = (goal - getOrigin()).Length();
+	if (dist < m_flSeekMedicBestDist - 48.0f)
+	{
+		m_flSeekMedicBestDist = dist;
+		m_flSeekMedicProgressAt = now;
+	}
+	// Close and visible: stop and let the engineer's heal search pick us up.
+	if (dist <= 300.0f && CBotGlobals::isVisible(m_pEdict, getEyePosition(), goal + Vector(0, 0, 40.0f)))
+	{
+		if (m_flSeekMedicNearSince <= 0.0f)
+		{
+			m_flSeekMedicNearSince = now;
+			RCBOT_DIAG("[RCBOT2] seek-medic arrive userid=%d engineer=%d dist=%.0f secs=%.1f\n", userId,
+				m_iSeekMedicUserId, dist, now - m_flSeekMedicStarted);
+			if (m_bEmpiresNavGoalActive)
+				endEmpiresNavmeshGoal("drop", "seek-medic", 0.0f);
+			cancelNavigationAttempt("seek-medic-arrive");
+			if (m_pSchedules != nullptr && !m_pSchedules->isEmpty())
+				m_pSchedules->freeMemory();
+		}
+		m_flSeekMedicProgressAt = now;
+		if (now - m_flSeekMedicNearSince > 12.0f)
+		{
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=seek-medic stage=2 reason=no-heal userid=%d engineer=%d\n", userId,
+				m_iSeekMedicUserId);
+			endEmpiresSeekMedic("no-heal", 30.0f);
+			return;
+		}
+		holdEmpiresHealPosition();
+		lookEmpiresHealTarget(goal + Vector(0, 0, 40.0f));
+		return;
+	}
+	m_flSeekMedicNearSince = 0.0f;
+	if (now - m_flSeekMedicProgressAt > 8.0f || now - m_flSeekMedicStarted > 45.0f)
+	{
+		RCBOT_DIAG("[RCBOT2] stall-escalate who=seek-medic stage=1 reason=%s userid=%d engineer=%d dist=%.0f\n",
+			now - m_flSeekMedicStarted > 45.0f ? "timeout" : "no-approach", userId, m_iSeekMedicUserId, dist);
+		endEmpiresSeekMedic("no-approach", 30.0f);
+		return;
+	}
+	const bool idle = m_pSchedules->isEmpty();
+	if (now >= m_flSeekMedicNextNav && (idle || (goal - m_vSeekMedicNavGoal).Length2D() > 150.0f))
+	{
+		m_flSeekMedicNextNav = now + 1.5f;
+		m_vSeekMedicNavGoal = goal;
+		if (m_bEmpiresNavGoalActive)
+			endEmpiresNavmeshGoal("drop", "seek-medic", 0.0f);
+		cancelNavigationAttempt("seek-medic");
+		if (!m_pSchedules->isEmpty())
+			m_pSchedules->freeMemory();
+		if (!requestNavigation(goal, RCBotNavigation::NavigationPolicy::NAVMESH_ONLY, 0))
+			endEmpiresSeekMedic("no-route", 30.0f);
+	}
 }

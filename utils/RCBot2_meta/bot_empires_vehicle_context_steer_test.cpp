@@ -99,6 +99,62 @@ void TestEntryAim()
 	const float past = EntryAim(100.0f, -50.0f, 0.0f, 0.0f, -90.0f, 300.0f);
 	Expect(std::fabs(Normalize(past + 90.0f)) < 45.0f, "past the passage still along the axis");
 }
+
+void TestPolylineCurveSpeed()
+{
+	const TurnProfile apc = ProfileForChassis(1);
+	const TurnProfile heavy = ProfileForChassis(5);
+	const TurnProfile light = ProfileForChassis(2);
+
+	// Straight route: no cap.
+	const Point2D straight[] = {{300, 0}, {700, 0}, {1200, 0}, {1800, 0}};
+	Expect(PolylineCurveSpeed({0, 0}, straight, 4, 0, apc) == 0.0f, "straight route has no speed cap");
+
+	// Gentle bend (~14 deg): no cap.
+	const Point2D gentle[] = {{500, 0}, {1000, 125}, {1500, 250}};
+	Expect(PolylineCurveSpeed({0, 0}, gentle, 3, 0, apc) == 0.0f, "gentle bend stays uncapped");
+
+	// Sharp 90-degree turn 400 HU ahead: caps APC below cruising speed (~620) and Heavy lower than Light.
+	const Point2D turn90[] = {{400, 0}, {400, 600}, {400, 1200}};
+	const float apc90 = PolylineCurveSpeed({0, 0}, turn90, 3, 0, apc);
+	const float heavy90 = PolylineCurveSpeed({0, 0}, turn90, 3, 0, heavy);
+	const float light90 = PolylineCurveSpeed({0, 0}, turn90, 3, 0, light);
+	Expect(apc90 > 200.0f && apc90 < 520.0f, "90-degree corner 400 HU ahead slows APC");
+	Expect(heavy90 < apc90 && apc90 < light90, "heavier chassis gets lower curve cap");
+
+	// 110-degree bend split across 4 short navmesh segments (~27 deg each), apex ~430 HU ahead:
+	// old per-segment cosine<0.90 missed this completely; arc-length Menger curvature slows the APC.
+	const Point2D splitBend[] = {
+		{150, 0}, {280, 50}, {370, 160}, {390, 300}, {360, 500}, {330, 900},
+	};
+	const float splitCap = PolylineCurveSpeed({0, 0}, splitBend, 6, 0, apc);
+	Expect(splitCap > 180.0f && splitCap < 480.0f, "multi-segment 110-degree bend slows APC");
+
+	// Farther turn allows higher current speed than a close turn.
+	const Point2D far90[] = {{1100, 0}, {1100, 600}, {1100, 1200}};
+	const float farCap = PolylineCurveSpeed({0, 0}, far90, 3, 0, apc);
+	Expect(farCap > apc90 + 150.0f, "distant corner allows higher speed until braking zone");
+}
+
+void TestPassageApproachSpeed()
+{
+	const TurnProfile apc = ProfileForChassis(1);
+	// Aligned on the gate axis with reasonable clearance: no slowdown.
+	Expect(PassageApproachSpeed(0.0f, -500.0f, 90.0f, 0.0f, 0.0f, 90.0f, 200.0f, apc) == 0.0f,
+		"aligned driver passes wide enough gate without cap");
+	// Approaching 45 deg off-axis 400 HU before the gate: brakes toward entry speed.
+	const float offCap = PassageApproachSpeed(-300.0f, -300.0f, 20.0f, 0.0f, 0.0f, 90.0f, 200.0f, apc);
+	Expect(offCap > 180.0f && offCap < 420.0f, "off-axis approach slows down before gate");
+	// Much closer off-axis slows down even more.
+	const float closeCap = PassageApproachSpeed(-150.0f, -150.0f, 20.0f, 0.0f, 0.0f, 90.0f, 200.0f, apc);
+	Expect(closeCap < offCap && closeCap <= 220.0f, "close off-axis approach reaches low entry speed");
+	// Already past the gate: no cap.
+	Expect(PassageApproachSpeed(0.0f, 80.0f, 45.0f, 0.0f, 0.0f, 90.0f, 100.0f, apc) == 0.0f,
+		"past the gate releases the cap");
+	// Very tight gap (< 120 free) caps modestly even when aligned.
+	const float tightCap = PassageApproachSpeed(0.0f, -250.0f, 90.0f, 0.0f, 0.0f, 90.0f, 40.0f, apc);
+	Expect(tightCap > 250.0f && tightCap < 420.0f, "very tight passage moderates speed");
+}
 } // namespace
 
 int main()
@@ -110,6 +166,8 @@ int main()
 	TestAllForwardBlocked();
 	TestSmoothing();
 	TestEntryAim();
+	TestPolylineCurveSpeed();
+	TestPassageApproachSpeed();
 	if (g_failures != 0)
 		return 1;
 	std::printf("context steer tests passed\n");

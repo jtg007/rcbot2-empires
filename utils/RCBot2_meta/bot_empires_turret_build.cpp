@@ -169,7 +169,7 @@ bool CBotEmpires::handleEmpiresRefineryTurret()
 	// Placement running: the build action owns the bot; then hand the new turret to build-assign.
 	if (m_bTurretBuildArmed)
 	{
-		if (isEmpiresEngineerBuildActionActive())
+		if (isEmpiresEngineerBuildActionActive() && !watchdogEmpiresEngineerBuildAction("refinery-turret"))
 			return true;
 		m_bTurretBuildArmed = false;
 		const char* const wantPart = EmpiresTurretPlan::TurretPartForItem(m_iTurretBuildItem);

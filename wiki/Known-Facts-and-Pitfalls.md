@@ -69,6 +69,7 @@ statically verified**; do not re-derive them, but re-check after a game update (
 - Distinguish "run folder exists" from "verified success", fire requests from shots, a successful run from reproduction of the original failure.
 - `server.log` has thousands of lines; filter, never read it whole. Log `engine->Time()` is real time even with timescale.
 - A single refinery turret placement failure is silent in the game (`TextMsg` rejections use another interface); the bot cannot see the reason (1.5a).
+- After a rejected placement `m_iEngineerBuildItem` stays non-zero and the kit's primary attack keeps placing instead of repairing; send `engSelect 0` before any repair or construction.
 - Coast refineries (5.8e): historically only the entity number of the blocking trace was logged; the effect of the physbox filter is unmeasured.
 - Verify straight factory departure after a regular purchase at normal game speed; check both sides of the vehicle's path when diagnosing a blocked exit.
 - Do not call a resupply "working" without verified ammo gain; the sticky-grenade reserve showed the same value (2) before and after crate placement in `021732`.

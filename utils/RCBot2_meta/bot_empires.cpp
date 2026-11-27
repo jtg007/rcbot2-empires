@@ -2107,6 +2107,8 @@ bool CBotEmpires::hurt(edict_t* pAttacker, const int iHealthNow,
 
 void CBotEmpires::handleWeapons()
 {
+	watchdogEmpiresEngineerBuildAction("handleWeapons");
+
 	// Commander movement owns the bot's objective and input boundary.  Do not
 	// let combat, support or diagnostic action handlers replace it.
 	if (isEmpiresCommanderMoveActive())
@@ -5782,6 +5784,9 @@ void CBotEmpires::getTasks(const unsigned iIgnore)
 	// Hurt and an engineer is coming to heal us (bot_empires_heal.cpp): wait for him.
 	if (empiresHealPatientWaiting())
 		return;
+	// Badly hurt and walking to an engineer (TODO K5): the seek owns the route.
+	if (empiresSeekMedicActive())
+		return;
 
 	// Seated (e.g. as passenger) the origin is vehicle-local: no foot planning.
 	if (EmpiresVehiclePlayerVehicle(this, m_pEdict) >= 0)
@@ -7085,6 +7090,7 @@ void CBotEmpires::modThink()
 		if (!handleEmpiresAmmoRequest() && !handleEmpiresWreckDeconstruct() && !engibot && !handleEmpiresRefineryTurret())
 			handleEmpiresEngineerDeployables();
 		tickEmpiresHealPatient();
+		tickEmpiresSeekMedic();
 		tickEmpiresSeismicTrack();
 	}
 	if (m_vehicle.stage == EmpiresVehicleStage::DRIVING ||
@@ -8586,6 +8592,24 @@ void CBotEmpires::tickEmpiresBuildAssignment()
 	// Arrived means the kit can actually reach the building from here (after a stall: from the new spot).
 	if (m_bBuildAssignRequireSpot && toSpot.Length2D() <= 80.0f)
 		m_bBuildAssignRequireSpot = false;
+	// Not from inside the building's footprint either (TODO K2, crossroads 20261127-134849: the engineer
+	// "arrived" 460 from the NF repair pad centre, inside its 495 half width, and stood on the finished
+	// pad's lip with on_ground=0 for minutes). The stand spot itself is outside (findEmpiresBuildStandSpot).
+	if (!m_bBuildAssignRequireSpot && toSpot.Length2D() > 80.0f && building->GetCollideable() != nullptr &&
+		std::strncmp(building->GetClassName(), "emp_eng_map_", 12) != 0)
+	{
+		ICollideable* collide = building->GetCollideable();
+		Vector local;
+		VectorITransform(getOrigin(), collide->CollisionToWorldTransform(), local);
+		const Vector mins = collide->OBBMins(), maxs = collide->OBBMaxs();
+		if (local.x > mins.x - 16.0f && local.x < maxs.x + 16.0f && local.y > mins.y - 16.0f &&
+			local.y < maxs.y + 16.0f && local.z > mins.z - 72.0f && local.z < maxs.z)
+		{
+			m_bBuildAssignRequireSpot = true;
+			RCBOT_DIAG("[RCBOT2] build-assign inside-footprint building=%d bot=(%.0f %.0f) spot=(%.0f %.0f)\n",
+				engine->IndexOfEdict(building), getOrigin().x, getOrigin().y, m_vBuildAssignSpot.x, m_vBuildAssignSpot.y);
+		}
+	}
 	if (m_bBuildAssignRequireSpot || !findEmpiresKitAim(building, getEyePosition(), aim))
 	{
 		m_iBuildAssignStage = 1;

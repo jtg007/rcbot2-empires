@@ -20,6 +20,7 @@
 
 #include "dt_send.h"
 #include "server_class.h"
+#include "bot_empires_lawliet.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1273,6 +1274,11 @@ void CBotEmpires::tickCommanderEconomy()
 			continue;
 		CBotEmpires* engineer = static_cast<CBotEmpires*>(bot);
 		if (!engineer->isEmpiresEngineerClass() || EmpiresIsEngibot(bot->getEdict()))
+			continue;
+		// Lawliet crew belongs to the rush: build jobs and escorts ran before the Lawliet task and sent
+		// the crew engineer 9700-14000 units home right after disembarking, so the ammo crate beside the
+		// enemy CV came in 3 of 15 forced runs (20261127-151500: escort, then refinery 534).
+		if (EmpiresLawlietIsCrew(team, engine->IndexOfEdict(bot->getEdict())))
 			continue;
 		++livingEngineers;
 		engineers.push_back(engineer);

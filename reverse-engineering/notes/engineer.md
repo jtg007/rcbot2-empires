@@ -78,6 +78,9 @@ Source: `server_srv.so`, `Command_emp_eng_upgrade(CCommand const&)` 0x650830. Ru
   box ±50 hits something (0x3ce21f), ground hit farther than 150 or normal z < 0.7 (0x3cde5d/6f), any entity in the
   turret box, players included (0x3ce1c1).
 - `m_iEngineerBuildItem` is reset to 0 only after a successful build (0x3d01f7); still 1 after the attempt = rejected.
+  Consequence (measured 2026-11-27): while it stays non-zero, PrimaryAttack keeps dispatching to placement, so the
+  engineer cannot repair or construct anything (barracks 50/250 for 67 s → `FAIL_STALL`; with `engSelect 0` before
+  the repair attack: 50 → 250 in 11 s). The bot now deselects before every repair attack.
 - The bot presses attack once for 0.35 s (`bot_empires_engineer.cpp` ~1789) and then waits for the deadline, so one
   short rejection costs the whole attempt.
 

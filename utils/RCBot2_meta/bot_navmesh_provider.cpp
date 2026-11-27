@@ -19,10 +19,12 @@
 #include "bot_globals.h"
 #include "bot_navmesh_api.h"
 #include "bot_cvars.h"
+#include "iplayerinfo.h"
 
 extern IServerGameEnts* servergameents;
-
 extern IVEngineServer* engine;
+extern IServerPluginHelpers* helpers;
+extern IPlayerInfoManager* playerinfomanager;
 
 namespace
 {
@@ -50,6 +52,20 @@ struct Route
 };
 
 Route s_routes[RCBOT_MAXPLAYERS];
+
+// TODO K2: step off a building lip after a stuck (outlives resetRoute, the next route starts at once).
+// Also tracks repeated immobile airborne/solid geometry wedges at the exact same spot for stage-3 respawn.
+struct LipEscape
+{
+	float until = 0.0f;
+	Vector to = vec3_origin;
+	bool duck = false;
+	Vector wedgedOrigin = vec3_origin;
+	int wedgedCount = 0;
+	float wedgedLastAt = -100.0f;
+	float lastRespawnAt = -100.0f;
+};
+LipEscape s_lipEscape[RCBOT_MAXPLAYERS];
 
 class SkipSelfAndPlayers : public CTraceFilter
 {
@@ -768,6 +784,12 @@ void Frame()
 				edict_t* blockingBuilding = nullptr;
 				bool steepLow = false;
 				Vector steepAt(0, 0, 0);
+				// Feet blocked by a building, hip height free (crossroads NF repair pad (892 -12150):
+				// both engineers stood on its south lip at y -12597 with on_ground=0 until the ammo
+				// call timed out, runs 20261127-134610/-134849).
+				bool lowBuildingHit = false;
+				bool highFree = false;
+				Vector lowNormal(0, 0, 0);
 				// What blocks the bot: sweep its hull toward the target at two heights.
 				if (enginetrace != nullptr && bot->getEdict() != nullptr)
 				{
@@ -846,12 +868,33 @@ void Frame()
 						{
 							buildingBlocked = true;
 							blockingBuilding = e;
+							if (!hit.startsolid && hit.fraction < 1.0f)
+							{
+								lowBuildingHit = true;
+								lowNormal = Vector(hit.plane.normal.x, hit.plane.normal.y, 0.0f);
+							}
 						}
+						if (lift == 20.0f)
+							highFree = !hit.startsolid && hit.fraction >= 1.0f;
 						// A parked or abandoned vehicle is transient: apply a soft infantry-only
 						// single-edge penalty rather than a 60 s box block (which trapped the tank
 						// itself and caused 2127 no-path failures in crossroads 20261122-131813).
 						const bool vehicleHit = hitName != nullptr && std::strcmp(hitName, "emp_vehicle") == 0;
-						if (vehicleHit && (hit.fraction < 1.0f || hit.startsolid))
+						// An enemy vehicle is a threat, not a parked obstacle (TODO K7, crossroads 11v11
+						// 20261126-194313: NF tank 672 in the BE base, both BE engineers walked into it on the
+						// same passage one after the other): block the links through its box like a shut door.
+						const int botTeam = CClassInterface::getTeam(bot->getEdict());
+						const int hitTeam = vehicleHit && e != nullptr ? CClassInterface::getTeam(e) : 0;
+						const bool enemyVehicle = vehicleHit && rcbot_empires_nav_enemy_vehicle_block.GetBool() &&
+							(botTeam == 2 || botTeam == 3) && (hitTeam == 2 || hitTeam == 3) && hitTeam != botTeam;
+						if (enemyVehicle && !hit.startsolid && hit.fraction < 1.0f)
+						{
+							doorBlocked = true;
+							closedDoor = e;
+							RCBOT_DIAG("[RCBOT2] navmesh-enemy-vehicle-block userid=%d veh=%d at=(%.0f %.0f)\n",
+								engine->GetPlayerUserId(bot->getEdict()), engine->IndexOfEdict(e), hit.endpos.x, hit.endpos.y);
+						}
+						else if (vehicleHit && (hit.fraction < 1.0f || hit.startsolid))
 						{
 							vehicleBlocked = true;
 						}
@@ -1026,6 +1069,107 @@ void Frame()
 								exactArea, nearArea, route.path.areaIds.size());
 					}
 				}
+				// Inside the building's oriented box (NF repair pad apron: a trough between the pad lip and
+				// its outer rail, normals flip between +y and -y, run 20261127-140308): walk out along the
+				// box axis to the nearest side whose straight hull path is clear.
+				const bool onGround = (CClassInterface::getPlayerFlags(bot->getEdict()) & FL_ONGROUND) != 0;
+				bool boxEscape = false;
+				if (rcbot_empires_nav_lip_escape.GetBool() && buildingBlocked && blockingBuilding != nullptr &&
+					blockingBuilding->GetCollideable() != nullptr && enginetrace != nullptr)
+				{
+					ICollideable* collide = blockingBuilding->GetCollideable();
+					const matrix3x4_t& toWorld = collide->CollisionToWorldTransform();
+					Vector local;
+					VectorITransform(here, toWorld, local);
+					const Vector mins = collide->OBBMins(), maxs = collide->OBBMaxs();
+					if (local.x > mins.x - 16.0f && local.x < maxs.x + 16.0f && local.y > mins.y - 16.0f &&
+						local.y < maxs.y + 16.0f)
+					{
+						const Vector exits[4] = {Vector(mins.x - 40.0f, local.y, local.z), Vector(maxs.x + 40.0f, local.y, local.z),
+							Vector(local.x, mins.y - 40.0f, local.z), Vector(local.x, maxs.y + 40.0f, local.z)};
+						SkipSelfAndPlayers filter(bot->getEdict()->GetIServerEntity());
+						float best = 1.0e9f;
+						Vector bestTo(0, 0, 0);
+						bool usedHighLift = false;
+						// Try foot level (+2) first; if caught on a low lip/trough (crossroads 20261127-162205
+						// NF engineer #8 wedged 323 s on repairstation #598 with lift=20 clear), also check +20.
+						for (const float tryLift : {2.0f, 20.0f})
+						{
+							for (const Vector& exitLocal : exits)
+							{
+								Vector exitWorld;
+								VectorTransform(exitLocal, toWorld, exitWorld);
+								exitWorld.z = here.z;
+								const float len = (exitWorld - here).Length2D();
+								if (len >= best)
+									continue;
+								Ray_t ray;
+								ray.Init(here + Vector(0, 0, tryLift), exitWorld + Vector(0, 0, tryLift),
+									Vector(-16, -16, 0), Vector(16, 16, 72.0f - tryLift));
+								trace_t tr;
+								enginetrace->TraceRay(ray, MASK_PLAYERSOLID, &filter, &tr);
+								if (tr.startsolid || tr.fraction < 1.0f)
+									continue;
+								best = len;
+								bestTo = exitWorld;
+								usedHighLift = tryLift > 2.0f;
+							}
+							if (best < 1.0e8f)
+								break;
+						}
+						if (best < 1.0e8f)
+						{
+							LipEscape& esc = s_lipEscape[slot];
+							esc.to = bestTo;
+							esc.duck = usedHighLift || !onGround;
+							esc.until = engine->Time() + (std::min)(8.0f, 0.5f + best / 150.0f);
+							boxEscape = true;
+							RCBOT_DIAG("[RCBOT2] navmesh-box-escape userid=%d building=%s bot=(%.0f %.0f %.0f) to=(%.0f %.0f) dist=%.0f duck=%d\n",
+								engine->GetPlayerUserId(bot->getEdict()), blockingBuilding->GetClassName(), here.x, here.y, here.z,
+								bestTo.x, bestTo.y, best, esc.duck ? 1 : 0);
+						}
+					}
+				}
+				if (!boxEscape && lowBuildingHit && highFree && rcbot_empires_nav_lip_escape.GetBool() && lowNormal.Length2D() > 0.5f)
+				{
+					lowNormal.NormalizeInPlace();
+					LipEscape& esc = s_lipEscape[slot];
+					esc.to = here + lowNormal * 64.0f;
+					esc.duck = !onGround;
+					esc.until = engine->Time() + (!onGround ? 1.2f : 0.8f);
+					RCBOT_DIAG("[RCBOT2] navmesh-lip-escape userid=%d bot=(%.0f %.0f %.0f) to=(%.0f %.0f) normal=(%.2f %.2f) duck=%d\n",
+						engine->GetPlayerUserId(bot->getEdict()), here.x, here.y, here.z, esc.to.x, esc.to.y,
+						lowNormal.x, lowNormal.y, esc.duck ? 1 : 0);
+				}
+				// Stage-3 escalation (like a human typing kill when physically wedged airborne on a
+				// building lip/trough): 5 consecutive stucks at the exact same millimeter with on_ground=0
+				// after lip/box escape failed -> clean self-respawn with 60 s cooldown.
+				if (rcbot_empires_nav_lip_escape.GetBool() && !onGround && helpers != nullptr && engine != nullptr)
+				{
+					LipEscape& esc = s_lipEscape[slot];
+					const float now = engine->Time();
+					if ((here - esc.wedgedOrigin).Length2D() < 16.0f && std::fabs(here.z - esc.wedgedOrigin.z) < 16.0f &&
+						now - esc.wedgedLastAt < 20.0f)
+						++esc.wedgedCount;
+					else
+					{
+						esc.wedgedOrigin = here;
+						esc.wedgedCount = 1;
+					}
+					esc.wedgedLastAt = now;
+					IPlayerInfo* pinfo = playerinfomanager != nullptr ? playerinfomanager->GetPlayerInfo(bot->getEdict()) : nullptr;
+					const bool onFoot = pinfo == nullptr || (!pinfo->IsDead() && !pinfo->IsInAVehicle());
+					if (esc.wedgedCount >= 5 && onFoot && now - esc.lastRespawnAt > 60.0f)
+					{
+						RCBOT_DIAG("[RCBOT2] stall-escalate who=navmesh stage=3 reason=geometry-wedged-respawn userid=%d pos=(%.0f %.0f %.0f) on_ground=0 count=%d\n",
+							engine->GetPlayerUserId(bot->getEdict()), here.x, here.y, here.z, esc.wedgedCount);
+						esc.wedgedCount = 0;
+						esc.until = 0.0f;
+						esc.duck = false;
+						esc.lastRespawnAt = now;
+						helpers->ClientCommand(bot->getEdict(), "kill\n");
+					}
+				}
 			}
 			bot->handleNavigationProviderFailure(
 				RCBotNavigation::Provider::NAVMESH,
@@ -1123,6 +1267,21 @@ void Frame()
 				bot->setLookAtTask(LOOK_VECTOR, 0.5f);
 				break;
 			}
+
+		if (s_lipEscape[slot].until > engine->Time())
+		{
+			if ((s_lipEscape[slot].to - bot->getOrigin()).Length2D() < 24.0f)
+			{
+				s_lipEscape[slot].until = 0.0f;
+				s_lipEscape[slot].duck = false;
+			}
+			else
+			{
+				moveTarget = Vector(s_lipEscape[slot].to.x, s_lipEscape[slot].to.y, bot->getOrigin().z);
+				if (s_lipEscape[slot].duck)
+					bot->duck(true);
+			}
+		}
 
 		if (!bot->setNavigationMoveTarget(route.intentId,
 			RCBotNavigation::Provider::NAVMESH, route.attemptId,

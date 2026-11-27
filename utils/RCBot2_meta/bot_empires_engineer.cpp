@@ -1573,6 +1573,28 @@ void CBotEmpires::failEmpiresEngineerBuildAction(const char* reason)
 		EmpiresEngineerBuildActionState::FAILED;
 }
 
+// The deadline is only checked inside handleEmpiresEngineerBuildAction(); when an earlier
+// handleWeapons() branch keeps returning, the action (and the turret/EngiBot job waiting on it)
+// stayed active for the rest of the match (crossroads 20261127-170104: NF engineer 16 min, factory never built).
+bool CBotEmpires::watchdogEmpiresEngineerBuildAction(const char* where)
+{
+	if (!isEmpiresEngineerBuildActionActive() || gpGlobals == nullptr || engine == nullptr || m_pEdict == nullptr)
+		return false;
+	const float over = gpGlobals->curtime - m_flEmpiresEngineerBuildActionDeadline;
+	if (over < 10.0f)
+		return false;
+	RCBOT_DIAG("[RCBOT2] stall-escalate who=engineer-build stage=3 reason=deadline-missed userid=%d where=%s over=%.0f "
+		"state=%d frames=%d cmdmove=%d vehentry=%d vehaction=%d mortarprobe=%d mortar=%d binoc=%d mine=%d rocket=%d\n",
+		engine->GetPlayerUserId(m_pEdict), where != nullptr ? where : "-", over,
+		static_cast<int>(m_eEmpiresEngineerBuildActionState), m_iEmpiresEngineerBuildActionFrames,
+		isEmpiresCommanderMoveActive() ? 1 : 0, commanderVehicleEntryActive() ? 1 : 0,
+		isEmpiresVehicleActionActive() ? 1 : 0, isEmpiresMortarProbeActive() ? 1 : 0,
+		isEmpiresMortarActionActive() ? 1 : 0, isEmpiresScoutBinocularActionActive() ? 1 : 0,
+		isEmpiresMineActionActive() ? 1 : 0, m_flEmpiresTurretRocketUntil > 0.0f ? 1 : 0);
+	failEmpiresEngineerBuildAction("deadline-missed");
+	return true;
+}
+
 void CBotEmpires::handleEmpiresEngineerBuildAction()
 {
 	if (!isEmpiresEngineerBuildActionActive())
@@ -2774,6 +2796,24 @@ void CBotEmpires::handleEmpiresEngineerRepairAction()
 	if (now >= m_flEmpiresEngineerRepairActionDeadline)
 	{
 		failEmpiresEngineerRepairAction("repair-health-did-not-increase");
+		return;
+	}
+
+	// PrimaryAttack dispatches on m_iEngineerBuildItem; a rejected placement leaves it at the item
+	// (RE engineer.md, 0x3d01f7), so the kit keeps trying to place instead of repairing
+	// (crossroads 20261127-172623: NF factory 50/350 for 17 min after a failed turret). Deselect first.
+	int selectedItem = -1;
+	if (readEmpiresDebugIntProperty(m_pEdict, "m_iEngineerBuildItem", selectedItem) && selectedItem != 0)
+	{
+		m_pButtons->letGo(IN_ATTACK);
+		m_iButtons &= ~IN_ATTACK;
+		if (now >= m_flEmpiresEngineerRepairDeselectNext && helpers != nullptr)
+		{
+			m_flEmpiresEngineerRepairDeselectNext = now + 0.5f;
+			helpers->ClientCommand(m_pEdict, "engSelect 0\n");
+			RCBOT_DIAG("[RCBOT2] engineer-repair deselect userid=%d item=%d building=%d\n",
+				engine->GetPlayerUserId(m_pEdict), selectedItem, m_iEmpiresEngineerRepairActionBuildingIndex);
+		}
 		return;
 	}
 

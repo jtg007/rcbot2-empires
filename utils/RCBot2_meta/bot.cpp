@@ -1949,6 +1949,18 @@ void CBot::cancelNavigationAttempt(const char* reason)
 
 void CBot :: selectWeaponName ( const char *szWeaponName ) const
 {
+	// Empires (TODO K3): CPlayerInfo::SetActiveWeapon (0x7d4d50) creates and equips a NEW weapon for
+	// fake clients on every call, and Weapon_Equip gives its default clip as ammo (+1 grenade each
+	// time, up to MaxCarry 999): bots never ran out of stickies, seismics, mines. Switch to the owned
+	// weapon like a client does (CUserCmd::weaponselect, one command, reset after RunPlayerMove);
+	// a weapon the bot does not own any more is not conjured up.
+	if (szWeaponName != nullptr && rcbot_empires_select_owned_weapon.GetBool() &&
+		CBotGlobals::getCurrentMod() != nullptr && CBotGlobals::getCurrentMod()->getBotType() == BOTTYPE_EMPIRES)
+	{
+		if (edict_t* owned = CWeapons::findWeapon(m_pEdict, szWeaponName))
+			m_iSelectWeapon = ENTINDEX(owned);
+		return;
+	}
 	m_pController->SetActiveWeapon(szWeaponName);
 }
 

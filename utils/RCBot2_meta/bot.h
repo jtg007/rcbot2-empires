@@ -1241,7 +1241,7 @@ protected:
 	// Diagnostic-only last task terminal (see TaskTerminalNote above).
 	TaskTerminalNote m_lastTaskTerminal;
 
-	int m_iSelectWeapon;
+	mutable int m_iSelectWeapon; // mutable: selectWeaponName() (const) picks an owned weapon by entindex
 
 	int m_iDesiredTeam;
 	int m_iDesiredClass;
