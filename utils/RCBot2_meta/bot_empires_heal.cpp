@@ -518,8 +518,9 @@ void CBotEmpires::tickEmpiresSeekMedic()
 		return;
 	const float now = gpGlobals->curtime;
 	const float threshold = rcbot_empires_seek_medic.GetFloat();
-	const bool dead = m_pPlayerInfo->IsDead() || m_pPlayerInfo->IsInAVehicle();
 	const int health = m_pPlayerInfo->GetHealth(), maxHealth = m_pPlayerInfo->GetMaxHealth();
+	// IsDead() stays false while a killed bot waits to respawn at 0 HP; the respawn must not count as healed.
+	const bool dead = m_pPlayerInfo->IsDead() || m_pPlayerInfo->IsInAVehicle() || health <= 0;
 	const bool enemy = hasSomeConditions(CONDITION_SEE_CUR_ENEMY) && m_pEnemy.get() != nullptr;
 	const bool busy = commanderDutyBlocksSideTasks() || m_iReviveTarget != 0 || m_iBuildAssignStage > 0 ||
 		m_iAmmoCrateStage != 0 || m_iEmpiresBuildingActionMode != 0 || m_iHealTarget != 0 ||
