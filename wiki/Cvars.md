@@ -84,6 +84,10 @@ Added 2026-11-23 in `bot_empires_skirmish.cpp` (item 3.25). Measured in two pair
 | `rcbot_empires_vehicle_turret_align` | 1 | Fire once the turret yaw is within 8° (MG on infantry) or 12° (cannon) and the aim is older than 0.4 s, else after 2.5 s; fixed-turret chassis keep 1.2 s. 0 = always 1.2 s. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_pitch_limit` | 1 | Hold fire while the game clamps the cannon pitch (target below the minimum range) and back off. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_keep_route` | 1 | When replanning finds no path to the same goal, keep driving the last route instead of straight at the goal. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_slope_ground` | 1 | The heading check accepts ground rising more than 80 HU within its look-ahead when a drivable surface (normal z >= 0.7, rise <= 0.7 x distance) is there; 0 = an uphill route reads as a drop. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_route_stall` | 1 | Route drive without 150 HU less remaining route or goal distance (or 20° less heading error) in 10 s enters the stuck escalation (`reason=route-no-progress`); not in the own factory bay. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_hold_brake` | 1 | Holding at a stand: brake to 250 u/s on the approach, stop actively, handbrake below 120 u/s. | `bot_empires_vehicle.cpp` |
+| `rcbot_empires_vehicle_crate_reach` | 1 | Ammo trip skips a crate whose vehicle route ends more than 850 HU from it (`reason=crate-unreachable`). | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicle_deep_water` | 1 | Steering edge checks treat water deeper than the vehicle can ford as a drop. | `bot_empires_vehicle.cpp` |
 | `rcbot_empires_vehicles` | 1 | Bots buy vehicles at their team's VF (or anywhere with `emp_sv_debug_build_vehicles 1`), drive, fight and run over enemies. | `bot_empires_vehicle.cpp`, `bot_empires_lawliet.cpp` |
 | `rcbot_empires_vehicle_drivers` | -1 | Maximum bots per team using a vehicle at once (Bill Nye not counted); -1 = 40 % of the team bots, at least 2. | `bot_empires_vehicle.cpp` |

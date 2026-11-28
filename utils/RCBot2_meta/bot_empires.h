@@ -574,7 +574,7 @@ struct EmpiresVehicleBrain
 	float crateAmmoRise = 0.0f;      // last time it rose
 	float crateReadAt = 0.0f;
 	bool crateDone = false;          // refilled at the crate: end the trip
-	int crateSkip = -1;              // crate that gave nothing for 30 s: use the pad
+	int crateSkip = -1;              // crate that gave nothing for 30 s or has no vehicle route: use the pad
 	float nextAmmoCall = 0.0f;       // 3.10b step 3: next "I need ammo" call
 	char weaponSummary[96] = {};
 	float nextFightLog = 0.0f;
@@ -589,6 +589,13 @@ struct EmpiresVehicleBrain
 	Vector padEntry = Vector(0, 0, 0);
 	Vector padProgressOrigin = Vector(0, 0, 0);
 	float padProgressSince = -1.0f;
+	// Route drive net progress (rcbot_empires_vehicle_route_stall): best straight distance to the route
+	// goal and best remaining route length since routeProgressAt.
+	float routeProgressAt = -1.0f;
+	float routeBestGoal = 1.0e9f;
+	float routeBestRemain = 1.0e9f;
+	float routeBestErr = 180.0f;      // smallest |heading error| since routeProgressAt (a pivot closing in is progress)
+	Vector routeProgressGoal = Vector(0, 0, 0);
 	int padStalls = 0;        // pad-no-progress stalls in this retreat (TODO K6)
 	bool padGiveUp = false;   // end the retreat next tick (stage 3)
 	float refitNext = 0.0f;

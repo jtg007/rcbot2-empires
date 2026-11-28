@@ -69,6 +69,14 @@ ConVar rcbot_empires_vehicle_keep_route("rcbot_empires_vehicle_keep_route", "1",
 	"Vehicles: when replanning finds no path to the same goal, keep driving the last route instead of straight at the goal");
 ConVar rcbot_empires_vehicle_ctx_ground_slopes("rcbot_empires_vehicle_ctx_ground_slopes", "1", 0,
 	"9.8: context steering and its passage scan treat level-trace hits on drivable ground (normal z >= 0.7) as free; 0 = a rising slope counts as a wall");
+ConVar rcbot_empires_vehicle_slope_ground("rcbot_empires_vehicle_slope_ground", "1", 0,
+	"Heading check: ground rising more than 80 HU within the look-ahead counts as ground when a drivable surface (normal z >= 0.7, rise <= 0.7 x distance) is found; 0 = rising slope reads as a drop");
+ConVar rcbot_empires_vehicle_route_stall("rcbot_empires_vehicle_route_stall", "1", 0,
+	"Route drive without 150 HU less remaining route or goal distance (or 20 deg less heading error) in 10 s counts as stuck (reverse, block edge, replan, escalate) even while the vehicle rocks or turns above the stuck speed");
+ConVar rcbot_empires_vehicle_crate_reach("rcbot_empires_vehicle_crate_reach", "1", 0,
+	"Ammo trip: a crate whose vehicle route ends more than 850 HU from it (or has none) is skipped for the rest of the trip");
+ConVar rcbot_empires_vehicle_hold_brake("rcbot_empires_vehicle_hold_brake", "1", 0,
+	"Vehicle holding at a stand (front, park, staging): brake to 250 u/s on the last arrive+500 HU, stop actively inside, handbrake below 120 u/s; 0 = coast and roll");
 ConVar rcbot_empires_cv_no_path_stop("rcbot_empires_cv_no_path_stop", "1", 0,
 	"9.8: a commander CV drive with no vehicle path (and no last route to keep) ends with reason=no-path instead of driving straight at the goal across slopes and shore");
 ConVar rcbot_empires_vehicle_deep_water("rcbot_empires_vehicle_deep_water", "1", 0,
@@ -521,7 +529,7 @@ struct DriveWaterDepthScope
 	~DriveWaterDepthScope() { g_driveWaterDepth = 0.0f; }
 };
 
-bool GroundAt(const Vector& p, float refZ)
+bool GroundAt(const Vector& p, float refZ, float maxRise = 0.0f)
 {
 	if (enginetrace == nullptr)
 		return true;
@@ -530,6 +538,17 @@ bool GroundAt(const Vector& p, float refZ)
 	CTraceFilterWorldOnly filter;
 	trace_t hit;
 	enginetrace->TraceRay(ray, MASK_PLAYERSOLID_BRUSHONLY, &filter, &hit);
+	if ((hit.fraction >= 1.0f || hit.allsolid || hit.startsolid) && maxRise > kRoadProbeUp)
+	{
+		// The probe started inside rising ground (DMZ run 20261127-215241: a tank below a ~20 deg hill
+		// read the uphill heading as a drop and rocked between +-50 deg for minutes). Look again from
+		// above; a drivable surface there is ground, a steep face is not.
+		Ray_t high;
+		high.Init(Vector(p.x, p.y, refZ + maxRise), Vector(p.x, p.y, refZ + kRoadProbeUp - 1.0f));
+		trace_t top;
+		enginetrace->TraceRay(high, MASK_PLAYERSOLID_BRUSHONLY, &filter, &top);
+		return !top.startsolid && top.fraction < 1.0f && top.plane.normal.z >= 0.7f;
+	}
 	if (hit.fraction >= 1.0f || hit.allsolid)
 		return false;
 	// Sea floor is ground for the trace, but a body centre under water drowns the vehicle
@@ -627,10 +646,11 @@ bool SafeHeading(const Vector& origin, float yaw, float lookAhead)
 		PushAgainst(origin + dir * pushLook + side * 100.0f, yaw) ||
 		PushAgainst(origin + dir * pushLook - side * 100.0f, yaw))
 		return false;
-	return GroundAt(origin + dir * (lookAhead * 0.5f), refZ) &&
-		GroundAt(origin + dir * lookAhead, refZ) &&
-		GroundAt(origin + dir * lookAhead + side * 80.0f, refZ) &&
-		GroundAt(origin + dir * lookAhead - side * 80.0f, refZ);
+	const float rise = rcbot_empires_vehicle_slope_ground.GetBool() ? 0.7f : 0.0f;
+	return GroundAt(origin + dir * (lookAhead * 0.5f), refZ, rise * lookAhead * 0.5f) &&
+		GroundAt(origin + dir * lookAhead, refZ, rise * lookAhead) &&
+		GroundAt(origin + dir * lookAhead + side * 80.0f, refZ, rise * lookAhead) &&
+		GroundAt(origin + dir * lookAhead - side * 80.0f, refZ, rise * lookAhead);
 }
 
 // Distance from p to the nearest drop in direction yaw (searched up to range).
@@ -6347,6 +6367,9 @@ void CBotEmpires::tickEmpiresVehicle()
 	float curveSpeed = 0.0f;
 	const bool regulateCurveSpeed = target == nullptr && !v.padInside &&
 		!v.billNye && rcbot_empires_vehicle_curve_speed.GetBool();
+	// The stand itself, before a route point replaces it (arrive is 0 while a route is followed).
+	const Vector holdGoal = driveTo;
+	const float holdArrive = arrive;
 	if (!closeManeuver && Dist2D(origin, driveTo) > 300.0f)
 	{
 		const Vector routeTarget = driveTo;
@@ -6363,6 +6386,17 @@ void CBotEmpires::tickEmpiresVehicle()
 				RCBotNavMesh::BuildVehiclePath(origin, driveTo, path, v.width, true, v.waterDepth, vehicle,
 					v.commanderCV ? rcbot_empires_cv_max_climb.GetFloat() : 0.0f);
 			const bool ok = result == RCBotNavMesh::PathResult::SUCCESS && path.points.size() >= 2;
+			// A crate the vehicle cannot reach (DMZ run 20261128-114103: NF crate on a ledge at z 1498, partial
+			// route ended 3469 short, then no-path; the tank pushed into a cliff for 3 minutes).
+			if (v.crateIndex >= 0 && rcbot_empires_vehicle_crate_reach.GetBool() &&
+				(!ok || (path.points.back() - driveTo).Length() > 850.0f))
+			{
+				RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=2 reason=crate-unreachable userid=%d veh=%d crate=%d "
+					"result=%s end_gap=%.0f\n", userId, v.vehicleIndex, v.crateIndex, RCBotNavMesh::PathResultName(result),
+					path.points.empty() ? -1.0f : (path.points.back() - driveTo).Length());
+				v.crateSkip = v.crateIndex;
+				v.crateIndex = -1;
+			}
 			if (static_cast<int>(result) != v.routeResult || (ok && v.route.empty()) || path.partial != v.routePartial)
 				RCBOT_DIAG("[RCBOT2] vehicle route userid=%d result=%s%s points=%zu length=%.0f from=(%.0f %.0f %.0f) "
 					"to=(%.0f %.0f %.0f) width=%.0f end_gap=%.0f\n", userId, RCBotNavMesh::PathResultName(result),
@@ -7088,6 +7122,24 @@ void CBotEmpires::tickEmpiresVehicle()
 			forward = forwardSpeed > 60.0f ? -kMaxMove * 0.6f : forwardSpeed < -60.0f ? kMaxMove * 0.6f : 0.0f;
 		}
 	}
+	// Holding at a stand (DMZ runs 20261128-113029/-114629: tanks waiting at the front spot on the crest at
+	// (1200 13275) rolled down the north slope with the throttle released, or arrived at 290-390 u/s and
+	// overshot, then bailed out over the drop; 0-6 tanks lost per 8-minute run). Like the CV: slow down
+	// on the way in, stop dead, handbrake.
+	bool holdBrake = false;
+	if (rcbot_empires_vehicle_hold_brake.GetBool() && holdArrive > 0.0f && target == nullptr && !v.commanderCV &&
+		!v.retreating && !v.padInside && !lawlietHold && !v.billNye && !applyManeuver)
+	{
+		const float toHold = Dist2D(origin, holdGoal);
+		if (toHold < holdArrive + 500.0f && forwardSpeed > 250.0f)
+			forward = -kMaxMove * 0.6f;
+		if (toHold < holdArrive)
+		{
+			holdBrake = true;
+			side = 0.0f;
+			forward = forwardSpeed > 60.0f ? -kMaxMove * 0.6f : forwardSpeed < -60.0f ? kMaxMove * 0.6f : 0.0f;
+		}
+	}
 	// Commander CV at its goal: slow down on the way in, stop dead, then handbrake.
 	// The slow-down measures to cvGoal itself: arrive stays 0 while a route is followed (route
 	// dropped only inside 300), so it started at 300 and the CV reached its Palmbay site goal at
@@ -7223,6 +7275,57 @@ void CBotEmpires::tickEmpiresVehicle()
 		}
 	}
 
+	// Route drive without net progress (DMZ runs 20261128-113439/-113454: a tank beside a small building at its
+	// own base turned between three replanned first points, or rocked against the building at 50-80 u/s, for
+	// 8 minutes; the speed < 40 check never fired). Progress = shorter remaining route or straight distance.
+	bool routeStalled = false;
+	const bool routeWatch = rcbot_empires_vehicle_route_stall.GetBool() && onRoute && target == nullptr &&
+		!v.commanderCV && !drivingToPad && !lawlietHold && !v.billNye && v.routeIndex < v.route.size();
+	if (!routeWatch)
+		v.routeProgressAt = -1.0f;
+	else
+	{
+		const float toGoal = Dist2D(origin, v.routeGoal);
+		float remaining = Dist2D(origin, v.route[v.routeIndex]);
+		for (std::size_t k = v.routeIndex + 1; k < v.route.size(); ++k)
+			remaining += Dist2D(v.route[k - 1], v.route[k]);
+		if (v.routeProgressAt < 0.0f || Dist2D(v.routeProgressGoal, v.routeGoal) > 500.0f ||
+			toGoal < v.routeBestGoal - 150.0f || remaining < v.routeBestRemain - 150.0f ||
+			std::fabs(err) < v.routeBestErr - 20.0f)
+		{
+			v.routeProgressAt = now;
+			v.routeProgressGoal = v.routeGoal;
+			v.routeBestGoal = toGoal;
+			v.routeBestRemain = remaining;
+			v.routeBestErr = std::fabs(err);
+		}
+		else if (now - v.routeProgressAt >= 10.0f && now >= v.reverseUntil && v.cvBackUntil == 0.0f)
+		{
+			// Not in the own factory bay: a slow pivot there is normal and a reverse sent the tank on a
+			// 3000 HU detour round the bay (DMZ 20261128-115142); the bay keeps its own stuck rules.
+			edict_t* bayVf = nullptr;
+			Vector bayVfOrigin;
+			int bayVfTeam = -1;
+			const bool inBay = v.exitUntil > 0.0f || (findEmpiresVehicleFactory(team, bayVf, bayVfOrigin, bayVfTeam) &&
+				IsNearFactoryBay(bayVf, origin, 400.0f));
+			if (inBay)
+				v.routeProgressAt = now;
+			else
+				routeStalled = true;
+		}
+		if (routeStalled)
+		{
+			RCBOT_DIAG("[RCBOT2] stall-escalate who=vehicle stage=1 reason=route-no-progress userid=%d veh=%d pos=(%.0f %.0f %.0f) "
+				"to_goal=%.0f best=%.0f remain=%.0f best_remain=%.0f idx=%zu/%zu speed=%.0f reverses=%d\n", userId, v.vehicleIndex,
+				origin.x, origin.y, origin.z, toGoal, v.routeBestGoal, remaining, v.routeBestRemain, v.routeIndex,
+				v.route.size(), speed, v.stuckReverses);
+			v.routeProgressAt = now;
+			v.routeBestGoal = toGoal;
+			v.routeBestRemain = remaining;
+			v.routeBestErr = std::fabs(err);
+		}
+	}
+
 	// Stuck while throttling: back off with the wheels turned the other way.
 	if (!applyManeuver && now < v.reverseUntil)
 	{
@@ -7237,12 +7340,12 @@ void CBotEmpires::tickEmpiresVehicle()
 			forward = 0.0f;
 		}
 	}
-	else if (!lawlietHold && (padStalled || backTurnStalled || (speed < 40.0f &&
+	else if (!lawlietHold && (padStalled || backTurnStalled || routeStalled || (speed < 40.0f &&
 		(applyManeuver || ((forward > 0.0f || haltedByEdge) && !facing && !(v.billNye && v.ramming))))))
 	{
-		if (!padStalled && !backTurnStalled && v.slowSince == 0.0f)
+		if (!padStalled && !backTurnStalled && !routeStalled && v.slowSince == 0.0f)
 			v.slowSince = now;
-		else if (padStalled || backTurnStalled || now - v.slowSince > 2.5f)
+		else if (padStalled || backTurnStalled || routeStalled || now - v.slowSince > 2.5f)
 		{
 			v.slowSince = 0.0f;
 			++v.stuckReverses;
@@ -7411,6 +7514,8 @@ void CBotEmpires::tickEmpiresVehicle()
 		buttons |= 0x08000000; // handbrake: hold still at the edge
 	if (v.retreating && forward == 0.0f && std::fabs(forwardSpeed) < 120.0f)
 		buttons |= 0x08000000; // parked for repairs
+	if (holdBrake && std::fabs(forwardSpeed) < 120.0f)
+		buttons |= 0x08000000; // holding at the stand
 	if (v.cvArrived)
 	{
 		forward = 0.0f;
